@@ -1,0 +1,93 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Notey.App.Views.MainWindow"
+        Title="Notey"
+        Width="1180"
+        Height="760"
+        MinWidth="840"
+        MinHeight="520">
+  <DockPanel Background="#10131A">
+    <Border DockPanel.Dock="Top"
+            Height="54"
+            BorderBrush="#424754"
+            BorderThickness="0,0,0,1"
+            Background="#10131A">
+      <Grid ColumnDefinitions="*,Auto" Margin="22,0">
+        <TextBlock Text="Notey"
+                   VerticalAlignment="Center"
+                   FontSize="20"
+                   FontWeight="Bold"
+                   Foreground="#E1E2EC" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+          <Button Classes="command" Content="+" ToolTip.Tip="New note" />
+          <Button Classes="command" Content="Recent" ToolTip.Tip="Open recent note" />
+          <Rectangle Width="1" Height="22" Fill="#424754" Margin="6,0" />
+          <Button Classes="command" Content="Snip AI" ToolTip.Tip="Capture screenshot for AI analysis" />
+          <Button Classes="command" Content="Snip" ToolTip.Tip="Capture screenshot and save" />
+          <Button Classes="command" Content="AI Improve" ToolTip.Tip="Improve markdown manually" />
+          <Rectangle Width="1" Height="22" Fill="#424754" Margin="6,0" />
+          <Button Classes="command" Content="Save" ToolTip.Tip="Save note" />
+          <Button Classes="command" Content="Settings" ToolTip.Tip="Open settings" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border DockPanel.Dock="Top"
+            Height="64"
+            BorderBrush="#424754"
+            BorderThickness="0,0,0,1"
+            Background="#191B23"
+            Padding="36,0">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="18" VerticalAlignment="Center">
+        <TextBlock Text="DATE" VerticalAlignment="Center" Foreground="#8C909F" FontWeight="SemiBold" />
+        <Border Grid.Column="1" Classes="metadata-chip" Background="#272A31" BorderBrush="#424754">
+          <TextBlock Text="Today" Foreground="#E1E2EC" />
+        </Border>
+        <TextBlock Grid.Column="2" Text="PEOPLE" VerticalAlignment="Center" Foreground="#8C909F" FontWeight="SemiBold" />
+        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Border Classes="metadata-chip" Background="#18253E" BorderBrush="#2E4F8E">
+            <TextBlock Text="@person" Foreground="#ADC6FF" />
+          </Border>
+          <Border Classes="metadata-chip" Background="#2A1D17" BorderBrush="#6D3D1B">
+            <TextBlock Text="#topic" Foreground="#FFB786" />
+          </Border>
+        </StackPanel>
+        <Button Grid.Column="4" Classes="command" Content="Modify Metadata" />
+      </Grid>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom"
+            Height="30"
+            BorderBrush="#424754"
+            BorderThickness="0,1,0,0"
+            Background="#0B0E15"
+            Padding="14,0">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="16">
+        <TextBlock Text="MARKDOWN EDITOR" VerticalAlignment="Center" Foreground="#C2C6D6" FontSize="12" />
+        <TextBlock Grid.Column="1" Text="SYNC READY" VerticalAlignment="Center" Foreground="#8C909F" FontSize="12" />
+        <TextBlock Grid.Column="3" Text="UTF-8" VerticalAlignment="Center" Foreground="#8C909F" FontSize="12" />
+        <TextBlock Grid.Column="4" Text="LINE 1, COL 1" VerticalAlignment="Center" Foreground="#8C909F" FontSize="12" />
+      </Grid>
+    </Border>
+
+    <Grid ColumnDefinitions="52,*">
+      <Border BorderBrush="#424754" BorderThickness="0,0,1,0" Background="#10131A">
+        <TextBlock Text="1"
+                   Margin="0,36,14,0"
+                   HorizontalAlignment="Right"
+                   Foreground="#565B68"
+                   FontSize="14" />
+      </Border>
+      <StackPanel Grid.Column="1" Margin="32,34" Spacing="18">
+        <TextBlock Text="# Notey foundation"
+                   Foreground="#E1E2EC"
+                   FontSize="32"
+                   FontWeight="Bold" />
+        <TextBlock Text="Phase 1 establishes the Avalonia shell, configuration, dependency injection, platform abstractions, and project structure."
+                   Foreground="#C2C6D6"
+                   FontSize="17"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+    </Grid>
+  </DockPanel>
+</Window>

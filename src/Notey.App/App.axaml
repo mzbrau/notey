@@ -1,0 +1,25 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Notey.App.App"
+             RequestedThemeVariant="Dark">
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="Window">
+      <Setter Property="Background" Value="#10131A" />
+      <Setter Property="Foreground" Value="#E1E2EC" />
+      <Setter Property="FontFamily" Value="Inter, Segoe UI, Arial" />
+    </Style>
+    <Style Selector="Button.command">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#E1E2EC" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="Border.metadata-chip">
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="10,5" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+  </Application.Styles>
+</Application>
