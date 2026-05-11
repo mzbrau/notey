@@ -7,8 +7,10 @@ using Notey.App.Platform;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
+using Notey.Core.Notes;
 using Notey.Core.Platform;
 using Notey.Vault.Abstractions;
+using Notey.Vault.Notes;
 
 namespace Notey.App.Configuration;
 
@@ -33,6 +35,9 @@ public static class HostBootstrapper
                 context.Configuration.GetSection(NoteyOptions.SectionName).Bind(options);
 
                 services.AddSingleton(options);
+                services.AddSingleton(TimeProvider.System);
+                services.AddSingleton<NoteTemplateFactory>();
+                services.AddSingleton<NoteFileNameGenerator>();
                 services.AddSingleton<MainWindow>();
                 services.AddSingleton<IPlatformRuntime, PlatformRuntime>();
                 services.AddSingleton<IGlobalHotkeyService, NoOpGlobalHotkeyService>();
@@ -40,6 +45,7 @@ public static class HostBootstrapper
                 services.AddSingleton<IScreenSnipService, UnavailableScreenSnipService>();
                 services.AddSingleton<IScreenshotAnalysisService, UnconfiguredScreenshotAnalysisService>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
+                services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
             })
             .Build();
     }

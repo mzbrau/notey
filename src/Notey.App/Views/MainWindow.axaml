@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         x:Class="Notey.App.Views.MainWindow"
         Title="Notey"
         Width="1180"
@@ -95,68 +96,23 @@
       </Grid>
     </Border>
 
-    <ScrollViewer Grid.Row="3"
-                  Background="{DynamicResource Notey.SurfaceBrush}"
-                  HorizontalScrollBarVisibility="Disabled"
-                  VerticalScrollBarVisibility="Auto">
-      <Grid ColumnDefinitions="56,*"
-            MinHeight="430">
-        <Border Grid.Column="0"
-                BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
-                BorderThickness="0,0,1,0"
-                Background="{DynamicResource Notey.SurfaceBrush}">
-          <StackPanel Margin="0,38,14,0"
-                      HorizontalAlignment="Right"
-                      Spacing="14">
-            <TextBlock Classes="editorLineNumber" Text="1" />
-            <TextBlock Classes="editorLineNumber" Text="2" />
-            <TextBlock Classes="editorLineNumber" Text="3" />
-            <TextBlock Classes="editorLineNumber" Text="4" />
-            <TextBlock Classes="editorLineNumber" Text="5" />
-            <TextBlock Classes="editorLineNumber" Text="6" />
-          </StackPanel>
-        </Border>
-
-        <Grid Grid.Column="1"
-              Margin="48,36"
-              MaxWidth="760"
-              HorizontalAlignment="Center"
-              RowDefinitions="Auto,Auto,Auto,Auto"
-              RowSpacing="18">
-          <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <TextBlock Classes="editorMarkdownMarker" Text="#" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="1" Classes="editorHeading" Text="Meeting note title" />
-          </Grid>
-
-          <TextBlock Grid.Row="1"
-                     Classes="editorBody"
-                     Text="A focused markdown writing surface with compact metadata, low-contrast chrome, and Obsidian-friendly visual structure." />
-
-          <Border Grid.Row="2"
-                  Background="{DynamicResource Notey.SurfaceLowBrush}"
-                  BorderBrush="{DynamicResource Notey.PrimaryBorderBrush}"
-                  BorderThickness="4,0,1,0"
-                  CornerRadius="4"
-                  Padding="14,10">
-            <TextBlock Classes="editorBody"
-                       Text="Context callouts use a quiet raised surface so important note details stand out without becoming a separate preview mode." />
-          </Border>
-
-          <Border Grid.Row="3"
-                  Background="{DynamicResource Notey.SurfaceLowBrush}"
-                  BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
-                  BorderThickness="1"
-                  CornerRadius="4"
-                  Padding="14,10">
-            <StackPanel Spacing="8">
-              <TextBlock Classes="label" Text="MARKDOWN STRUCTURE" />
-              <TextBlock Classes="editorBody" Text="- Metadata chips stay visible above the editor" />
-              <TextBlock Classes="editorBody" Text="- [[Person]] and #topic examples show the intended Obsidian syntax" />
-            </StackPanel>
-          </Border>
-        </Grid>
-      </Grid>
-    </ScrollViewer>
+    <Border Grid.Row="3"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,0,0,1"
+            Background="{DynamicResource Notey.SurfaceBrush}">
+      <ae:TextEditor x:Name="NoteEditor"
+                     ShowLineNumbers="True"
+                     IsReadOnly="True"
+                     WordWrap="True"
+                     HorizontalScrollBarVisibility="Disabled"
+                     VerticalScrollBarVisibility="Auto"
+                     Background="{DynamicResource Notey.SurfaceBrush}"
+                     Foreground="{DynamicResource Notey.PrimaryTextBrush}"
+                     LineNumbersForeground="{DynamicResource Notey.SubtleTextBrush}"
+                     FontFamily="Inter, Segoe UI, Arial"
+                     FontSize="17"
+                     Padding="48,36" />
+    </Border>
 
     <Border Grid.Row="4"
             BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
@@ -166,10 +122,10 @@
       <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto"
             ColumnSpacing="16">
         <TextBlock Grid.Column="0" Classes="label" Text="MARKDOWN EDITOR" VerticalAlignment="Center" Foreground="{DynamicResource Notey.SecondaryTextBrush}" />
-        <TextBlock Grid.Column="1" Classes="label" Text="SAVE NOT WIRED" VerticalAlignment="Center" />
-        <TextBlock Grid.Column="2" Classes="label" Text="WORDS --" VerticalAlignment="Center" />
+        <TextBlock x:Name="AutosaveStatusText" Grid.Column="1" Classes="label" Text="CREATING DRAFT" VerticalAlignment="Center" />
+        <TextBlock x:Name="WordCountText" Grid.Column="2" Classes="label" Text="WORDS 0" VerticalAlignment="Center" />
         <TextBlock Grid.Column="4" Classes="label" Text="UTF-8" VerticalAlignment="Center" />
-        <TextBlock Grid.Column="5" Classes="label" Text="LINE --, COL --" VerticalAlignment="Center" />
+        <TextBlock x:Name="CursorPositionText" Grid.Column="5" Classes="label" Text="LINE 1, COL 1" VerticalAlignment="Center" />
       </Grid>
     </Border>
   </Grid>
