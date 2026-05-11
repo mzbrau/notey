@@ -6,88 +6,171 @@
         Height="760"
         MinWidth="840"
         MinHeight="520">
-  <DockPanel Background="#10131A">
-    <Border DockPanel.Dock="Top"
-            Height="54"
-            BorderBrush="#424754"
+  <Grid RowDefinitions="52,Auto,Auto,*,30"
+        Background="{DynamicResource Notey.SurfaceBrush}">
+    <Border Grid.Row="0"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
             BorderThickness="0,0,0,1"
-            Background="#10131A">
-      <Grid ColumnDefinitions="*,Auto" Margin="22,0">
-        <TextBlock Text="Notey"
-                   VerticalAlignment="Center"
-                   FontSize="20"
-                   FontWeight="Bold"
-                   Foreground="#E1E2EC" />
-        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
-          <Button Classes="command" Content="+" ToolTip.Tip="New note" />
-          <Button Classes="command" Content="Recent" ToolTip.Tip="Open recent note" />
-          <Rectangle Width="1" Height="22" Fill="#424754" Margin="6,0" />
-          <Button Classes="command" Content="Snip AI" ToolTip.Tip="Capture screenshot for AI analysis" />
-          <Button Classes="command" Content="Snip" ToolTip.Tip="Capture screenshot and save" />
-          <Button Classes="command" Content="AI Improve" ToolTip.Tip="Improve markdown manually" />
-          <Rectangle Width="1" Height="22" Fill="#424754" Margin="6,0" />
-          <Button Classes="command" Content="Save" ToolTip.Tip="Save note" />
-          <Button Classes="command" Content="Settings" ToolTip.Tip="Open settings" />
+            Background="{DynamicResource Notey.SurfaceBrush}">
+      <Grid ColumnDefinitions="Auto,*,Auto" Margin="22,0">
+        <TextBlock Grid.Column="0"
+                   Classes="appTitle"
+                   Text="Notey"
+                   VerticalAlignment="Center" />
+
+        <StackPanel Grid.Column="2"
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center"
+                    Spacing="6">
+          <Button Classes="command" Content="+" ToolTip.Tip="New note" AutomationProperties.Name="New note" />
+          <Button Classes="command" Content="R" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note" />
+          <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
+          <Button Classes="command" Content="AI" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis" />
+          <Button Classes="command" Content="S" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save" />
+          <Button Classes="command" Content="MD" ToolTip.Tip="Improve markdown manually" AutomationProperties.Name="Improve markdown manually" />
+          <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
+          <Button Classes="command" Content="OK" ToolTip.Tip="Save note" AutomationProperties.Name="Save note" />
+          <Button Classes="command" Content="..." ToolTip.Tip="Open settings" AutomationProperties.Name="Open settings" />
         </StackPanel>
       </Grid>
     </Border>
 
-    <Border DockPanel.Dock="Top"
-            Height="64"
-            BorderBrush="#424754"
+    <Border Grid.Row="1"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
             BorderThickness="0,0,0,1"
-            Background="#191B23"
-            Padding="36,0">
-      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="18" VerticalAlignment="Center">
-        <TextBlock Text="DATE" VerticalAlignment="Center" Foreground="#8C909F" FontWeight="SemiBold" />
-        <Border Grid.Column="1" Classes="metadata-chip" Background="#272A31" BorderBrush="#424754">
-          <TextBlock Text="Today" Foreground="#E1E2EC" />
+            Background="{DynamicResource Notey.SurfaceLowBrush}"
+            Padding="28,10">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto"
+            ColumnSpacing="12"
+            VerticalAlignment="Center">
+        <TextBlock Grid.Column="0" Classes="label" Text="DATE" VerticalAlignment="Center" />
+        <Border Grid.Column="1" Classes="metadata-chip">
+          <TextBlock Classes="chipText" Text="Today, 22:13" />
         </Border>
-        <TextBlock Grid.Column="2" Text="PEOPLE" VerticalAlignment="Center" Foreground="#8C909F" FontWeight="SemiBold" />
-        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-          <Border Classes="metadata-chip" Background="#18253E" BorderBrush="#2E4F8E">
-            <TextBlock Text="@person" Foreground="#ADC6FF" />
+
+        <TextBlock Grid.Column="2" Classes="label" Text="CONTEXT" VerticalAlignment="Center" Margin="10,0,0,0" />
+        <StackPanel Grid.Column="3"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    VerticalAlignment="Center">
+          <Border Classes="metadata-chip person-chip">
+            <TextBlock Classes="chipText personText" Text="@person" />
           </Border>
-          <Border Classes="metadata-chip" Background="#2A1D17" BorderBrush="#6D3D1B">
-            <TextBlock Text="#topic" Foreground="#FFB786" />
+          <Border Classes="metadata-chip topic-chip">
+            <TextBlock Classes="chipText topicText" Text="#topic" />
+          </Border>
+          <Border Classes="metadata-chip">
+            <TextBlock Classes="chipText" Text="[[Project]]" />
           </Border>
         </StackPanel>
-        <Button Grid.Column="4" Classes="command" Content="Modify Metadata" />
+
+        <ToggleButton x:Name="MetadataToggle"
+                      Grid.Column="5"
+                      Classes="metadataAction"
+                      Content="Modify Metadata"
+                      ToolTip.Tip="Edit note metadata"
+                      AutomationProperties.Name="Modify metadata" />
       </Grid>
     </Border>
 
-    <Border DockPanel.Dock="Bottom"
-            Height="30"
-            BorderBrush="#424754"
+    <Border Grid.Row="2"
+            IsVisible="{Binding IsChecked, ElementName=MetadataToggle}"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,0,0,1"
+            Background="{DynamicResource Notey.SurfaceBrushRaised}"
+            Padding="28,14">
+      <Grid ColumnDefinitions="*,*,*,*"
+            RowDefinitions="Auto,Auto"
+            ColumnSpacing="12"
+            RowSpacing="8">
+        <TextBlock Grid.Column="0" Classes="label" Text="PEOPLE" />
+        <TextBlock Grid.Column="1" Classes="label" Text="TOPICS" />
+        <TextBlock Grid.Column="2" Classes="label" Text="PROJECT" />
+        <TextBlock Grid.Column="3" Classes="label" Text="SCREENSHOT CONTEXT" />
+
+        <TextBox Grid.Row="1" Grid.Column="0" Classes="metadataInput" PlaceholderText="@person, @person" />
+        <TextBox Grid.Row="1" Grid.Column="1" Classes="metadataInput" PlaceholderText="#topic, #meeting" />
+        <TextBox Grid.Row="1" Grid.Column="2" Classes="metadataInput" PlaceholderText="[[Project]]" />
+        <TextBox Grid.Row="1" Grid.Column="3" Classes="metadataInput" PlaceholderText="Screenshot context notes" />
+      </Grid>
+    </Border>
+
+    <ScrollViewer Grid.Row="3"
+                  Background="{DynamicResource Notey.SurfaceBrush}"
+                  HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto">
+      <Grid ColumnDefinitions="56,*"
+            MinHeight="430">
+        <Border Grid.Column="0"
+                BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+                BorderThickness="0,0,1,0"
+                Background="{DynamicResource Notey.SurfaceBrush}">
+          <StackPanel Margin="0,38,14,0"
+                      HorizontalAlignment="Right"
+                      Spacing="14">
+            <TextBlock Classes="editorLineNumber" Text="1" />
+            <TextBlock Classes="editorLineNumber" Text="2" />
+            <TextBlock Classes="editorLineNumber" Text="3" />
+            <TextBlock Classes="editorLineNumber" Text="4" />
+            <TextBlock Classes="editorLineNumber" Text="5" />
+            <TextBlock Classes="editorLineNumber" Text="6" />
+          </StackPanel>
+        </Border>
+
+        <Grid Grid.Column="1"
+              Margin="48,36"
+              MaxWidth="760"
+              HorizontalAlignment="Center"
+              RowDefinitions="Auto,Auto,Auto,Auto"
+              RowSpacing="18">
+          <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <TextBlock Classes="editorMarkdownMarker" Text="#" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Classes="editorHeading" Text="Meeting note title" />
+          </Grid>
+
+          <TextBlock Grid.Row="1"
+                     Classes="editorBody"
+                     Text="A focused markdown writing surface with compact metadata, low-contrast chrome, and Obsidian-friendly visual structure." />
+
+          <Border Grid.Row="2"
+                  Background="{DynamicResource Notey.SurfaceLowBrush}"
+                  BorderBrush="{DynamicResource Notey.PrimaryBorderBrush}"
+                  BorderThickness="4,0,1,0"
+                  CornerRadius="4"
+                  Padding="14,10">
+            <TextBlock Classes="editorBody"
+                       Text="Context callouts use a quiet raised surface so important note details stand out without becoming a separate preview mode." />
+          </Border>
+
+          <Border Grid.Row="3"
+                  Background="{DynamicResource Notey.SurfaceLowBrush}"
+                  BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+                  BorderThickness="1"
+                  CornerRadius="4"
+                  Padding="14,10">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="label" Text="MARKDOWN STRUCTURE" />
+              <TextBlock Classes="editorBody" Text="- Metadata chips stay visible above the editor" />
+              <TextBlock Classes="editorBody" Text="- [[Person]] and #topic examples show the intended Obsidian syntax" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Grid>
+    </ScrollViewer>
+
+    <Border Grid.Row="4"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
             BorderThickness="0,1,0,0"
-            Background="#0B0E15"
+            Background="{DynamicResource Notey.SurfaceLowestBrush}"
             Padding="14,0">
-      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="16">
-        <TextBlock Text="MARKDOWN EDITOR" VerticalAlignment="Center" Foreground="#C2C6D6" FontSize="12" />
-        <TextBlock Grid.Column="1" Text="SYNC READY" VerticalAlignment="Center" Foreground="#8C909F" FontSize="12" />
-        <TextBlock Grid.Column="3" Text="UTF-8" VerticalAlignment="Center" Foreground="#8C909F" FontSize="12" />
-        <TextBlock Grid.Column="4" Text="LINE 1, COL 1" VerticalAlignment="Center" Foreground="#8C909F" FontSize="12" />
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto"
+            ColumnSpacing="16">
+        <TextBlock Grid.Column="0" Classes="label" Text="MARKDOWN EDITOR" VerticalAlignment="Center" Foreground="{DynamicResource Notey.SecondaryTextBrush}" />
+        <TextBlock Grid.Column="1" Classes="label" Text="SAVE NOT WIRED" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="2" Classes="label" Text="WORDS --" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="4" Classes="label" Text="UTF-8" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="5" Classes="label" Text="LINE --, COL --" VerticalAlignment="Center" />
       </Grid>
     </Border>
-
-    <Grid ColumnDefinitions="52,*">
-      <Border BorderBrush="#424754" BorderThickness="0,0,1,0" Background="#10131A">
-        <TextBlock Text="1"
-                   Margin="0,36,14,0"
-                   HorizontalAlignment="Right"
-                   Foreground="#565B68"
-                   FontSize="14" />
-      </Border>
-      <StackPanel Grid.Column="1" Margin="32,34" Spacing="18">
-        <TextBlock Text="# Notey foundation"
-                   Foreground="#E1E2EC"
-                   FontSize="32"
-                   FontWeight="Bold" />
-        <TextBlock Text="Phase 1 establishes the Avalonia shell, configuration, dependency injection, platform abstractions, and project structure."
-                   Foreground="#C2C6D6"
-                   FontSize="17"
-                   TextWrapping="Wrap" />
-      </StackPanel>
-    </Grid>
-  </DockPanel>
+  </Grid>
 </Window>
