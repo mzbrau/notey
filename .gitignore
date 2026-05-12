@@ -41,6 +41,10 @@ ScaffoldingReadMe.txt
 appsettings.Local.json
 appsettings.Development.json
 
+# User-specific IDE settings
+.idea/
+*.DotSettings.user
+
 # Others
 ~$*
 *~
