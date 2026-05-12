@@ -1,3 +1,32 @@
 {
-  "pipelines": []
+  "pipelines": [
+    {
+      "id": "screenshot-ocr-ai-structured",
+      "displayName": "OCR screenshot to structured note",
+      "description": "Runs Tesseract OCR, then sends the extracted text to the configured OpenAI-compatible model for note context.",
+      "enabled": true,
+      "acceptedInputTypes": [ "ImageData" ],
+      "steps": [
+        {
+          "id": "ocr",
+          "stepId": "tesseract-ocr",
+          "configuration": {
+            "language": "eng"
+          }
+        },
+        {
+          "id": "extract",
+          "stepId": "ai-structured-extraction",
+          "configuration": {
+            "providerId": "default",
+            "systemPrompt": "You turn OCR text from screenshots into concise, factual Obsidian note context. Return only JSON.",
+            "taskPrompt": "Analyze the OCR text. Extract a concise summary, possible meeting title, visible people, topics, projects, tags, and useful sections. If something is uncertain, omit it rather than guessing.",
+            "temperature": 0.1,
+            "maxTokens": 1200
+          }
+        }
+      ],
+      "finalOutputType": "StructuredNoteData"
+    }
+  ]
 }

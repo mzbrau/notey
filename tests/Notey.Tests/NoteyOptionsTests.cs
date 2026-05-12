@@ -17,7 +17,13 @@ public sealed class NoteyOptionsTests
         Assert.Equal("Topics", options.Vault.TopicsPath);
         Assert.Equal("Projects", options.Vault.ProjectsPath);
         Assert.Equal("Attachments/Snips", options.Vault.ScreenshotPath);
+        Assert.Equal("default", options.Ai.DefaultProviderId);
+        Assert.Equal("NOTEY_AI_API_KEY", options.Ai.ApiKeyEnvironmentVariable);
+        Assert.Equal(60, options.Ai.RequestTimeoutSeconds);
         Assert.False(options.Ai.StoreApiKeyInPlaintext);
+        Assert.Equal("tesseract", options.Ocr.TesseractExecutablePath);
+        Assert.Equal("eng", options.Ocr.DefaultLanguage);
         Assert.Equal("pipelines.json", options.Pipelines.DefinitionFilePath);
+        Assert.Equal("screenshot-ocr-ai-structured", options.Pipelines.DefaultScreenshotPipelineId);
     }
 }

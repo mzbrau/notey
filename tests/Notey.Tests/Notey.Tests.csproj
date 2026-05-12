@@ -24,6 +24,8 @@
     <ProjectReference Include="..\..\src\Notey.Capture\Notey.Capture.csproj" />
     <ProjectReference Include="..\..\src\Notey.AI\Notey.AI.csproj" />
     <ProjectReference Include="..\..\src\Notey.Pipelines\Notey.Pipelines.csproj" />
+    <ProjectReference Include="..\..\src\Notey.Ocr\Notey.Ocr.csproj" />
+    <ProjectReference Include="..\..\src\Notey.PipelineSteps\Notey.PipelineSteps.csproj" />
   </ItemGroup>
 
 </Project>
