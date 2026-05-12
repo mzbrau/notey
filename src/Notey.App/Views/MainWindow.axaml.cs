@@ -344,7 +344,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var userAuthoredBody = NoteOrganizationMarkdown.ExtractUserAuthoredBody(NoteEditor.Document.Text);
+        var metadataSnapshot = GetMetadataInputSnapshot();
+        var organizationInput = NoteOrganizationMarkdown.BuildOrganizationInput(
+            NoteEditor.Document.Text,
+            GetMetadataNames(metadataSnapshot.People, TrimPersonToken),
+            GetMetadataNames(metadataSnapshot.Topics, TrimTopicToken),
+            GetMetadataNames(metadataSnapshot.Projects, TrimProjectToken),
+            GetMetadataNames(metadataSnapshot.Tags, TrimTagToken),
+            out var userAuthoredBody);
         if (string.IsNullOrWhiteSpace(userAuthoredBody))
         {
             AutosaveStatusText.Text = "NO NOTE TEXT";
@@ -402,10 +409,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await RunOrganizationPipelineAsync(pipeline, targetDraft, organizationRevision);
+        await RunOrganizationPipelineAsync(pipeline, targetDraft, organizationRevision, organizationInput);
     }
 
-    private async Task RunOrganizationPipelineAsync(PipelineDefinition pipeline, NoteDraft targetDraft, long organizationRevision)
+    private async Task RunOrganizationPipelineAsync(
+        PipelineDefinition pipeline,
+        NoteDraft targetDraft,
+        long organizationRevision,
+        string organizationInput)
     {
         if (!IsCurrentDraft(targetDraft) || organizationRevision != _organizationRevision)
         {
@@ -413,13 +424,6 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var metadataSnapshot = GetMetadataInputSnapshot();
-        var organizationInput = NoteOrganizationMarkdown.BuildOrganizationInput(
-            NoteEditor.Document.Text,
-            GetMetadataNames(metadataSnapshot.People, TrimPersonToken),
-            GetMetadataNames(metadataSnapshot.Topics, TrimTopicToken),
-            GetMetadataNames(metadataSnapshot.Projects, TrimProjectToken),
-            GetMetadataNames(metadataSnapshot.Tags, TrimTagToken));
         var context = new PipelineContext(pipeline.Id, _timeProvider.GetUtcNow());
         context.SetValue("note.filePath", targetDraft.FilePath);
         context.SetValue("note.organization.mode", "manual");

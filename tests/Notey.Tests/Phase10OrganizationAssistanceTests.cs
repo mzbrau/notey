@@ -87,6 +87,17 @@ public sealed class Phase10OrganizationAssistanceTests
     }
 
     [Fact]
+    public void Organization_cleanup_block_throws_for_null_heading()
+    {
+        var data = new StructuredNoteData(
+            Summary: "Clean summary.",
+            Sections: new Dictionary<string, string> { ["Actions"] = "- Follow up" },
+            Tags: ["meeting"]);
+
+        Assert.Throws<ArgumentNullException>(() => NoteOrganizationMarkdown.RenderCleanupBlock(data, null!));
+    }
+
+    [Fact]
     public async Task Organization_pipeline_returns_reviewable_structured_suggestions()
     {
         var provider = new RecordingAiProvider(

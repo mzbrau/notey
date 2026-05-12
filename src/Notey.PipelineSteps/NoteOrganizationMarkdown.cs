@@ -16,6 +16,15 @@ public static class NoteOrganizationMarkdown
         IReadOnlyList<string> topics,
         IReadOnlyList<string> projects,
         IReadOnlyList<string> tags)
+        => BuildOrganizationInput(markdown, people, topics, projects, tags, out _);
+
+    public static string BuildOrganizationInput(
+        string markdown,
+        IReadOnlyList<string> people,
+        IReadOnlyList<string> topics,
+        IReadOnlyList<string> projects,
+        IReadOnlyList<string> tags,
+        out string userAuthoredBody)
     {
         ArgumentNullException.ThrowIfNull(markdown);
         ArgumentNullException.ThrowIfNull(people);
@@ -23,7 +32,7 @@ public static class NoteOrganizationMarkdown
         ArgumentNullException.ThrowIfNull(projects);
         ArgumentNullException.ThrowIfNull(tags);
 
-        var body = ExtractUserAuthoredBody(markdown);
+        userAuthoredBody = ExtractUserAuthoredBody(markdown);
         var lines = new List<string>();
 
         lines.Add("Current editable metadata:");
@@ -33,7 +42,7 @@ public static class NoteOrganizationMarkdown
         AppendMetadataLine(lines, "Tags", tags.Select(static tag => $"#{tag.Trim().TrimStart('#')}").ToArray());
         lines.Add(string.Empty);
         lines.Add("User-authored note text:");
-        lines.Add(body);
+        lines.Add(userAuthoredBody);
 
         return string.Join('\n', lines).Trim();
     }
@@ -81,6 +90,7 @@ public static class NoteOrganizationMarkdown
     public static string RenderCleanupBlock(StructuredNoteData data, string heading)
     {
         ArgumentNullException.ThrowIfNull(data);
+        ArgumentNullException.ThrowIfNull(heading);
 
         var content = new List<string>();
         if (!string.IsNullOrWhiteSpace(data.Summary))
