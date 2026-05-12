@@ -28,6 +28,27 @@ public sealed class ObsidianLinkBuilderTests
         Assert.Equal("[[Topics/Roadmap- Q2|Roadmap: Q2]]", link);
     }
 
+    [Fact]
+    public void BuildImageEmbed_uses_vault_relative_path_and_keeps_extension()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), "notey-link-builder");
+        var builder = CreateBuilder(rootPath);
+        var imagePath = Path.Combine(rootPath, "Attachments", "Snips", "2026-05-12-201007-snip.png");
+
+        var embed = builder.BuildImageEmbed(imagePath);
+
+        Assert.Equal("![[Attachments/Snips/2026-05-12-201007-snip.png]]", embed);
+    }
+
+    [Fact]
+    public void BuildImageEmbed_rejects_paths_outside_vault()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), "notey-link-builder");
+        var builder = CreateBuilder(rootPath);
+
+        Assert.Throws<InvalidOperationException>(() => builder.BuildImageEmbed(Path.Combine(Path.GetTempPath(), "outside.png")));
+    }
+
     private static ObsidianLinkBuilder CreateBuilder(string rootPath)
     {
         var options = new NoteyOptions

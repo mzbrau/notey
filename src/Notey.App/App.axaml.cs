@@ -102,6 +102,11 @@ public sealed class App(IHost host) : Application
     {
         await Dispatcher.UIThread.InvokeAsync(async () =>
         {
+            if (mainWindow.IsCaptureInProgress)
+            {
+                return;
+            }
+
             if (!mainWindow.IsVisible)
             {
                 mainWindow.Show();

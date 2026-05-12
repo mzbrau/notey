@@ -1,12 +1,23 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.Controls;
 using Notey.App.Editing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
 using Notey.Core.Platform;
+using Notey.Pipelines.Catalog;
+using Notey.Pipelines.Context;
+using Notey.Pipelines.Data;
+using Notey.Pipelines.Definitions;
+using Notey.Pipelines.Execution;
+using Notey.Pipelines.Progress;
+using Notey.Pipelines.Registry;
+using Notey.Pipelines.Validation;
 using Notey.Vault.Abstractions;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
@@ -20,6 +31,10 @@ public sealed partial class MainWindow : Window
 
     private readonly INoteDraftStore _noteDraftStore;
     private readonly IVaultEntityStore _vaultEntityStore;
+    private readonly IScreenSnipService _screenSnipService;
+    private readonly ObsidianLinkBuilder _linkBuilder;
+    private readonly PipelineCatalog _pipelineCatalog;
+    private readonly PipelineExecutor _pipelineExecutor;
     private readonly NoteMetadataFormatter _metadataFormatter = new();
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindow> _logger;
@@ -32,6 +47,7 @@ public sealed partial class MainWindow : Window
     private bool _isClosePending;
     private bool _isExitRequested;
     private bool _isSwitchingDraft;
+    private bool _isCaptureInProgress;
     private bool _metadataDirty;
     private string _lastSavedText = string.Empty;
     private HotkeyGesture? _openNoteGesture;
@@ -40,16 +56,34 @@ public sealed partial class MainWindow : Window
 
     public bool HideInsteadOfClose { get; set; }
 
+    public bool IsCaptureInProgress => _isCaptureInProgress;
+
     public MainWindow()
         : this(CreateDefaultDependencies(), TimeProvider.System, NullLogger<MainWindow>.Instance)
     {
     }
 
     private MainWindow(
-        (NoteyOptions Options, INoteDraftStore NoteDraftStore, IVaultEntityStore VaultEntityStore) dependencies,
+        (
+            NoteyOptions Options,
+            INoteDraftStore NoteDraftStore,
+            IVaultEntityStore VaultEntityStore,
+            IScreenSnipService ScreenSnipService,
+            ObsidianLinkBuilder LinkBuilder,
+            PipelineCatalog PipelineCatalog,
+            PipelineExecutor PipelineExecutor) dependencies,
         TimeProvider timeProvider,
         ILogger<MainWindow> logger)
-        : this(dependencies.Options, dependencies.NoteDraftStore, dependencies.VaultEntityStore, timeProvider, logger)
+        : this(
+            dependencies.Options,
+            dependencies.NoteDraftStore,
+            dependencies.VaultEntityStore,
+            dependencies.ScreenSnipService,
+            dependencies.LinkBuilder,
+            dependencies.PipelineCatalog,
+            dependencies.PipelineExecutor,
+            timeProvider,
+            logger)
     {
     }
 
@@ -57,6 +91,10 @@ public sealed partial class MainWindow : Window
         NoteyOptions options,
         INoteDraftStore noteDraftStore,
         IVaultEntityStore vaultEntityStore,
+        IScreenSnipService screenSnipService,
+        ObsidianLinkBuilder linkBuilder,
+        PipelineCatalog pipelineCatalog,
+        PipelineExecutor pipelineExecutor,
         TimeProvider timeProvider,
         ILogger<MainWindow> logger)
     {
@@ -64,6 +102,10 @@ public sealed partial class MainWindow : Window
 
         _noteDraftStore = noteDraftStore;
         _vaultEntityStore = vaultEntityStore;
+        _screenSnipService = screenSnipService;
+        _linkBuilder = linkBuilder;
+        _pipelineCatalog = pipelineCatalog;
+        _pipelineExecutor = pipelineExecutor;
         _timeProvider = timeProvider;
         _logger = logger;
         _autosaveTimer = new DispatcherTimer { Interval = AutosaveDelay };
@@ -84,24 +126,38 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _windowClosed.Cancel();
-            _windowClosed.Dispose();
-            _autosaveGate.Dispose();
         };
 
         logger.LogInformation("Notey shell initialized with {Theme} theme.", options.Ui.Theme);
     }
 
-    private static (NoteyOptions Options, INoteDraftStore NoteDraftStore, IVaultEntityStore VaultEntityStore) CreateDefaultDependencies()
+    private static (
+        NoteyOptions Options,
+        INoteDraftStore NoteDraftStore,
+        IVaultEntityStore VaultEntityStore,
+        IScreenSnipService ScreenSnipService,
+        ObsidianLinkBuilder LinkBuilder,
+        PipelineCatalog PipelineCatalog,
+        PipelineExecutor PipelineExecutor) CreateDefaultDependencies()
     {
         var options = new NoteyOptions();
         var workspace = new FileSystemVaultWorkspace(options);
         var linkBuilder = new ObsidianLinkBuilder(workspace);
+        var registry = new PipelineStepRegistry([]);
+        var validator = new PipelineValidator(registry);
+        var pipelineCatalog = new PipelineCatalog(
+            new FilePipelineDefinitionSource(options.Pipelines.DefinitionFilePath),
+            validator);
 
         return (options, new FileSystemNoteDraftStore(
             workspace,
             new NoteTemplateFactory(),
             new NoteFileNameGenerator()),
-            new FileSystemVaultEntityStore(workspace, linkBuilder, TimeProvider.System));
+            new FileSystemVaultEntityStore(workspace, linkBuilder, TimeProvider.System),
+            new UnavailableScreenSnipService(),
+            linkBuilder,
+            pipelineCatalog,
+            new PipelineExecutor(registry, validator, TimeProvider.System));
     }
 
     private void ConfigureEditor()
@@ -146,6 +202,15 @@ public sealed partial class MainWindow : Window
     {
         NewNoteButton.Click += async (_, _) => await StartNewNoteAsync();
         OpenRecentNoteButton.Click += async (_, _) => await OpenRecentOrCreateAsync(forceChoice: true);
+        CaptureAnalyzeButton.Click += async (_, _) => await CaptureScreenshotAsync(ScreenSnipMode.AnalyzeWithAi);
+        CaptureSaveButton.Click += async (_, _) => await CaptureScreenshotAsync(ScreenSnipMode.SaveOnly);
+        SaveNoteButton.Click += async (_, _) =>
+        {
+            if (await FlushAutosaveAsync())
+            {
+                AutosaveStatusText.Text = "SAVED";
+            }
+        };
     }
 
     public async Task ActivateOrResumeAsync()
@@ -205,6 +270,471 @@ public sealed partial class MainWindow : Window
     {
         _isExitRequested = true;
         Close();
+    }
+
+    private async Task CaptureScreenshotAsync(ScreenSnipMode mode)
+    {
+        if (_isCaptureInProgress)
+        {
+            AutosaveStatusText.Text = "SNIP ACTIVE";
+            return;
+        }
+
+        _isCaptureInProgress = true;
+        CaptureAnalyzeButton.IsEnabled = false;
+        CaptureSaveButton.IsEnabled = false;
+
+        try
+        {
+            await CaptureScreenshotCoreAsync(mode);
+        }
+        finally
+        {
+            _isCaptureInProgress = false;
+            CaptureAnalyzeButton.IsEnabled = true;
+            CaptureSaveButton.IsEnabled = true;
+        }
+    }
+
+    private async Task CaptureScreenshotCoreAsync(ScreenSnipMode mode)
+    {
+        if (_currentDraft is null)
+        {
+            await OpenRecentOrCreateAsync(forceChoice: false);
+        }
+
+        var targetDraft = _currentDraft;
+        if (targetDraft is null || !await FlushAutosaveAsync())
+        {
+            return;
+        }
+
+        ScreenSnipResult snip;
+        var shouldRestoreWindow = IsVisible;
+
+        try
+        {
+            AutosaveStatusText.Text = "SNIP SELECT";
+            if (shouldRestoreWindow)
+            {
+                Hide();
+                await Task.Delay(TimeSpan.FromMilliseconds(150), _windowClosed.Token);
+            }
+
+            snip = await _screenSnipService.CaptureAsync(mode, _windowClosed.Token);
+            if (_windowClosed.IsCancellationRequested)
+            {
+                return;
+            }
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Screen snip was cancelled because the window closed.");
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            AutosaveStatusText.Text = "SNIP CANCELLED";
+            return;
+        }
+        catch (PlatformNotSupportedException ex)
+        {
+            AutosaveStatusText.Text = "SNIP UNAVAILABLE";
+            _logger.LogWarning(ex, "Screen snipping is unavailable on this platform.");
+            return;
+        }
+        catch (Win32Exception ex)
+        {
+            AutosaveStatusText.Text = "SNIP ERROR";
+            _logger.LogError(ex, "Windows screen capture failed.");
+            return;
+        }
+        catch (ExternalException ex)
+        {
+            AutosaveStatusText.Text = "SNIP ERROR";
+            _logger.LogError(ex, "Screen snip image encoding failed.");
+            return;
+        }
+        catch (IOException ex)
+        {
+            AutosaveStatusText.Text = "SNIP ERROR";
+            _logger.LogError(ex, "Failed to save screen snip.");
+            return;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AutosaveStatusText.Text = "SNIP ERROR";
+            _logger.LogError(ex, "Notey does not have permission to save screen snips.");
+            return;
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "SNIP ERROR";
+            _logger.LogError(ex, "Vault configuration prevented screen snip capture.");
+            return;
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "SNIP ERROR";
+            _logger.LogError(ex, "Invalid vault path prevented screen snip capture.");
+            return;
+        }
+        finally
+        {
+            if (shouldRestoreWindow && !_windowClosed.IsCancellationRequested)
+            {
+                Show();
+                Activate();
+                FocusEditor();
+            }
+        }
+
+        if (!IsCurrentDraft(targetDraft))
+        {
+            AutosaveStatusText.Text = "SNIP SKIPPED";
+            _logger.LogInformation(
+                "Skipped applying screen snip {FilePath} because the active draft changed.",
+                snip.FilePath);
+            return;
+        }
+
+        var embed = InsertScreenshotReference(snip);
+        AutosaveStatusText.Text = "SNIP SAVED";
+
+        if (mode == ScreenSnipMode.AnalyzeWithAi)
+        {
+            await ChooseAndRunScreenshotPipelineAsync(snip, embed, targetDraft);
+        }
+    }
+
+    private string InsertScreenshotReference(ScreenSnipResult snip)
+    {
+        var embed = _linkBuilder.BuildImageEmbed(snip.FilePath);
+        AppendMarkdownBlock($"## Screenshot {snip.CapturedAt:HH:mm}\n\n{embed}");
+        AddScreenshotContextLines(
+        [
+            $"Screenshot: {embed}",
+            $"Captured: {snip.CapturedAt:O}",
+            $"Dimensions: {snip.Width}x{snip.Height}",
+            $"Mode: {FormatScreenSnipMode(snip.Mode)}"
+        ]);
+
+        return embed;
+    }
+
+    private async Task ChooseAndRunScreenshotPipelineAsync(ScreenSnipResult snip, string embed, NoteDraft targetDraft)
+    {
+        IReadOnlyList<PipelineDefinition> compatiblePipelines;
+        try
+        {
+            compatiblePipelines = await _pipelineCatalog.GetEnabledCompatibleAsync(PipelineDataType.ImageData, _windowClosed.Token);
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Pipeline discovery was cancelled because the window closed.");
+            return;
+        }
+        catch (IOException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE ERROR";
+            _logger.LogError(ex, "Failed to load screenshot pipeline definitions.");
+            return;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE ERROR";
+            _logger.LogError(ex, "Notey does not have permission to read screenshot pipeline definitions.");
+            return;
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE ERROR";
+            _logger.LogError(ex, "Pipeline configuration prevented screenshot analysis.");
+            return;
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE ERROR";
+            _logger.LogError(ex, "Invalid pipeline configuration prevented screenshot analysis.");
+            return;
+        }
+
+        if (compatiblePipelines.Count == 0)
+        {
+            if (IsCurrentDraft(targetDraft))
+            {
+                AddScreenshotContextLines(["Pipeline: no enabled image pipeline configured"]);
+            }
+
+            AutosaveStatusText.Text = "NO IMAGE PIPELINE";
+            return;
+        }
+
+        var pipeline = compatiblePipelines.Count == 1
+            ? compatiblePipelines[0]
+            : await PipelineChoiceWindow.ShowAsync(this, compatiblePipelines);
+        if (pipeline is null)
+        {
+            AutosaveStatusText.Text = "PIPELINE CANCELLED";
+            return;
+        }
+
+        await RunScreenshotPipelineAsync(snip, embed, pipeline, targetDraft);
+    }
+
+    private async Task RunScreenshotPipelineAsync(
+        ScreenSnipResult snip,
+        string embed,
+        PipelineDefinition pipeline,
+        NoteDraft targetDraft)
+    {
+        var context = new PipelineContext(pipeline.Id, _timeProvider.GetUtcNow());
+        context.SetValue("screenshot.filePath", snip.FilePath);
+        context.SetValue("screenshot.embed", embed);
+        context.SetValue("screenshot.capturedAt", snip.CapturedAt);
+        context.SetValue("screenshot.width", snip.Width);
+        context.SetValue("screenshot.height", snip.Height);
+
+        var progress = new Progress<PipelineProgressUpdate>(update => UpdatePipelineStatus(update, pipeline));
+        var input = new ImageData(snip.FilePath, snip.CapturedAt, snip.Width, snip.Height);
+
+        try
+        {
+            AutosaveStatusText.Text = $"PIPELINE {FormatPipelineName(pipeline).ToUpperInvariant()}";
+            var result = await _pipelineExecutor.ExecuteAsync(pipeline, input, context, progress, _windowClosed.Token);
+            await ApplyPipelineResultAsync(result, snip, embed, targetDraft);
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Screenshot pipeline {PipelineId} was cancelled because the window closed.", pipeline.Id);
+        }
+        catch (OperationCanceledException)
+        {
+            AutosaveStatusText.Text = "PIPELINE CANCELLED";
+        }
+        catch (PipelineValidationException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE INVALID";
+            _logger.LogError(ex, "Screenshot pipeline {PipelineId} is invalid.", pipeline.Id);
+            AddPipelineErrorContextIfCurrent(targetDraft, ex.Message);
+        }
+        catch (PipelineExecutionException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE FAILED";
+            _logger.LogError(ex, "Screenshot pipeline {PipelineId} failed.", pipeline.Id);
+            AddPipelineErrorContextIfCurrent(targetDraft, ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE FAILED";
+            _logger.LogError(ex, "Screenshot pipeline {PipelineId} could not be executed.", pipeline.Id);
+            AddPipelineErrorContextIfCurrent(targetDraft, ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE FAILED";
+            _logger.LogError(ex, "Screenshot pipeline {PipelineId} received invalid configuration.", pipeline.Id);
+            AddPipelineErrorContextIfCurrent(targetDraft, ex.Message);
+        }
+    }
+
+    private async Task ApplyPipelineResultAsync(
+        PipelineExecutionResult result,
+        ScreenSnipResult snip,
+        string embed,
+        NoteDraft targetDraft)
+    {
+        await _autosaveGate.WaitAsync(_windowClosed.Token);
+        try
+        {
+            if (!IsCurrentDraft(targetDraft))
+            {
+                AutosaveStatusText.Text = "PIPELINE SKIPPED";
+                _logger.LogInformation(
+                    "Skipped applying pipeline {PipelineId} for screen snip {FilePath} because the active draft changed.",
+                    result.Pipeline.Id,
+                    snip.FilePath);
+                return;
+            }
+
+            AddScreenshotContextLines(BuildPipelineContextLines(result, embed));
+            ApplyPipelineOutput(result.Output, result.Pipeline);
+        }
+        finally
+        {
+            _autosaveGate.Release();
+        }
+
+        ScheduleAutosave();
+        AutosaveStatusText.Text = "PIPELINE DONE";
+    }
+
+    private void ApplyPipelineOutput(PipelineData output, PipelineDefinition pipeline)
+    {
+        switch (output)
+        {
+            case MarkdownContent markdownContent:
+                AppendMarkdownBlock(markdownContent.Markdown);
+                break;
+            case StructuredNoteData structuredNoteData:
+                ApplyStructuredNoteData(structuredNoteData, pipeline);
+                break;
+        }
+    }
+
+    private void ApplyStructuredNoteData(StructuredNoteData data, PipelineDefinition pipeline)
+    {
+        PeopleInput.Text = MetadataInputMerger.Merge(
+            PeopleInput.Text ?? string.Empty,
+            data.People?.Select(static entity => entity.Name) ?? [],
+            TrimPersonToken);
+        TopicsInput.Text = MetadataInputMerger.Merge(
+            TopicsInput.Text ?? string.Empty,
+            data.Topics?.Select(static entity => entity.Name) ?? [],
+            TrimTopicToken);
+        ProjectsInput.Text = MetadataInputMerger.Merge(
+            ProjectsInput.Text ?? string.Empty,
+            data.Projects?.Select(static entity => entity.Name) ?? [],
+            TrimProjectToken);
+
+        var markdown = BuildStructuredNoteMarkdown(data, pipeline);
+        if (!string.IsNullOrWhiteSpace(markdown))
+        {
+            AppendMarkdownBlock(markdown);
+        }
+
+        if (data.Tags is { Count: > 0 })
+        {
+            AddScreenshotContextLines([$"Suggested tags: {string.Join(", ", data.Tags.Select(static tag => $"#{tag.Trim().TrimStart('#')}"))}"]);
+        }
+    }
+
+    private void AppendMarkdownBlock(string markdown)
+    {
+        var trimmed = markdown.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return;
+        }
+
+        var currentText = NoteEditor.Document.Text;
+        var separator = currentText.Length == 0
+            ? string.Empty
+            : currentText.EndsWith("\n\n", StringComparison.Ordinal)
+                ? string.Empty
+                : currentText.EndsWith('\n')
+                    ? "\n"
+                    : "\n\n";
+        NoteEditor.Document.Insert(NoteEditor.Document.TextLength, $"{separator}{trimmed}\n");
+        NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
+        UpdateEditorStatus();
+    }
+
+    private void AddScreenshotContextLines(IEnumerable<string> lines)
+    {
+        var merged = GetScreenshotContext(ScreenshotContextInput.Text)
+            .Concat(lines)
+            .Select(static line => line.Trim())
+            .Where(static line => !string.IsNullOrWhiteSpace(line))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        ScreenshotContextInput.Text = string.Join('\n', merged);
+    }
+
+    private IReadOnlyList<string> BuildPipelineContextLines(PipelineExecutionResult result, string embed)
+    {
+        var lines = new List<string>
+        {
+            $"Pipeline: {FormatPipelineName(result.Pipeline)} ({result.Pipeline.Id})",
+            $"Pipeline source: {embed}"
+        };
+
+        if (result.Output is StructuredNoteData structuredNoteData
+            && !string.IsNullOrWhiteSpace(structuredNoteData.Summary))
+        {
+            lines.Add($"Pipeline summary: {structuredNoteData.Summary.Trim()}");
+        }
+
+        lines.AddRange(result.Context.Warnings.Select(static warning => $"Pipeline warning: {warning.Message}"));
+        return lines;
+    }
+
+    private static string BuildStructuredNoteMarkdown(StructuredNoteData data, PipelineDefinition pipeline)
+    {
+        var lines = new List<string> { $"## Screenshot analysis - {FormatPipelineName(pipeline)}" };
+
+        if (!string.IsNullOrWhiteSpace(data.MeetingTitle))
+        {
+            lines.Add(string.Empty);
+            lines.Add($"- Meeting title: {data.MeetingTitle.Trim()}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(data.Summary))
+        {
+            lines.Add(string.Empty);
+            lines.Add(data.Summary.Trim());
+        }
+
+        if (data.Sections is not null)
+        {
+            foreach (var (heading, body) in data.Sections)
+            {
+                if (string.IsNullOrWhiteSpace(heading) || string.IsNullOrWhiteSpace(body))
+                {
+                    continue;
+                }
+
+                lines.Add(string.Empty);
+                lines.Add($"### {heading.Trim()}");
+                lines.Add(body.Trim());
+            }
+        }
+
+        return lines.Count == 1 ? string.Empty : string.Join('\n', lines);
+    }
+
+    private void UpdatePipelineStatus(PipelineProgressUpdate update, PipelineDefinition pipeline)
+    {
+        AutosaveStatusText.Text = update.Status switch
+        {
+            PipelineProgressStatus.Started => $"PIPELINE {FormatPipelineName(pipeline).ToUpperInvariant()}",
+            PipelineProgressStatus.StepStarted => $"PIPELINE {update.StepId?.ToUpperInvariant() ?? "STEP"}",
+            PipelineProgressStatus.StepCompleted => $"PIPELINE {update.CompletedSteps}/{update.TotalSteps}",
+            PipelineProgressStatus.Completed => "PIPELINE DONE",
+            PipelineProgressStatus.Cancelled => "PIPELINE CANCELLED",
+            PipelineProgressStatus.Failed => "PIPELINE FAILED",
+            _ => AutosaveStatusText.Text
+        };
+    }
+
+    private bool IsCurrentDraft(NoteDraft draft)
+    {
+        return _currentDraft is not null
+            && string.Equals(_currentDraft.FilePath, draft.FilePath, StringComparison.Ordinal);
+    }
+
+    private void AddPipelineErrorContextIfCurrent(NoteDraft targetDraft, string message)
+    {
+        if (IsCurrentDraft(targetDraft))
+        {
+            AddScreenshotContextLines([$"Pipeline error: {message}"]);
+        }
+    }
+
+    private static string FormatPipelineName(PipelineDefinition pipeline)
+    {
+        return string.IsNullOrWhiteSpace(pipeline.DisplayName) ? pipeline.Id : pipeline.DisplayName;
+    }
+
+    private static string FormatScreenSnipMode(ScreenSnipMode mode)
+    {
+        return mode switch
+        {
+            ScreenSnipMode.SaveOnly => "saved-only",
+            ScreenSnipMode.AnalyzeWithAi => "pipeline-processed",
+            _ => mode.ToString()
+        };
     }
 
     private async Task OpenInitialDraftAsync()

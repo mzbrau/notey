@@ -34,6 +34,22 @@ public sealed class ObsidianLinkBuilder(IVaultWorkspace workspace)
         return relativePath.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
     }
 
+    public string BuildImageEmbed(string filePath)
+    {
+        var paths = workspace.GetPaths();
+        var normalizedFilePath = Path.GetFullPath(filePath);
+        var relativePath = Path.GetRelativePath(paths.RootPath, normalizedFilePath);
+        if (relativePath == ".."
+            || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            || relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal)
+            || Path.IsPathFullyQualified(relativePath))
+        {
+            throw new InvalidOperationException("Vault image embeds must reference files inside the configured vault root.");
+        }
+
+        return $"![[{relativePath.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/')}]]";
+    }
+
     public static string FormatWikiLink(string linkPath, string alias)
     {
         if (string.IsNullOrWhiteSpace(linkPath))
