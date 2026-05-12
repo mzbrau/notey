@@ -1,10 +1,11 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Notey.Core.Notes;
 using Notey.Vault.Abstractions;
 
 namespace Notey.Vault.Notes;
 
-public sealed class FileSystemNoteDraftStore(
+public sealed partial class FileSystemNoteDraftStore(
     IVaultWorkspace workspace,
     NoteTemplateFactory templateFactory,
     NoteFileNameGenerator fileNameGenerator) : INoteDraftStore
@@ -30,6 +31,48 @@ public sealed class FileSystemNoteDraftStore(
         }
 
         throw new InvalidOperationException("Unable to generate a unique note filename.");
+    }
+
+    public async Task<NoteDraft> OpenAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        var notesPath = workspace.GetPaths().NotesPath;
+        var fullFilePath = Path.GetFullPath(filePath);
+        EnsureFileIsInsideNotesPath(notesPath, fullFilePath);
+
+        var content = await File.ReadAllTextAsync(fullFilePath, cancellationToken);
+        var createdAt = TryReadCreatedAt(content)
+            ?? GetFileCreatedAt(fullFilePath);
+
+        return new NoteDraft(fullFilePath, content, createdAt);
+    }
+
+    public async Task<NoteDraft?> FindMostRecentAsync(DateTimeOffset createdAfter, CancellationToken cancellationToken = default)
+    {
+        var notesPath = workspace.GetPaths().NotesPath;
+        if (!Directory.Exists(notesPath))
+        {
+            return null;
+        }
+
+        NoteDraft? mostRecent = null;
+
+        foreach (var filePath in Directory.EnumerateFiles(notesPath, "*.md", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var draft = await OpenAsync(filePath, cancellationToken);
+            if (draft.CreatedAt < createdAfter)
+            {
+                continue;
+            }
+
+            if (mostRecent is null || draft.CreatedAt > mostRecent.CreatedAt)
+            {
+                mostRecent = draft;
+            }
+        }
+
+        return mostRecent;
     }
 
     public async Task SaveAsync(NoteDraft draft, string content, CancellationToken cancellationToken = default)
@@ -134,4 +177,37 @@ public sealed class FileSystemNoteDraftStore(
             File.Delete(filePath);
         }
     }
+
+    private static void EnsureFileIsInsideNotesPath(string notesPath, string filePath)
+    {
+        var relativePath = Path.GetRelativePath(Path.GetFullPath(notesPath), filePath);
+        if (relativePath == ".."
+            || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            || relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal)
+            || Path.IsPathFullyQualified(relativePath))
+        {
+            throw new InvalidOperationException("Recent note path must stay within the configured notes folder.");
+        }
+    }
+
+    private static DateTimeOffset? TryReadCreatedAt(string content)
+    {
+        var match = CreatedFrontmatterRegex().Match(content);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return DateTimeOffset.TryParse(match.Groups["created"].Value, out var createdAt)
+            ? createdAt
+            : null;
+    }
+
+    private static DateTimeOffset GetFileCreatedAt(string filePath)
+    {
+        return new DateTimeOffset(File.GetCreationTimeUtc(filePath), TimeSpan.Zero);
+    }
+
+    [GeneratedRegex(@"(?m)^created:\s*(?<created>\S+)\s*$")]
+    private static partial Regex CreatedFrontmatterRegex();
 }

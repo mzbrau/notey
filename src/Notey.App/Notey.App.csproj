@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <AvaloniaResource Include="Assets\notey.ico" />
   </ItemGroup>
 
 </Project>

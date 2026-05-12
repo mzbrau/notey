@@ -33,6 +33,7 @@ public static class HostBootstrapper
             .ConfigureServices((context, services) =>
             {
                 var options = new NoteyOptions();
+                var platformRuntime = new PlatformRuntime();
                 context.Configuration.GetSection(NoteyOptions.SectionName).Bind(options);
 
                 services.AddSingleton(options);
@@ -40,15 +41,24 @@ public static class HostBootstrapper
                 services.AddSingleton<NoteTemplateFactory>();
                 services.AddSingleton<NoteFileNameGenerator>();
                 services.AddSingleton<MainWindow>();
-                services.AddSingleton<IPlatformRuntime, PlatformRuntime>();
-                services.AddSingleton<IGlobalHotkeyService, NoOpGlobalHotkeyService>();
-                services.AddSingleton<ITrayService, NoOpTrayService>();
+                services.AddSingleton<IPlatformRuntime>(platformRuntime);
                 services.AddSingleton<IScreenSnipService, UnavailableScreenSnipService>();
                 services.AddSingleton<IScreenshotAnalysisService, UnconfiguredScreenshotAnalysisService>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
                 services.AddSingleton<ObsidianLinkBuilder>();
                 services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
+
+                if (platformRuntime.IsWindows)
+                {
+                    services.AddSingleton<IGlobalHotkeyService, WindowsGlobalHotkeyService>();
+                    services.AddSingleton<ITrayService, AvaloniaTrayService>();
+                }
+                else
+                {
+                    services.AddSingleton<IGlobalHotkeyService, NoOpGlobalHotkeyService>();
+                    services.AddSingleton<ITrayService, NoOpTrayService>();
+                }
             })
             .Build();
     }

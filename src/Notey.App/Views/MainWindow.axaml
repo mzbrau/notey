@@ -23,8 +23,8 @@
                     Orientation="Horizontal"
                     VerticalAlignment="Center"
                     Spacing="6">
-          <Button Classes="command" Content="+" ToolTip.Tip="New note" AutomationProperties.Name="New note" />
-          <Button Classes="command" Content="R" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note" />
+          <Button x:Name="NewNoteButton" Classes="command" Content="+" ToolTip.Tip="New note" AutomationProperties.Name="New note" />
+          <Button x:Name="OpenRecentNoteButton" Classes="command" Content="R" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note" />
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
           <Button Classes="command" Content="AI" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis" />
           <Button Classes="command" Content="S" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save" />

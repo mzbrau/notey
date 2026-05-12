@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
+using Notey.Core.Platform;
 using Notey.Vault.Abstractions;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
@@ -15,6 +16,7 @@ namespace Notey.App.Views;
 public sealed partial class MainWindow : Window
 {
     private static readonly TimeSpan AutosaveDelay = TimeSpan.FromMilliseconds(750);
+    private static readonly TimeSpan ResumeLookback = TimeSpan.FromDays(7);
 
     private readonly INoteDraftStore _noteDraftStore;
     private readonly IVaultEntityStore _vaultEntityStore;
@@ -28,10 +30,15 @@ public sealed partial class MainWindow : Window
     private bool _isInitializing;
     private bool _isCloseConfirmed;
     private bool _isClosePending;
+    private bool _isExitRequested;
+    private bool _isSwitchingDraft;
     private bool _metadataDirty;
     private string _lastSavedText = string.Empty;
+    private HotkeyGesture? _openNoteGesture;
     private IReadOnlyList<VaultEntity> _peopleIndex = [];
     private IReadOnlyList<PersonAutocompleteSuggestion> _personSuggestions = [];
+
+    public bool HideInsteadOfClose { get; set; }
 
     public MainWindow()
         : this(CreateDefaultDependencies(), TimeProvider.System, NullLogger<MainWindow>.Instance)
@@ -64,13 +71,15 @@ public sealed partial class MainWindow : Window
 
         Width = options.Ui.DefaultWindowWidth;
         Height = options.Ui.DefaultWindowHeight;
+        _openNoteGesture = TryParseOpenNoteGesture(options.Hotkeys.OpenNote);
 
         ConfigureEditor();
         ConfigureMetadataInputs();
+        ConfigureShellCommands();
         UpdateEditorStatus();
         UpdateMetadataChips();
 
-        Opened += async (_, _) => await CreateInitialDraftAsync();
+        Opened += async (_, _) => await OpenInitialDraftAsync();
         Closing += OnClosing;
         Closed += (_, _) =>
         {
@@ -133,50 +142,178 @@ public sealed partial class MainWindow : Window
         PersonAutocompleteList.PointerReleased += async (_, _) => await InsertSelectedPersonLinkAsync();
     }
 
-    private async Task CreateInitialDraftAsync()
+    private void ConfigureShellCommands()
     {
-        _isInitializing = true;
+        NewNoteButton.Click += async (_, _) => await StartNewNoteAsync();
+        OpenRecentNoteButton.Click += async (_, _) => await OpenRecentOrCreateAsync(forceChoice: true);
+    }
+
+    public async Task ActivateOrResumeAsync()
+    {
+        if (_currentDraft is null)
+        {
+            await OpenRecentOrCreateAsync(forceChoice: false);
+            return;
+        }
+
+        FocusEditor();
+    }
+
+    public async Task StartNewNoteAsync()
+    {
+        if (_isSwitchingDraft || !await FlushAutosaveAsync())
+        {
+            return;
+        }
 
         try
         {
-            _currentDraft = await _noteDraftStore.CreateAsync(_timeProvider.GetLocalNow(), _windowClosed.Token);
-            NoteEditor.Document.Text = _currentDraft.Content;
-            NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
-            _lastSavedText = _currentDraft.Content;
-            DateChipText.Text = _currentDraft.CreatedAt.ToString("ddd, HH:mm");
-            await RefreshPeopleIndexAsync();
-            NoteEditor.IsReadOnly = false;
-            AutosaveStatusText.Text = "SAVED";
-            UpdateEditorStatus();
-            NoteEditor.Focus();
+            await CreateAndLoadDraftAsync();
         }
         catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
         {
-            _logger.LogDebug("Draft creation was cancelled because the window closed.");
+            _logger.LogDebug("New note creation was cancelled because the window closed.");
         }
         catch (IOException ex)
         {
             AutosaveStatusText.Text = "SAVE ERROR";
-            _logger.LogError(ex, "Failed to create the initial note draft.");
+            _logger.LogError(ex, "Failed to create a new note draft.");
         }
         catch (UnauthorizedAccessException ex)
         {
             AutosaveStatusText.Text = "SAVE ERROR";
-            _logger.LogError(ex, "Notey does not have permission to create the initial note draft.");
+            _logger.LogError(ex, "Notey does not have permission to create a new note draft.");
         }
         catch (InvalidOperationException ex)
         {
             AutosaveStatusText.Text = "SAVE ERROR";
-            _logger.LogError(ex, "Notey vault configuration prevented draft creation.");
+            _logger.LogError(ex, "Notey vault configuration prevented new note creation.");
         }
         catch (ArgumentException ex)
         {
             AutosaveStatusText.Text = "SAVE ERROR";
             _logger.LogError(ex, "Notey vault configuration contained an invalid value.");
         }
+    }
+
+    public void ReportHotkeyRegistrationFailure()
+    {
+        AutosaveStatusText.Text = "HOTKEY UNAVAILABLE";
+    }
+
+    public void RequestExit()
+    {
+        _isExitRequested = true;
+        Close();
+    }
+
+    private async Task OpenInitialDraftAsync()
+    {
+        await OpenRecentOrCreateAsync(forceChoice: false);
+    }
+
+    private async Task OpenRecentOrCreateAsync(bool forceChoice)
+    {
+        if (_isSwitchingDraft || !await FlushAutosaveAsync())
+        {
+            return;
+        }
+
+        try
+        {
+            var recentDraft = await _noteDraftStore.FindMostRecentAsync(
+                _timeProvider.GetLocalNow().Subtract(ResumeLookback),
+                _windowClosed.Token);
+
+            if (recentDraft is null)
+            {
+                if (forceChoice)
+                {
+                    AutosaveStatusText.Text = "NO RECENT NOTE";
+                    return;
+                }
+
+                await CreateAndLoadDraftAsync();
+                return;
+            }
+
+            var choice = await RecentNoteChoiceWindow.ShowAsync(this, recentDraft);
+            switch (choice)
+            {
+                case RecentNoteChoice.Resume:
+                    await LoadDraftAsync(recentDraft);
+                    break;
+                case RecentNoteChoice.NewNote:
+                    await CreateAndLoadDraftAsync();
+                    break;
+                case RecentNoteChoice.Cancel:
+                    if (_currentDraft is null)
+                    {
+                        await CreateAndLoadDraftAsync();
+                    }
+
+                    break;
+            }
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Recent note workflow was cancelled because the window closed.");
+        }
+        catch (IOException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Failed to open or create a note draft.");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Notey does not have permission to open or create a note draft.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Notey vault configuration prevented note activation.");
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Notey vault configuration contained an invalid value.");
+        }
+    }
+
+    private async Task CreateAndLoadDraftAsync()
+    {
+        var draft = await _noteDraftStore.CreateAsync(_timeProvider.GetLocalNow(), _windowClosed.Token);
+        await LoadDraftAsync(draft);
+    }
+
+    private async Task LoadDraftAsync(NoteDraft draft)
+    {
+        _isSwitchingDraft = true;
+        _isInitializing = true;
+        _autosaveTimer.Stop();
+        HidePersonAutocomplete();
+
+        try
+        {
+            _currentDraft = draft;
+            NoteEditor.Document.Text = draft.Content;
+            NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
+            _lastSavedText = draft.Content;
+            _metadataDirty = false;
+            DateChipText.Text = draft.CreatedAt.ToString("ddd, HH:mm");
+            await RefreshPeopleIndexAsync();
+            _isInitializing = false;
+            _isSwitchingDraft = false;
+            NoteEditor.IsReadOnly = false;
+            AutosaveStatusText.Text = "SAVED";
+            UpdateEditorStatus();
+            FocusEditor();
+        }
         finally
         {
             _isInitializing = false;
+            _isSwitchingDraft = false;
         }
     }
 
@@ -203,6 +340,14 @@ public sealed partial class MainWindow : Window
         {
             _isClosePending = false;
             NoteEditor.IsReadOnly = _currentDraft is null;
+            return;
+        }
+
+        if (HideInsteadOfClose && !_isExitRequested)
+        {
+            _isClosePending = false;
+            NoteEditor.IsReadOnly = false;
+            Hide();
             return;
         }
 
@@ -298,6 +443,13 @@ public sealed partial class MainWindow : Window
 
     private void OnEditorKeyDown(object? sender, KeyEventArgs e)
     {
+        if (IsOpenNoteGesture(e))
+        {
+            _ = ActivateOrResumeAsync();
+            e.Handled = true;
+            return;
+        }
+
         if (TryHandlePersonAutocompleteKey(e))
         {
             return;
@@ -331,6 +483,70 @@ public sealed partial class MainWindow : Window
     private static bool IsCommandModifier(KeyModifiers modifiers)
     {
         return modifiers == KeyModifiers.Control || modifiers == KeyModifiers.Meta;
+    }
+
+    private bool IsOpenNoteGesture(KeyEventArgs e)
+    {
+        if (_openNoteGesture is null)
+        {
+            return false;
+        }
+
+        return ToHotkeyModifiers(e.KeyModifiers) == _openNoteGesture.Modifiers
+            && string.Equals(NormalizeAvaloniaKey(e.Key), _openNoteGesture.Key, StringComparison.Ordinal);
+    }
+
+    private static HotkeyModifiers ToHotkeyModifiers(KeyModifiers modifiers)
+    {
+        var result = HotkeyModifiers.None;
+
+        if ((modifiers & KeyModifiers.Alt) == KeyModifiers.Alt)
+        {
+            result |= HotkeyModifiers.Alt;
+        }
+
+        if ((modifiers & KeyModifiers.Control) == KeyModifiers.Control)
+        {
+            result |= HotkeyModifiers.Control;
+        }
+
+        if ((modifiers & KeyModifiers.Shift) == KeyModifiers.Shift)
+        {
+            result |= HotkeyModifiers.Shift;
+        }
+
+        if ((modifiers & KeyModifiers.Meta) == KeyModifiers.Meta)
+        {
+            result |= HotkeyModifiers.Windows;
+        }
+
+        return result;
+    }
+
+    private static string NormalizeAvaloniaKey(Key key)
+    {
+        var text = key.ToString().ToUpperInvariant();
+        return text.Length == 2 && text[0] == 'D' && char.IsDigit(text[1])
+            ? text[1].ToString()
+            : text;
+    }
+
+    private HotkeyGesture? TryParseOpenNoteGesture(string gesture)
+    {
+        try
+        {
+            return HotkeyGesture.Parse(gesture);
+        }
+        catch (FormatException ex)
+        {
+            _logger.LogError(ex, "Configured open-note hotkey {Gesture} is invalid.", gesture);
+            return null;
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogError(ex, "Configured open-note hotkey {Gesture} is invalid.", gesture);
+            return null;
+        }
     }
 
     private void ApplyEdit(MarkdownTextEdit edit)
@@ -707,6 +923,11 @@ public sealed partial class MainWindow : Window
         var status = NoteEditorStatus.FromText(NoteEditor.Document.Text, NoteEditor.CaretOffset);
         WordCountText.Text = $"WORDS {status.WordCount}";
         CursorPositionText.Text = $"LINE {status.Line}, COL {status.Column}";
+    }
+
+    private void FocusEditor()
+    {
+        NoteEditor.Focus();
     }
 
     private sealed record PersonAutocompleteSuggestion(string Name, bool IsCreateAction, VaultEntity? Entity)
