@@ -126,6 +126,8 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _windowClosed.Cancel();
+            _windowClosed.Dispose();
+            _autosaveGate.Dispose();
         };
 
         logger.LogInformation("Notey shell initialized with {Theme} theme.", options.Ui.Theme);

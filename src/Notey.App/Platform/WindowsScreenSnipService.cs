@@ -31,6 +31,7 @@ public sealed class WindowsScreenSnipService(
 
         var capturedAt = timeProvider.GetLocalNow();
         var filePath = GetUniqueSnipPath(capturedAt);
+        var succeeded = false;
 
         try
         {
@@ -38,11 +39,14 @@ public sealed class WindowsScreenSnipService(
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Run(() => CaptureRegionToPng(selection, filePath), cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            succeeded = true;
         }
-        catch (OperationCanceledException)
+        finally
         {
-            DeleteIncompleteSnip(filePath);
-            throw;
+            if (!succeeded)
+            {
+                DeleteIncompleteSnip(filePath);
+            }
         }
 
         logger.LogInformation(

@@ -189,6 +189,11 @@ public sealed class ScreenSnipSelectionWindow : Window
         {
             base.OnPointerPressed(e);
 
+            if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+
             var point = e.GetPosition(this);
             _origin = point;
             _selection = new Rect(point, point);
