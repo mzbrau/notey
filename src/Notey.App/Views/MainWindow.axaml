@@ -1,0 +1,132 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        x:Class="Notey.App.Views.MainWindow"
+        Title="Notey"
+        Width="1180"
+        Height="760"
+        MinWidth="840"
+        MinHeight="520">
+  <Grid RowDefinitions="52,Auto,Auto,*,30"
+        Background="{DynamicResource Notey.SurfaceBrush}">
+    <Border Grid.Row="0"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,0,0,1"
+            Background="{DynamicResource Notey.SurfaceBrush}">
+      <Grid ColumnDefinitions="Auto,*,Auto" Margin="22,0">
+        <TextBlock Grid.Column="0"
+                   Classes="appTitle"
+                   Text="Notey"
+                   VerticalAlignment="Center" />
+
+        <StackPanel Grid.Column="2"
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center"
+                    Spacing="6">
+          <Button Classes="command" Content="+" ToolTip.Tip="New note" AutomationProperties.Name="New note" />
+          <Button Classes="command" Content="R" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note" />
+          <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
+          <Button Classes="command" Content="AI" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis" />
+          <Button Classes="command" Content="S" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save" />
+          <Button Classes="command" Content="MD" ToolTip.Tip="Improve markdown manually" AutomationProperties.Name="Improve markdown manually" />
+          <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
+          <Button Classes="command" Content="OK" ToolTip.Tip="Save note" AutomationProperties.Name="Save note" />
+          <Button Classes="command" Content="..." ToolTip.Tip="Open settings" AutomationProperties.Name="Open settings" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="1"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,0,0,1"
+            Background="{DynamicResource Notey.SurfaceLowBrush}"
+            Padding="28,10">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto"
+            ColumnSpacing="12"
+            VerticalAlignment="Center">
+        <TextBlock Grid.Column="0" Classes="label" Text="DATE" VerticalAlignment="Center" />
+        <Border Grid.Column="1" Classes="metadata-chip">
+          <TextBlock Classes="chipText" Text="Today, 22:13" />
+        </Border>
+
+        <TextBlock Grid.Column="2" Classes="label" Text="CONTEXT" VerticalAlignment="Center" Margin="10,0,0,0" />
+        <StackPanel Grid.Column="3"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    VerticalAlignment="Center">
+          <Border Classes="metadata-chip person-chip">
+            <TextBlock Classes="chipText personText" Text="@person" />
+          </Border>
+          <Border Classes="metadata-chip topic-chip">
+            <TextBlock Classes="chipText topicText" Text="#topic" />
+          </Border>
+          <Border Classes="metadata-chip">
+            <TextBlock Classes="chipText" Text="[[Project]]" />
+          </Border>
+        </StackPanel>
+
+        <ToggleButton x:Name="MetadataToggle"
+                      Grid.Column="5"
+                      Classes="metadataAction"
+                      Content="Modify Metadata"
+                      ToolTip.Tip="Edit note metadata"
+                      AutomationProperties.Name="Modify metadata" />
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="2"
+            IsVisible="{Binding IsChecked, ElementName=MetadataToggle}"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,0,0,1"
+            Background="{DynamicResource Notey.SurfaceBrushRaised}"
+            Padding="28,14">
+      <Grid ColumnDefinitions="*,*,*,*"
+            RowDefinitions="Auto,Auto"
+            ColumnSpacing="12"
+            RowSpacing="8">
+        <TextBlock Grid.Column="0" Classes="label" Text="PEOPLE" />
+        <TextBlock Grid.Column="1" Classes="label" Text="TOPICS" />
+        <TextBlock Grid.Column="2" Classes="label" Text="PROJECT" />
+        <TextBlock Grid.Column="3" Classes="label" Text="SCREENSHOT CONTEXT" />
+
+        <TextBox Grid.Row="1" Grid.Column="0" Classes="metadataInput" PlaceholderText="@person, @person" />
+        <TextBox Grid.Row="1" Grid.Column="1" Classes="metadataInput" PlaceholderText="#topic, #meeting" />
+        <TextBox Grid.Row="1" Grid.Column="2" Classes="metadataInput" PlaceholderText="[[Project]]" />
+        <TextBox Grid.Row="1" Grid.Column="3" Classes="metadataInput" PlaceholderText="Screenshot context notes" />
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="3"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,0,0,1"
+            Background="{DynamicResource Notey.SurfaceBrush}">
+      <ae:TextEditor x:Name="NoteEditor"
+                     ShowLineNumbers="True"
+                     IsReadOnly="True"
+                     WordWrap="True"
+                     HorizontalScrollBarVisibility="Disabled"
+                     VerticalScrollBarVisibility="Auto"
+                     Background="{DynamicResource Notey.SurfaceBrush}"
+                     Foreground="{DynamicResource Notey.PrimaryTextBrush}"
+                     LineNumbersForeground="{DynamicResource Notey.SubtleTextBrush}"
+                     FontFamily="Inter, Segoe UI, Arial"
+                     FontSize="17"
+                     Padding="48,36" />
+    </Border>
+
+    <Border Grid.Row="4"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,1,0,0"
+            Background="{DynamicResource Notey.SurfaceLowestBrush}"
+            Padding="14,0">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto"
+            ColumnSpacing="16">
+        <TextBlock Grid.Column="0" Classes="label" Text="MARKDOWN EDITOR" VerticalAlignment="Center" Foreground="{DynamicResource Notey.SecondaryTextBrush}" />
+        <TextBlock x:Name="AutosaveStatusText" Grid.Column="1" Classes="label" Text="CREATING DRAFT" VerticalAlignment="Center" />
+        <TextBlock x:Name="WordCountText" Grid.Column="2" Classes="label" Text="WORDS 0" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="4" Classes="label" Text="UTF-8" VerticalAlignment="Center" />
+        <TextBlock x:Name="CursorPositionText" Grid.Column="5" Classes="label" Text="LINE 1, COL 1" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

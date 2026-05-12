@@ -1,0 +1,166 @@
+<Application xmlns="https://github.com/avaloniaui"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              x:Class="Notey.App.App"
+              RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <SolidColorBrush x:Key="Notey.SurfaceBrush" Color="#10131A" />
+    <SolidColorBrush x:Key="Notey.SurfaceLowestBrush" Color="#0B0E15" />
+    <SolidColorBrush x:Key="Notey.SurfaceLowBrush" Color="#191B23" />
+    <SolidColorBrush x:Key="Notey.SurfaceBrushRaised" Color="#1D2027" />
+    <SolidColorBrush x:Key="Notey.SurfaceHighBrush" Color="#272A31" />
+    <SolidColorBrush x:Key="Notey.SurfaceHighestBrush" Color="#32353C" />
+    <SolidColorBrush x:Key="Notey.PrimaryTextBrush" Color="#E1E2EC" />
+    <SolidColorBrush x:Key="Notey.SecondaryTextBrush" Color="#C2C6D6" />
+    <SolidColorBrush x:Key="Notey.MutedTextBrush" Color="#8C909F" />
+    <SolidColorBrush x:Key="Notey.SubtleTextBrush" Color="#565B68" />
+    <SolidColorBrush x:Key="Notey.OutlineBrush" Color="#8C909F" />
+    <SolidColorBrush x:Key="Notey.OutlineVariantBrush" Color="#424754" />
+    <SolidColorBrush x:Key="Notey.PrimaryBrush" Color="#ADC6FF" />
+    <SolidColorBrush x:Key="Notey.PrimaryContainerBrush" Color="#18253E" />
+    <SolidColorBrush x:Key="Notey.PrimaryBorderBrush" Color="#2E4F8E" />
+    <SolidColorBrush x:Key="Notey.TertiaryBrush" Color="#FFB786" />
+    <SolidColorBrush x:Key="Notey.TertiaryContainerBrush" Color="#2A1D17" />
+    <SolidColorBrush x:Key="Notey.TertiaryBorderBrush" Color="#6D3D1B" />
+    <SolidColorBrush x:Key="Notey.ErrorBrush" Color="#FFB4AB" />
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="Window">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="FontFamily" Value="Inter, Segoe UI, Arial" />
+    </Style>
+
+    <Style Selector="TextBlock.label">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.MutedTextBrush}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="TextBlock.appTitle">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="LetterSpacing" Value="-0.2" />
+    </Style>
+
+    <Style Selector="Button.command">
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="MinWidth" Value="36" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceLowBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.SecondaryTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.OutlineVariantBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.command:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceHighBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+    </Style>
+
+    <Style Selector="Button.command:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+    </Style>
+
+    <Style Selector="ToggleButton.metadataAction">
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="ToggleButton.metadataAction:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
+    </Style>
+
+    <Style Selector="ToggleButton.metadataAction:checked /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+    </Style>
+
+    <Style Selector="Border.metadata-chip">
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceHighBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.OutlineVariantBrush}" />
+    </Style>
+
+    <Style Selector="Border.person-chip">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+    </Style>
+
+    <Style Selector="Border.topic-chip">
+      <Setter Property="Background" Value="{DynamicResource Notey.TertiaryContainerBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.TertiaryBorderBrush}" />
+    </Style>
+
+    <Style Selector="TextBlock.chipText">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="TextBlock.personText">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+    </Style>
+
+    <Style Selector="TextBlock.topicText">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.TertiaryBrush}" />
+    </Style>
+
+    <Style Selector="TextBox.metadataInput">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceBrushRaised}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.OutlineVariantBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="TextBox.metadataInput:focus-within /template/ Border#PART_BorderElement">
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+    </Style>
+
+    <Style Selector="TextBlock.editorLineNumber">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.SubtleTextBrush}" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontFamily" Value="Inter, Segoe UI, Arial" />
+    </Style>
+
+    <Style Selector="TextBlock.editorMarkdownMarker">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.SubtleTextBrush}" />
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="TextBlock.editorHeading">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="FontSize" Value="32" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="LetterSpacing" Value="-0.4" />
+    </Style>
+
+    <Style Selector="TextBlock.editorBody">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.SecondaryTextBrush}" />
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="LineHeight" Value="28" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </Application.Styles>
+</Application>
