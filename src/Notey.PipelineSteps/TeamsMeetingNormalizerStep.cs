@@ -160,7 +160,9 @@ public sealed class TeamsMeetingNormalizerStep : PipelineStep<StructuredNoteData
 
             var normalized = participant with { Name = name };
             var key = NormalizeEntityKey(name);
-            if (participant.Confidence is >= 0 and <= 1 and var confidence && confidence >= threshold)
+            if (participant.Confidence is double confidence
+                && confidence is >= 0 and <= 1
+                && confidence >= threshold)
             {
                 if (seenConfident.Add(key))
                 {

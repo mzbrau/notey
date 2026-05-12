@@ -14,7 +14,7 @@ using Notey.PipelineSteps;
 
 namespace Notey.Tests;
 
-public sealed class Phase9TeamsPipelineTests
+public sealed class TeamsPipelineTests
 {
     [Fact]
     public void Ai_parser_accepts_teams_aliases_for_participants_and_sections()
