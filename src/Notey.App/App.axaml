@@ -153,11 +153,11 @@
       <Setter Property="FontSize" Value="13" />
     </Style>
 
-    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Style Selector="ListBox.autocompleteList ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource Notey.SurfaceHighBrush}" />
     </Style>
 
-    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Style Selector="ListBox.autocompleteList ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
     </Style>

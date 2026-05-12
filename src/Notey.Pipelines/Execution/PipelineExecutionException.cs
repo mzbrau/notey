@@ -1,6 +1,6 @@
 using Notey.Pipelines.Context;
 
-namespace Notey.Pipelines.Steps;
+namespace Notey.Pipelines.Execution;
 
 public sealed class PipelineExecutionException : InvalidOperationException
 {

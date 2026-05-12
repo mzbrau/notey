@@ -101,6 +101,64 @@ public sealed class NoteMetadataFormatterTests
         Assert.Contains("Important body text", result);
     }
 
+    [Fact]
+    public void ReadFrontmatterInputs_parses_block_arrays_from_existing_frontmatter()
+    {
+        var (people, topics, projects, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("""
+            ---
+            created: 2026-05-11T22:45:30.0000000+02:00
+            people:
+              - "[[People/Jane Doe|Jane Doe]]"
+            topics:
+              - "[[Topics/Product Strategy|Product Strategy]]"
+            projects:
+              - "[[Projects/Notey|Notey]]"
+            screenshot_context:
+              - "Teams meeting"
+            ---
+
+            # Untitled note
+
+            created: this should not be parsed
+            """);
+
+        Assert.Equal(["[[People/Jane Doe|Jane Doe]]"], people);
+        Assert.Equal(["[[Topics/Product Strategy|Product Strategy]]"], topics);
+        Assert.Equal(["[[Projects/Notey|Notey]]"], projects);
+        Assert.Equal(["Teams meeting"], screenshotContext);
+    }
+
+    [Fact]
+    public void ReadFrontmatterInputs_returns_empty_arrays_for_note_without_frontmatter()
+    {
+        var (people, topics, projects, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("# Just a heading\n\ncreated: fake");
+
+        Assert.Empty(people);
+        Assert.Empty(topics);
+        Assert.Empty(projects);
+        Assert.Empty(screenshotContext);
+    }
+
+    [Fact]
+    public void ReadFrontmatterInputs_parses_inline_empty_arrays()
+    {
+        var (people, topics, projects, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("""
+            ---
+            people: []
+            topics: []
+            projects: []
+            screenshot_context: []
+            ---
+
+            # Note
+            """);
+
+        Assert.Empty(people);
+        Assert.Empty(topics);
+        Assert.Empty(projects);
+        Assert.Empty(screenshotContext);
+    }
+
     private static IEnumerable<int> FindAll(string text, string value)
     {
         var index = 0;

@@ -10,6 +10,7 @@ public sealed class FileSystemVaultEntityStore(
     TimeProvider timeProvider) : IVaultEntityStore
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
+    private readonly Dictionary<VaultEntityKind, IReadOnlyList<VaultEntity>> _entityCache = [];
 
     public async Task<IReadOnlyList<VaultEntity>> GetAllAsync(VaultEntityKind kind, CancellationToken cancellationToken = default)
     {
@@ -35,7 +36,14 @@ public sealed class FileSystemVaultEntityStore(
     public async Task<VaultEntity> EnsureAsync(VaultEntityKind kind, string name, CancellationToken cancellationToken = default)
     {
         var displayName = ObsidianLinkBuilder.NormalizeDisplayName(name);
-        var existing = await FindByNameAsync(kind, displayName, cancellationToken);
+
+        if (!_entityCache.TryGetValue(kind, out var cachedEntities))
+        {
+            cachedEntities = await GetAllAsync(kind, cancellationToken);
+            _entityCache[kind] = cachedEntities;
+        }
+
+        var existing = cachedEntities.FirstOrDefault(entity => EntityMatchesName(entity, displayName));
         if (existing is not null)
         {
             return existing;
@@ -66,6 +74,7 @@ public sealed class FileSystemVaultEntityStore(
                 var collision = await ReadEntityAsync(paths, kind, filePath, cancellationToken);
                 if (EntityMatchesName(collision, displayName))
                 {
+                    AddToCache(kind, collision);
                     return collision;
                 }
 
@@ -82,7 +91,9 @@ public sealed class FileSystemVaultEntityStore(
                     await stream.FlushAsync(cancellationToken);
                 }
 
-                return await ReadEntityAsync(paths, kind, filePath, cancellationToken);
+                var created = await ReadEntityAsync(paths, kind, filePath, cancellationToken);
+                AddToCache(kind, created);
+                return created;
             }
             catch
             {
@@ -94,14 +105,16 @@ public sealed class FileSystemVaultEntityStore(
         throw new InvalidOperationException("Unable to generate a unique vault entity filename.");
     }
 
-    private async Task<VaultEntity?> FindByNameAsync(VaultEntityKind kind, string name, CancellationToken cancellationToken)
+    private void AddToCache(VaultEntityKind kind, VaultEntity entity)
     {
-        var normalizedName = NormalizeLookup(name);
-        var entities = await GetAllAsync(kind, cancellationToken);
-
-        return entities.FirstOrDefault(entity =>
-            string.Equals(NormalizeLookup(entity.Name), normalizedName, StringComparison.Ordinal)
-            || entity.Aliases.Any(alias => string.Equals(NormalizeLookup(alias), normalizedName, StringComparison.Ordinal)));
+        if (_entityCache.TryGetValue(kind, out var existing))
+        {
+            _entityCache[kind] = [.. existing, entity];
+        }
+        else
+        {
+            _entityCache[kind] = [entity];
+        }
     }
 
     private async Task<VaultEntity> ReadEntityAsync(VaultPaths paths, VaultEntityKind kind, string filePath, CancellationToken cancellationToken)

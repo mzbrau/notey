@@ -192,7 +192,14 @@ public sealed partial class FileSystemNoteDraftStore(
 
     private static DateTimeOffset? TryReadCreatedAt(string content)
     {
-        var match = CreatedFrontmatterRegex().Match(content);
+        var normalized = content.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var frontmatter = ExtractFrontmatter(normalized);
+        if (frontmatter is null)
+        {
+            return null;
+        }
+
+        var match = CreatedFrontmatterRegex().Match(frontmatter);
         if (!match.Success)
         {
             return null;
@@ -201,6 +208,17 @@ public sealed partial class FileSystemNoteDraftStore(
         return DateTimeOffset.TryParse(match.Groups["created"].Value, out var createdAt)
             ? createdAt
             : null;
+    }
+
+    private static string? ExtractFrontmatter(string normalizedContent)
+    {
+        if (!normalizedContent.StartsWith("---\n", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var endIndex = normalizedContent.IndexOf("\n---", 4, StringComparison.Ordinal);
+        return endIndex < 0 ? null : normalizedContent[4..endIndex];
     }
 
     private static DateTimeOffset GetFileCreatedAt(string filePath)

@@ -102,6 +102,30 @@ public sealed class NoteDraftStoreTests : IDisposable
         Assert.EndsWith("2026-05-11-224530-note-2.md", secondDraft.FilePath);
     }
 
+    [Fact]
+    public async Task OpenAsync_does_not_read_created_from_note_body()
+    {
+        var rootPath = CreateTempDirectory();
+        var notesPath = Path.Combine(rootPath, "Notes");
+        Directory.CreateDirectory(notesPath);
+        var filePath = Path.Combine(notesPath, "test.md");
+        var expectedCreatedAt = new DateTimeOffset(2026, 5, 11, 22, 45, 30, TimeSpan.Zero);
+        await File.WriteAllTextAsync(filePath, $"""
+            ---
+            created: {expectedCreatedAt:O}
+            ---
+
+            # My note
+
+            created: 1999-01-01T00:00:00.0000000+00:00
+            """);
+        var store = CreateStore(rootPath);
+
+        var draft = await store.OpenAsync(filePath);
+
+        Assert.Equal(expectedCreatedAt, draft.CreatedAt);
+    }
+
     private static FileSystemNoteDraftStore CreateStore(string rootPath)
     {
         var options = new NoteyOptions

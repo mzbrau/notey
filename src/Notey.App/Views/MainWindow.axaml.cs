@@ -302,12 +302,14 @@ public sealed partial class MainWindow : Window
             _lastSavedText = draft.Content;
             _metadataDirty = false;
             DateChipText.Text = draft.CreatedAt.ToString("ddd, HH:mm");
+            PopulateMetadataInputsFromDraft(draft.Content);
             await RefreshPeopleIndexAsync();
             _isInitializing = false;
             _isSwitchingDraft = false;
             NoteEditor.IsReadOnly = false;
             AutosaveStatusText.Text = "SAVED";
             UpdateEditorStatus();
+            UpdateMetadataChips();
             FocusEditor();
         }
         finally
@@ -315,6 +317,15 @@ public sealed partial class MainWindow : Window
             _isInitializing = false;
             _isSwitchingDraft = false;
         }
+    }
+
+    private void PopulateMetadataInputsFromDraft(string content)
+    {
+        var (people, topics, projects, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs(content);
+        PeopleInput.Text = string.Join(", ", people);
+        TopicsInput.Text = string.Join(", ", topics);
+        ProjectsInput.Text = string.Join(", ", projects);
+        ScreenshotContextInput.Text = string.Join("\n", screenshotContext);
     }
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)

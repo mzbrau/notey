@@ -20,6 +20,119 @@ public sealed class NoteMetadataFormatter
         return $"{updatedFrontmatter}\n{updatedBody}";
     }
 
+    public static (IReadOnlyList<string> People, IReadOnlyList<string> Topics, IReadOnlyList<string> Projects, IReadOnlyList<string> ScreenshotContext) ReadFrontmatterInputs(string markdown)
+    {
+        ArgumentNullException.ThrowIfNull(markdown);
+
+        var normalized = markdown.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var lines = normalized.Split('\n');
+
+        if (lines.Length < 3 || lines[0] != "---")
+        {
+            return ([], [], [], []);
+        }
+
+        var endLine = -1;
+        for (var i = 1; i < lines.Length; i++)
+        {
+            if (lines[i] == "---")
+            {
+                endLine = i;
+                break;
+            }
+        }
+
+        if (endLine < 0)
+        {
+            return ([], [], [], []);
+        }
+
+        return (
+            ReadFrontmatterArray(lines, 1, endLine, "people"),
+            ReadFrontmatterArray(lines, 1, endLine, "topics"),
+            ReadFrontmatterArray(lines, 1, endLine, "projects"),
+            ReadFrontmatterArray(lines, 1, endLine, "screenshot_context"));
+    }
+
+    private static IReadOnlyList<string> ReadFrontmatterArray(string[] lines, int startLine, int endLine, string key)
+    {
+        for (var i = startLine; i < endLine; i++)
+        {
+            var separator = lines[i].IndexOf(':', StringComparison.Ordinal);
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var lineKey = lines[i][..separator].Trim();
+            if (!string.Equals(lineKey, key, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = lines[i][(separator + 1)..].Trim();
+
+            if (value.StartsWith('[') && value.EndsWith(']'))
+            {
+                return ParseInlineFrontmatterArray(value);
+            }
+
+            if (string.IsNullOrEmpty(value))
+            {
+                return ParseBlockFrontmatterArray(lines, i + 1, endLine);
+            }
+        }
+
+        return [];
+    }
+
+    private static IReadOnlyList<string> ParseInlineFrontmatterArray(string value)
+    {
+        var inner = value.Trim('[', ']');
+        if (string.IsNullOrWhiteSpace(inner))
+        {
+            return [];
+        }
+
+        return inner
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(UnquoteFrontmatterValue)
+            .Where(static item => !string.IsNullOrWhiteSpace(item))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> ParseBlockFrontmatterArray(string[] lines, int startIndex, int endLine)
+    {
+        var values = new List<string>();
+        for (var i = startIndex; i < endLine; i++)
+        {
+            if (!lines[i].StartsWith("  - ", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            values.Add(UnquoteFrontmatterValue(lines[i][4..].Trim()));
+        }
+
+        return values;
+    }
+
+    private static string UnquoteFrontmatterValue(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
+        {
+            return trimmed[1..^1].Replace("\\\"", "\"", StringComparison.Ordinal).Replace("\\\\", "\\", StringComparison.Ordinal);
+        }
+
+        if (trimmed.Length >= 2 && trimmed[0] == '\'' && trimmed[^1] == '\'')
+        {
+            return trimmed[1..^1].Replace("''", "'", StringComparison.Ordinal);
+        }
+
+        return trimmed;
+    }
+
     private static (string Frontmatter, string Body) SplitFrontmatter(string markdown)
     {
         if (!markdown.StartsWith("---\n", StringComparison.Ordinal))
