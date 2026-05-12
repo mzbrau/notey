@@ -20,7 +20,7 @@ public sealed class NoteMetadataFormatter
         return $"{updatedFrontmatter}\n{updatedBody}";
     }
 
-    public static (IReadOnlyList<string> People, IReadOnlyList<string> Topics, IReadOnlyList<string> Projects, IReadOnlyList<string> ScreenshotContext) ReadFrontmatterInputs(string markdown)
+    public static (IReadOnlyList<string> People, IReadOnlyList<string> Topics, IReadOnlyList<string> Projects, IReadOnlyList<string> Tags, IReadOnlyList<string> ScreenshotContext) ReadFrontmatterInputs(string markdown)
     {
         ArgumentNullException.ThrowIfNull(markdown);
 
@@ -29,7 +29,7 @@ public sealed class NoteMetadataFormatter
 
         if (lines.Length < 3 || lines[0] != "---")
         {
-            return ([], [], [], []);
+            return ([], [], [], [], []);
         }
 
         var endLine = -1;
@@ -44,13 +44,14 @@ public sealed class NoteMetadataFormatter
 
         if (endLine < 0)
         {
-            return ([], [], [], []);
+            return ([], [], [], [], []);
         }
 
         return (
             ReadFrontmatterArray(lines, 1, endLine, "people"),
             ReadFrontmatterArray(lines, 1, endLine, "topics"),
             ReadFrontmatterArray(lines, 1, endLine, "projects"),
+            ReadFrontmatterArray(lines, 1, endLine, "tags"),
             ReadFrontmatterArray(lines, 1, endLine, "screenshot_context"));
     }
 
@@ -175,6 +176,7 @@ public sealed class NoteMetadataFormatter
         AppendYamlArray(output, "people", metadata.People);
         AppendYamlArray(output, "topics", metadata.Topics);
         AppendYamlArray(output, "projects", metadata.Projects);
+        AppendYamlArray(output, "tags", metadata.Tags);
         AppendYamlArray(output, "screenshot_context", metadata.ScreenshotContext);
         output.Add("---");
 
@@ -195,6 +197,7 @@ public sealed class NoteMetadataFormatter
         AppendContextLine(builder, "People", metadata.People);
         AppendContextLine(builder, "Topics", metadata.Topics);
         AppendContextLine(builder, "Projects", metadata.Projects);
+        AppendContextLine(builder, "Tags", metadata.Tags);
         AppendContextLine(builder, "Screenshot context", metadata.ScreenshotContext);
         builder.AppendLine(ContextEndMarker);
         builder.AppendLine();
@@ -279,7 +282,7 @@ public sealed class NoteMetadataFormatter
         }
 
         var key = line[..separator].Trim();
-        return key is "people" or "topics" or "projects" or "screenshot_context";
+        return key is "people" or "topics" or "projects" or "tags" or "screenshot_context";
     }
 
     private static int SkipManagedBlock(IReadOnlyList<string> lines, int index)

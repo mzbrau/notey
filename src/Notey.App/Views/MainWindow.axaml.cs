@@ -10,6 +10,7 @@ using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
 using Notey.Core.Platform;
+using Notey.PipelineSteps;
 using Notey.Pipelines.Catalog;
 using Notey.Pipelines.Context;
 using Notey.Pipelines.Data;
@@ -48,7 +49,9 @@ public sealed partial class MainWindow : Window
     private bool _isExitRequested;
     private bool _isSwitchingDraft;
     private bool _isCaptureInProgress;
+    private bool _isOrganizationInProgress;
     private bool _metadataDirty;
+    private long _organizationRevision;
     private string _lastSavedText = string.Empty;
     private HotkeyGesture? _openNoteGesture;
     private IReadOnlyList<VaultEntity> _peopleIndex = [];
@@ -171,6 +174,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            _organizationRevision++;
             UpdatePersonAutocomplete();
             ScheduleAutosave();
         };
@@ -196,8 +200,14 @@ public sealed partial class MainWindow : Window
         PeopleInput.TextChanged += MetadataInputOnTextChanged;
         TopicsInput.TextChanged += MetadataInputOnTextChanged;
         ProjectsInput.TextChanged += MetadataInputOnTextChanged;
+        TagsInput.TextChanged += MetadataInputOnTextChanged;
         ScreenshotContextInput.TextChanged += MetadataInputOnTextChanged;
+        SuggestedPeopleInput.TextChanged += SuggestionInputOnTextChanged;
+        SuggestedTopicsInput.TextChanged += SuggestionInputOnTextChanged;
+        SuggestedProjectsInput.TextChanged += SuggestionInputOnTextChanged;
+        SuggestedTagsInput.TextChanged += SuggestionInputOnTextChanged;
         PersonAutocompleteList.PointerReleased += async (_, _) => await InsertSelectedPersonLinkAsync();
+        AcceptMetadataSuggestionsButton.Click += (_, _) => AcceptMetadataSuggestions();
     }
 
     private void ConfigureShellCommands()
@@ -206,6 +216,7 @@ public sealed partial class MainWindow : Window
         OpenRecentNoteButton.Click += async (_, _) => await OpenRecentOrCreateAsync(forceChoice: true);
         CaptureAnalyzeButton.Click += async (_, _) => await CaptureScreenshotAsync(ScreenSnipMode.AnalyzeWithAi);
         CaptureSaveButton.Click += async (_, _) => await CaptureScreenshotAsync(ScreenSnipMode.SaveOnly);
+        ImproveMarkdownButton.Click += async (_, _) => await ImproveMarkdownAsync();
         SaveNoteButton.Click += async (_, _) =>
         {
             if (await FlushAutosaveAsync())
@@ -295,6 +306,167 @@ public sealed partial class MainWindow : Window
             _isCaptureInProgress = false;
             CaptureAnalyzeButton.IsEnabled = true;
             CaptureSaveButton.IsEnabled = true;
+        }
+    }
+
+    private async Task ImproveMarkdownAsync()
+    {
+        if (_isOrganizationInProgress)
+        {
+            AutosaveStatusText.Text = "AI IMPROVE ACTIVE";
+            return;
+        }
+
+        _isOrganizationInProgress = true;
+        ImproveMarkdownButton.IsEnabled = false;
+
+        try
+        {
+            await ImproveMarkdownCoreAsync();
+        }
+        finally
+        {
+            _isOrganizationInProgress = false;
+            ImproveMarkdownButton.IsEnabled = true;
+        }
+    }
+
+    private async Task ImproveMarkdownCoreAsync()
+    {
+        if (_currentDraft is null)
+        {
+            await OpenRecentOrCreateAsync(forceChoice: false);
+        }
+
+        var targetDraft = _currentDraft;
+        if (targetDraft is null || !await FlushAutosaveAsync())
+        {
+            return;
+        }
+
+        var metadataSnapshot = GetMetadataInputSnapshot();
+        var organizationInput = NoteOrganizationMarkdown.BuildOrganizationInput(
+            NoteEditor.Document.Text,
+            GetMetadataNames(metadataSnapshot.People, TrimPersonToken),
+            GetMetadataNames(metadataSnapshot.Topics, TrimTopicToken),
+            GetMetadataNames(metadataSnapshot.Projects, TrimProjectToken),
+            GetMetadataNames(metadataSnapshot.Tags, TrimTagToken),
+            out var userAuthoredBody);
+        if (string.IsNullOrWhiteSpace(userAuthoredBody))
+        {
+            AutosaveStatusText.Text = "NO NOTE TEXT";
+            return;
+        }
+
+        var organizationRevision = _organizationRevision;
+        PipelineDefinition? pipeline;
+        try
+        {
+            var compatiblePipelines = await _pipelineCatalog.GetEnabledCompatibleAsync(PipelineDataType.TextData, _windowClosed.Token);
+            if (compatiblePipelines.Count == 0)
+            {
+                AutosaveStatusText.Text = "NO TEXT PIPELINE";
+                return;
+            }
+
+            pipeline = compatiblePipelines.Count == 1
+                ? compatiblePipelines[0]
+                : await PipelineChoiceWindow.ShowAsync(this, compatiblePipelines);
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Organization pipeline discovery was cancelled because the window closed.");
+            return;
+        }
+        catch (IOException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE ERROR";
+            _logger.LogError(ex, "Failed to load organization pipeline definitions.");
+            return;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE ERROR";
+            _logger.LogError(ex, "Notey does not have permission to read organization pipeline definitions.");
+            return;
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE ERROR";
+            _logger.LogError(ex, "Pipeline configuration prevented note organization.");
+            return;
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE ERROR";
+            _logger.LogError(ex, "Invalid pipeline configuration prevented note organization.");
+            return;
+        }
+
+        if (pipeline is null)
+        {
+            AutosaveStatusText.Text = "PIPELINE CANCELLED";
+            return;
+        }
+
+        await RunOrganizationPipelineAsync(pipeline, targetDraft, organizationRevision, organizationInput);
+    }
+
+    private async Task RunOrganizationPipelineAsync(
+        PipelineDefinition pipeline,
+        NoteDraft targetDraft,
+        long organizationRevision,
+        string organizationInput)
+    {
+        if (!IsCurrentDraft(targetDraft) || organizationRevision != _organizationRevision)
+        {
+            AutosaveStatusText.Text = "PIPELINE SKIPPED";
+            return;
+        }
+
+        var context = new PipelineContext(pipeline.Id, _timeProvider.GetUtcNow());
+        context.SetValue("note.filePath", targetDraft.FilePath);
+        context.SetValue("note.organization.mode", "manual");
+        var progress = new Progress<PipelineProgressUpdate>(update => UpdatePipelineStatus(update, pipeline));
+
+        try
+        {
+            AutosaveStatusText.Text = $"PIPELINE {FormatPipelineName(pipeline).ToUpperInvariant()}";
+            var result = await _pipelineExecutor.ExecuteAsync(
+                pipeline,
+                new TextData(organizationInput, targetDraft.FilePath),
+                context,
+                progress,
+                _windowClosed.Token);
+            await ApplyOrganizationPipelineResultAsync(result, targetDraft, organizationRevision);
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Organization pipeline {PipelineId} was cancelled because the window closed.", pipeline.Id);
+        }
+        catch (OperationCanceledException)
+        {
+            AutosaveStatusText.Text = "PIPELINE CANCELLED";
+        }
+        catch (PipelineValidationException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE INVALID";
+            _logger.LogError(ex, "Organization pipeline {PipelineId} is invalid.", pipeline.Id);
+        }
+        catch (PipelineExecutionException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE FAILED";
+            _logger.LogError(ex, "Organization pipeline {PipelineId} failed.", pipeline.Id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE FAILED";
+            _logger.LogError(ex, "Organization pipeline {PipelineId} could not be executed.", pipeline.Id);
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "PIPELINE FAILED";
+            _logger.LogError(ex, "Organization pipeline {PipelineId} received invalid configuration.", pipeline.Id);
         }
     }
 
@@ -584,30 +756,117 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async Task ApplyOrganizationPipelineResultAsync(
+        PipelineExecutionResult result,
+        NoteDraft targetDraft,
+        long organizationRevision)
+    {
+        await _autosaveGate.WaitAsync(_windowClosed.Token);
+        try
+        {
+            if (!IsCurrentDraft(targetDraft) || organizationRevision != _organizationRevision)
+            {
+                AutosaveStatusText.Text = "PIPELINE SKIPPED";
+                _logger.LogInformation(
+                    "Skipped applying organization pipeline {PipelineId} because the active draft or note content changed.",
+                    result.Pipeline.Id);
+                return;
+            }
+
+            ApplyOrganizationPipelineOutput(result.Output, result.Pipeline);
+        }
+        finally
+        {
+            _autosaveGate.Release();
+        }
+
+        ScheduleAutosave();
+        AutosaveStatusText.Text = "AI SUGGESTIONS READY";
+    }
+
+    private void ApplyOrganizationPipelineOutput(PipelineData output, PipelineDefinition pipeline)
+    {
+        switch (output)
+        {
+            case StructuredNoteData structuredNoteData:
+                ApplyOrganizationStructuredNoteData(structuredNoteData);
+                break;
+            case MarkdownContent markdownContent:
+                ApplyOrganizationMarkdownContent(markdownContent, pipeline);
+                break;
+        }
+    }
+
+    private void ApplyOrganizationStructuredNoteData(StructuredNoteData data)
+    {
+        AddStructuredNoteSuggestions(data);
+        var cleanupBlock = NoteOrganizationMarkdown.RenderCleanupBlock(data, "AI cleaned summary");
+        if (!string.IsNullOrWhiteSpace(cleanupBlock))
+        {
+            NoteEditor.Document.Text = NoteOrganizationMarkdown.ReplaceCleanupBlock(NoteEditor.Document.Text, cleanupBlock);
+            NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
+            UpdateEditorStatus();
+        }
+    }
+
+    private void ApplyOrganizationMarkdownContent(MarkdownContent markdownContent, PipelineDefinition pipeline)
+    {
+        if (string.IsNullOrWhiteSpace(markdownContent.Markdown))
+        {
+            return;
+        }
+
+        var trimmed = markdownContent.Markdown.Trim();
+        var hasCompleteCleanupBlock =
+            trimmed.Contains(NoteOrganizationMarkdown.CleanupStartMarker, StringComparison.Ordinal)
+            && trimmed.Contains(NoteOrganizationMarkdown.CleanupEndMarker, StringComparison.Ordinal);
+        var cleanupBlock = hasCompleteCleanupBlock
+            ? trimmed
+            : string.Join('\n',
+                NoteOrganizationMarkdown.CleanupStartMarker,
+                $"## {FormatPipelineName(pipeline)}",
+                string.Empty,
+                trimmed,
+                NoteOrganizationMarkdown.CleanupEndMarker);
+
+        NoteEditor.Document.Text = NoteOrganizationMarkdown.ReplaceCleanupBlock(NoteEditor.Document.Text, cleanupBlock);
+        NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
+        UpdateEditorStatus();
+    }
+
     private void ApplyStructuredNoteData(StructuredNoteData data, PipelineDefinition pipeline)
     {
-        PeopleInput.Text = MetadataInputMerger.Merge(
-            PeopleInput.Text ?? string.Empty,
-            data.People?.Select(static entity => entity.Name) ?? [],
-            TrimPersonToken);
-        TopicsInput.Text = MetadataInputMerger.Merge(
-            TopicsInput.Text ?? string.Empty,
-            data.Topics?.Select(static entity => entity.Name) ?? [],
-            TrimTopicToken);
-        ProjectsInput.Text = MetadataInputMerger.Merge(
-            ProjectsInput.Text ?? string.Empty,
-            data.Projects?.Select(static entity => entity.Name) ?? [],
-            TrimProjectToken);
+        AddStructuredNoteSuggestions(data);
 
         var markdown = BuildStructuredNoteMarkdown(data, pipeline);
         if (!string.IsNullOrWhiteSpace(markdown))
         {
             AppendMarkdownBlock(markdown);
         }
+    }
 
-        if (data.Tags is { Count: > 0 })
+    private void AddStructuredNoteSuggestions(StructuredNoteData data)
+    {
+        SuggestedPeopleInput.Text = MetadataInputMerger.Merge(
+            SuggestedPeopleInput.Text ?? string.Empty,
+            data.People?.Select(static entity => entity.Name) ?? [],
+            TrimPersonToken);
+        SuggestedTopicsInput.Text = MetadataInputMerger.Merge(
+            SuggestedTopicsInput.Text ?? string.Empty,
+            data.Topics?.Select(static entity => entity.Name) ?? [],
+            TrimTopicToken);
+        SuggestedProjectsInput.Text = MetadataInputMerger.Merge(
+            SuggestedProjectsInput.Text ?? string.Empty,
+            data.Projects?.Select(static entity => entity.Name) ?? [],
+            TrimProjectToken);
+        SuggestedTagsInput.Text = MetadataInputMerger.Merge(
+            SuggestedTagsInput.Text ?? string.Empty,
+            data.Tags?.Select(static tag => $"#{tag.Trim().TrimStart('#')}") ?? [],
+            TrimTagToken);
+
+        if (HasMetadataSuggestions())
         {
-            AddScreenshotContextLines([$"Suggested tags: {string.Join(", ", data.Tags.Select(static tag => $"#{tag.Trim().TrimStart('#')}"))}"]);
+            MetadataToggle.IsChecked = true;
         }
     }
 
@@ -642,6 +901,50 @@ public sealed partial class MainWindow : Window
             .ToArray();
 
         ScreenshotContextInput.Text = string.Join('\n', merged);
+    }
+
+    private void AcceptMetadataSuggestions()
+    {
+        if (!HasMetadataSuggestions())
+        {
+            AutosaveStatusText.Text = "NO AI SUGGESTIONS";
+            return;
+        }
+
+        PeopleInput.Text = MetadataInputMerger.Merge(
+            PeopleInput.Text ?? string.Empty,
+            GetMetadataNames(SuggestedPeopleInput.Text, TrimPersonToken),
+            TrimPersonToken);
+        TopicsInput.Text = MetadataInputMerger.Merge(
+            TopicsInput.Text ?? string.Empty,
+            GetMetadataNames(SuggestedTopicsInput.Text, TrimTopicToken),
+            TrimTopicToken);
+        ProjectsInput.Text = MetadataInputMerger.Merge(
+            ProjectsInput.Text ?? string.Empty,
+            GetMetadataNames(SuggestedProjectsInput.Text, TrimProjectToken),
+            TrimProjectToken);
+        TagsInput.Text = MetadataInputMerger.Merge(
+            TagsInput.Text ?? string.Empty,
+            GetMetadataNames(SuggestedTagsInput.Text, TrimTagToken),
+            TrimTagToken);
+
+        SuggestedPeopleInput.Text = string.Empty;
+        SuggestedTopicsInput.Text = string.Empty;
+        SuggestedProjectsInput.Text = string.Empty;
+        SuggestedTagsInput.Text = string.Empty;
+        _metadataDirty = true;
+        _organizationRevision++;
+        UpdateMetadataChips();
+        ScheduleAutosave();
+        AutosaveStatusText.Text = "AI SUGGESTIONS ACCEPTED";
+    }
+
+    private bool HasMetadataSuggestions()
+    {
+        return !string.IsNullOrWhiteSpace(SuggestedPeopleInput.Text)
+            || !string.IsNullOrWhiteSpace(SuggestedTopicsInput.Text)
+            || !string.IsNullOrWhiteSpace(SuggestedProjectsInput.Text)
+            || !string.IsNullOrWhiteSpace(SuggestedTagsInput.Text);
     }
 
     private IReadOnlyList<string> BuildPipelineContextLines(PipelineExecutionResult result, string embed)
@@ -853,11 +1156,16 @@ public sealed partial class MainWindow : Window
 
     private void PopulateMetadataInputsFromDraft(string content)
     {
-        var (people, topics, projects, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs(content);
+        var (people, topics, projects, tags, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs(content);
         PeopleInput.Text = string.Join(", ", people);
         TopicsInput.Text = string.Join(", ", topics);
         ProjectsInput.Text = string.Join(", ", projects);
+        TagsInput.Text = string.Join(", ", tags);
         ScreenshotContextInput.Text = string.Join("\n", screenshotContext);
+        SuggestedPeopleInput.Text = string.Empty;
+        SuggestedTopicsInput.Text = string.Empty;
+        SuggestedProjectsInput.Text = string.Empty;
+        SuggestedTagsInput.Text = string.Empty;
     }
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
@@ -1109,8 +1417,19 @@ public sealed partial class MainWindow : Window
         }
 
         _metadataDirty = true;
+        _organizationRevision++;
         UpdateMetadataChips();
         ScheduleAutosave();
+    }
+
+    private void SuggestionInputOnTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_isInitializing)
+        {
+            return;
+        }
+
+        _organizationRevision++;
     }
 
     private void ScheduleAutosave()
@@ -1339,6 +1658,9 @@ public sealed partial class MainWindow : Window
         var peopleLinks = await ResolveMetadataLinksAsync(snapshot.People, VaultEntityKind.Person, TrimPersonToken, cancellationToken);
         var topicLinks = await ResolveMetadataLinksAsync(snapshot.Topics, VaultEntityKind.Topic, TrimTopicToken, cancellationToken);
         var projectLinks = await ResolveMetadataLinksAsync(snapshot.Projects, VaultEntityKind.Project, TrimProjectToken, cancellationToken);
+        var tags = GetMetadataNames(snapshot.Tags, TrimTagToken)
+            .Select(static tag => $"#{tag.Trim().TrimStart('#')}")
+            .ToArray();
 
         await RefreshPeopleIndexAsync();
 
@@ -1346,6 +1668,7 @@ public sealed partial class MainWindow : Window
             peopleLinks,
             topicLinks,
             projectLinks,
+            tags,
             GetScreenshotContext(snapshot.ScreenshotContext));
     }
 
@@ -1371,9 +1694,11 @@ public sealed partial class MainWindow : Window
         var people = GetMetadataNames(metadataSnapshot.People, TrimPersonToken);
         var topics = GetMetadataNames(metadataSnapshot.Topics, TrimTopicToken);
         var projects = GetMetadataNames(metadataSnapshot.Projects, TrimProjectToken);
+        var tags = GetMetadataNames(metadataSnapshot.Tags, TrimTagToken);
 
         PeopleChipText.Text = FormatChip(people, "@person", static person => $"@{person}");
         TopicChipText.Text = FormatChip(topics, "#topic", static topic => $"#{topic}");
+        TagsChipText.Text = FormatChip(tags, "#tag", static tag => $"#{tag.Trim().TrimStart('#')}");
         ProjectChipText.Text = FormatChip(projects, "[[Project]]", static project => $"[[{project}]]");
     }
 
@@ -1383,6 +1708,7 @@ public sealed partial class MainWindow : Window
             PeopleInput.Text ?? string.Empty,
             TopicsInput.Text ?? string.Empty,
             ProjectsInput.Text ?? string.Empty,
+            TagsInput.Text ?? string.Empty,
             ScreenshotContextInput.Text ?? string.Empty);
     }
 
@@ -1440,6 +1766,11 @@ public sealed partial class MainWindow : Window
         return TrimObsidianAlias(value).Trim();
     }
 
+    private static string TrimTagToken(string value)
+    {
+        return TrimObsidianAlias(value).TrimStart('#').Trim();
+    }
+
     private static string TrimObsidianAlias(string value)
     {
         var trimmed = value.Trim();
@@ -1481,5 +1812,5 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private sealed record MetadataInputSnapshot(string People, string Topics, string Projects, string ScreenshotContext);
+    private sealed record MetadataInputSnapshot(string People, string Topics, string Projects, string Tags, string ScreenshotContext);
 }

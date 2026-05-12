@@ -65,6 +65,27 @@
         }
       ],
       "finalOutputType": "StructuredNoteData"
+    },
+    {
+      "id": "note-organization-ai-structured",
+      "displayName": "AI note cleanup and organization",
+      "description": "Manually cleans up the current note and suggests people, topics, projects, and tags without rewriting the raw note.",
+      "enabled": true,
+      "acceptedInputTypes": [ "TextData" ],
+      "steps": [
+        {
+          "id": "organize",
+          "stepId": "ai-structured-extraction",
+          "configuration": {
+            "providerId": "default",
+            "systemPrompt": "You organize raw Obsidian notes. Preserve the user's original wording conceptually, do not invent facts, and return only JSON.",
+            "taskPrompt": "Create a concise cleaned summary and Markdown-ready sections that make the note easier to scan. Suggest people, topics, projects, and tags only when supported by the note. Return suggestions for review; do not assume they are accepted.",
+            "temperature": 0.1,
+            "maxTokens": 1400
+          }
+        }
+      ],
+      "finalOutputType": "StructuredNoteData"
     }
   ]
 }
