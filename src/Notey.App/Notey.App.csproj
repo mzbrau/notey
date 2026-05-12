@@ -5,6 +5,7 @@
     <ProjectReference Include="..\Notey.Vault\Notey.Vault.csproj" />
     <ProjectReference Include="..\Notey.Capture\Notey.Capture.csproj" />
     <ProjectReference Include="..\Notey.AI\Notey.AI.csproj" />
+    <ProjectReference Include="..\Notey.Pipelines\Notey.Pipelines.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,6 +28,8 @@
 
   <ItemGroup>
     <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="pipelines*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <AvaloniaResource Include="Assets\notey.ico" />
   </ItemGroup>
 
 </Project>

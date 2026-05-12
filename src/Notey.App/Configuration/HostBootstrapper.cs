@@ -9,7 +9,14 @@ using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
 using Notey.Core.Platform;
+using Notey.Pipelines.Catalog;
+using Notey.Pipelines.Definitions;
+using Notey.Pipelines.Execution;
+using Notey.Pipelines.Registry;
+using Notey.Pipelines.Steps;
+using Notey.Pipelines.Validation;
 using Notey.Vault.Abstractions;
+using Notey.Vault.Linking;
 using Notey.Vault.Notes;
 
 namespace Notey.App.Configuration;
@@ -32,6 +39,7 @@ public static class HostBootstrapper
             .ConfigureServices((context, services) =>
             {
                 var options = new NoteyOptions();
+                var platformRuntime = new PlatformRuntime();
                 context.Configuration.GetSection(NoteyOptions.SectionName).Bind(options);
 
                 services.AddSingleton(options);
@@ -39,14 +47,41 @@ public static class HostBootstrapper
                 services.AddSingleton<NoteTemplateFactory>();
                 services.AddSingleton<NoteFileNameGenerator>();
                 services.AddSingleton<MainWindow>();
-                services.AddSingleton<IPlatformRuntime, PlatformRuntime>();
-                services.AddSingleton<IGlobalHotkeyService, NoOpGlobalHotkeyService>();
-                services.AddSingleton<ITrayService, NoOpTrayService>();
+                services.AddSingleton<IPlatformRuntime>(platformRuntime);
                 services.AddSingleton<IScreenSnipService, UnavailableScreenSnipService>();
                 services.AddSingleton<IScreenshotAnalysisService, UnconfiguredScreenshotAnalysisService>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
+                services.AddSingleton<ObsidianLinkBuilder>();
+                services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
+                services.AddSingleton<IPipelineStepRegistry>(serviceProvider =>
+                    new PipelineStepRegistry(serviceProvider.GetServices<IPipelineStep>()));
+                services.AddSingleton<PipelineValidator>();
+                services.AddSingleton<IPipelineDefinitionSource>(_ =>
+                    new FilePipelineDefinitionSource(ResolvePipelineDefinitionPath(options.Pipelines.DefinitionFilePath)));
+                services.AddSingleton<PipelineCatalog>();
+                services.AddSingleton<PipelineExecutor>();
+
+                if (platformRuntime.IsWindows)
+                {
+                    services.AddSingleton<IGlobalHotkeyService, WindowsGlobalHotkeyService>();
+                    services.AddSingleton<ITrayService, AvaloniaTrayService>();
+                }
+                else
+                {
+                    services.AddSingleton<IGlobalHotkeyService, NoOpGlobalHotkeyService>();
+                    services.AddSingleton<ITrayService, NoOpTrayService>();
+                }
             })
             .Build();
+    }
+
+    private static string ResolvePipelineDefinitionPath(string configuredPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(configuredPath);
+
+        return Path.IsPathRooted(configuredPath)
+            ? configuredPath
+            : Path.Combine(AppContext.BaseDirectory, configuredPath);
     }
 }

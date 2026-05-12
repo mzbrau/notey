@@ -7,7 +7,7 @@ public sealed class NoOpGlobalHotkeyService(ILogger<NoOpGlobalHotkeyService> log
 {
     public ValueTask RegisterAsync(GlobalHotkeyRegistration registration, CancellationToken cancellationToken = default)
     {
-        logger.LogInformation("Global hotkey {Gesture} for {Name} is registered as a no-op in the foundation phase.", registration.Gesture, registration.Name);
+        logger.LogInformation("Global hotkey {Gesture} for {Name} is unavailable on this platform and was registered as a no-op.", registration.Gesture, registration.Name);
         return ValueTask.CompletedTask;
     }
 }

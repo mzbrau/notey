@@ -8,7 +8,7 @@ public sealed class PlatformRuntime : IPlatformRuntime
 
     public bool IsWindows => System.OperatingSystem.IsWindows();
 
-    public bool SupportsGlobalHotkeys => false;
+    public bool SupportsGlobalHotkeys => IsWindows;
 
     public bool SupportsScreenSnips => false;
 

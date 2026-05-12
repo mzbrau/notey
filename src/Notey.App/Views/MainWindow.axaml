@@ -23,8 +23,8 @@
                     Orientation="Horizontal"
                     VerticalAlignment="Center"
                     Spacing="6">
-          <Button Classes="command" Content="+" ToolTip.Tip="New note" AutomationProperties.Name="New note" />
-          <Button Classes="command" Content="R" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note" />
+          <Button x:Name="NewNoteButton" Classes="command" Content="+" ToolTip.Tip="New note" AutomationProperties.Name="New note" />
+          <Button x:Name="OpenRecentNoteButton" Classes="command" Content="R" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note" />
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
           <Button Classes="command" Content="AI" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis" />
           <Button Classes="command" Content="S" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save" />
@@ -46,7 +46,7 @@
             VerticalAlignment="Center">
         <TextBlock Grid.Column="0" Classes="label" Text="DATE" VerticalAlignment="Center" />
         <Border Grid.Column="1" Classes="metadata-chip">
-          <TextBlock Classes="chipText" Text="Today, 22:13" />
+          <TextBlock x:Name="DateChipText" Classes="chipText" Text="Today" />
         </Border>
 
         <TextBlock Grid.Column="2" Classes="label" Text="CONTEXT" VerticalAlignment="Center" Margin="10,0,0,0" />
@@ -55,13 +55,13 @@
                     Spacing="8"
                     VerticalAlignment="Center">
           <Border Classes="metadata-chip person-chip">
-            <TextBlock Classes="chipText personText" Text="@person" />
+            <TextBlock x:Name="PeopleChipText" Classes="chipText personText" Text="@person" />
           </Border>
           <Border Classes="metadata-chip topic-chip">
-            <TextBlock Classes="chipText topicText" Text="#topic" />
+            <TextBlock x:Name="TopicChipText" Classes="chipText topicText" Text="#topic" />
           </Border>
           <Border Classes="metadata-chip">
-            <TextBlock Classes="chipText" Text="[[Project]]" />
+            <TextBlock x:Name="ProjectChipText" Classes="chipText" Text="[[Project]]" />
           </Border>
         </StackPanel>
 
@@ -89,30 +89,44 @@
         <TextBlock Grid.Column="2" Classes="label" Text="PROJECT" />
         <TextBlock Grid.Column="3" Classes="label" Text="SCREENSHOT CONTEXT" />
 
-        <TextBox Grid.Row="1" Grid.Column="0" Classes="metadataInput" PlaceholderText="@person, @person" />
-        <TextBox Grid.Row="1" Grid.Column="1" Classes="metadataInput" PlaceholderText="#topic, #meeting" />
-        <TextBox Grid.Row="1" Grid.Column="2" Classes="metadataInput" PlaceholderText="[[Project]]" />
-        <TextBox Grid.Row="1" Grid.Column="3" Classes="metadataInput" PlaceholderText="Screenshot context notes" />
+        <TextBox x:Name="PeopleInput" Grid.Row="1" Grid.Column="0" Classes="metadataInput" PlaceholderText="@person, @person" />
+        <TextBox x:Name="TopicsInput" Grid.Row="1" Grid.Column="1" Classes="metadataInput" PlaceholderText="#topic, #meeting" />
+        <TextBox x:Name="ProjectsInput" Grid.Row="1" Grid.Column="2" Classes="metadataInput" PlaceholderText="[[Project]]" />
+        <TextBox x:Name="ScreenshotContextInput" Grid.Row="1" Grid.Column="3" Classes="metadataInput" PlaceholderText="Screenshot context notes" />
       </Grid>
     </Border>
 
-    <Border Grid.Row="3"
-            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
-            BorderThickness="0,0,0,1"
-            Background="{DynamicResource Notey.SurfaceBrush}">
-      <ae:TextEditor x:Name="NoteEditor"
-                     ShowLineNumbers="True"
-                     IsReadOnly="True"
-                     WordWrap="True"
-                     HorizontalScrollBarVisibility="Disabled"
-                     VerticalScrollBarVisibility="Auto"
-                     Background="{DynamicResource Notey.SurfaceBrush}"
-                     Foreground="{DynamicResource Notey.PrimaryTextBrush}"
-                     LineNumbersForeground="{DynamicResource Notey.SubtleTextBrush}"
-                     FontFamily="Inter, Segoe UI, Arial"
-                     FontSize="17"
-                     Padding="48,36" />
-    </Border>
+    <Grid Grid.Row="3">
+      <Border BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+              BorderThickness="0,0,0,1"
+              Background="{DynamicResource Notey.SurfaceBrush}">
+        <ae:TextEditor x:Name="NoteEditor"
+                       ShowLineNumbers="True"
+                       IsReadOnly="True"
+                       WordWrap="True"
+                       HorizontalScrollBarVisibility="Disabled"
+                       VerticalScrollBarVisibility="Auto"
+                       Background="{DynamicResource Notey.SurfaceBrush}"
+                       Foreground="{DynamicResource Notey.PrimaryTextBrush}"
+                       LineNumbersForeground="{DynamicResource Notey.SubtleTextBrush}"
+                       FontFamily="Inter, Segoe UI, Arial"
+                       FontSize="17"
+                       Padding="48,36" />
+      </Border>
+
+      <Border x:Name="PersonAutocompletePanel"
+              Classes="autocompletePanel"
+              IsVisible="False"
+              Width="340"
+              MaxHeight="260"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Top"
+              Margin="96,72,0,0">
+        <ListBox x:Name="PersonAutocompleteList"
+                 Classes="autocompleteList"
+                 MaxHeight="246" />
+      </Border>
+    </Grid>
 
     <Border Grid.Row="4"
             BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"

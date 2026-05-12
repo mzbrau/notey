@@ -18,5 +18,6 @@ public sealed class NoteyOptionsTests
         Assert.Equal("Projects", options.Vault.ProjectsPath);
         Assert.Equal("Attachments/Snips", options.Vault.ScreenshotPath);
         Assert.False(options.Ai.StoreApiKeyInPlaintext);
+        Assert.Equal("pipelines.json", options.Pipelines.DefinitionFilePath);
     }
 }

@@ -11,6 +11,8 @@ public sealed class NoteyOptions
     public VaultOptions Vault { get; set; } = new();
 
     public AiOptions Ai { get; set; } = new();
+
+    public PipelineOptions Pipelines { get; set; } = new();
 }
 
 public sealed class UiOptions
@@ -51,4 +53,9 @@ public sealed class AiOptions
     public string ModelName { get; set; } = string.Empty;
 
     public bool StoreApiKeyInPlaintext { get; set; }
+}
+
+public sealed class PipelineOptions
+{
+    public string DefinitionFilePath { get; set; } = "pipelines.json";
 }

@@ -14,7 +14,10 @@ public sealed class FileSystemVaultWorkspace(NoteyOptions options) : IVaultWorks
             Normalize(rootPath, vault.PeoplePath),
             Normalize(rootPath, vault.TopicsPath),
             Normalize(rootPath, vault.ProjectsPath),
-            Normalize(rootPath, vault.ScreenshotPath));
+            Normalize(rootPath, vault.ScreenshotPath))
+        {
+            RootPath = rootPath
+        };
     }
 
     private static string ResolveRootPath(string rootPath)
@@ -38,8 +41,19 @@ public sealed class FileSystemVaultWorkspace(NoteyOptions options) : IVaultWorks
             throw new InvalidOperationException("Vault paths must be configured before notes can be saved.");
         }
 
-        return Path.IsPathFullyQualified(path)
+        var normalizedPath = Path.IsPathFullyQualified(path)
             ? Path.GetFullPath(path)
             : Path.GetFullPath(path, rootPath);
+
+        var relativePath = Path.GetRelativePath(rootPath, normalizedPath);
+        if (relativePath == ".."
+            || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            || relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal)
+            || Path.IsPathFullyQualified(relativePath))
+        {
+            throw new InvalidOperationException("Vault paths must stay within the configured vault root.");
+        }
+
+        return normalizedPath;
     }
 }

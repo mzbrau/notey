@@ -4,6 +4,7 @@
     <Project Path="src/Notey.App/Notey.App.csproj" />
     <Project Path="src/Notey.Capture/Notey.Capture.csproj" />
     <Project Path="src/Notey.Core/Notey.Core.csproj" />
+    <Project Path="src/Notey.Pipelines/Notey.Pipelines.csproj" />
     <Project Path="src/Notey.Vault/Notey.Vault.csproj" />
   </Folder>
   <Folder Name="/tests/">
