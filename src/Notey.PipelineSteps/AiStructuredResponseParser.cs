@@ -24,11 +24,11 @@ public static class AiStructuredResponseParser
         return new StructuredNoteData(
             Summary: ReadString(root, "summary"),
             MeetingTitle: ReadString(root, "meetingTitle") ?? ReadString(root, "meeting_title"),
-            People: ReadEntities(root["people"], "person"),
+            People: ReadEntities(CombineEntityArrays(root["people"], root["participants"]), "person"),
             Topics: ReadEntities(root["topics"], "topic"),
             Projects: ReadEntities(root["projects"], "project"),
             Tags: ReadStringArray(root["tags"]),
-            Sections: ReadSections(root["sections"]));
+            Sections: ReadSections(root));
     }
 
     public static string ExtractJsonObject(string response)
@@ -126,6 +126,23 @@ public static class AiStructuredResponseParser
             .ToArray();
     }
 
+    private static JsonArray? CombineEntityArrays(params JsonNode?[] nodes)
+    {
+        var output = new JsonArray();
+        foreach (var array in nodes.OfType<JsonArray>())
+        {
+            foreach (var item in array)
+            {
+                if (item is not null)
+                {
+                    output.Add(item.DeepClone());
+                }
+            }
+        }
+
+        return output.Count == 0 ? null : output;
+    }
+
     private static EntitySuggestion? ReadEntity(JsonNode? node, string kind)
     {
         if (node is null)
@@ -169,17 +186,58 @@ public static class AiStructuredResponseParser
             .ToArray();
     }
 
-    private static IReadOnlyDictionary<string, string> ReadSections(JsonNode? node)
+    private static IReadOnlyDictionary<string, string> ReadSections(JsonNode root)
     {
-        if (node is not JsonObject sections)
+        var output = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (root["sections"] is JsonObject sections)
         {
-            return new Dictionary<string, string>();
+            foreach (var (key, value) in sections)
+            {
+                AddSection(output, key, value);
+            }
         }
 
-        return sections
-            .Where(static property => !string.IsNullOrWhiteSpace(property.Key) && property.Value is not null)
-            .Select(static property => new KeyValuePair<string, string>(property.Key.Trim(), property.Value!.ToString().Trim()))
-            .Where(static property => !string.IsNullOrWhiteSpace(property.Value))
-            .ToDictionary(static property => property.Key, static property => property.Value, StringComparer.OrdinalIgnoreCase);
+        AddSection(output, "Agenda", root["agenda"]);
+        AddSection(output, "Context", root["context"]);
+        AddSection(output, "Action items", root["actionItems"] ?? root["action_items"] ?? root["actions"]);
+        AddSection(output, "Notes", root["notes"]);
+
+        return output;
+    }
+
+    private static void AddSection(IDictionary<string, string> sections, string key, JsonNode? value)
+    {
+        var heading = key.Trim();
+        var body = ReadSectionBody(value);
+        if (!string.IsNullOrWhiteSpace(heading)
+            && !string.IsNullOrWhiteSpace(body)
+            && !sections.ContainsKey(heading))
+        {
+            sections[heading] = body;
+        }
+    }
+
+    private static string? ReadSectionBody(JsonNode? value)
+    {
+        return value switch
+        {
+            null => null,
+            JsonValue jsonValue when jsonValue.TryGetValue<string>(out var text) => text.Trim(),
+            JsonArray array => FormatSectionArray(array),
+            _ => value.ToString().Trim(),
+        };
+    }
+
+    private static string FormatSectionArray(JsonArray array)
+    {
+        return string.Join(
+            '\n',
+            array
+                .Select(static item => item is JsonValue value && value.TryGetValue<string>(out var text)
+                    ? text.Trim()
+                    : item?.ToString().Trim())
+                .Where(static item => !string.IsNullOrWhiteSpace(item))
+                .Select(static item => item!.StartsWith("- ", StringComparison.Ordinal) ? item : $"- {item}"));
     }
 }

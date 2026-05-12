@@ -9,4 +9,6 @@ public static class PipelineStepContextKeys
     public const string AiProviderId = "ai.provider_id";
     public const string AiModelName = "ai.model_name";
     public const string AiRawOutput = "ai.raw_output";
+    public const string TeamsParticipantConfidenceThreshold = "teams.participant_confidence_threshold";
+    public const string TeamsSuggestedParticipants = "teams.suggested_participants";
 }
