@@ -86,6 +86,20 @@ public sealed class Phase8PipelineStepTests
     }
 
     [Fact]
+    public void Ai_parser_ignores_non_string_values_for_string_fields()
+    {
+        const string response = """
+            { "summary": 42, "tags": [1, " useful "] }
+            """;
+
+        var note = AiStructuredResponseParser.Parse(response);
+
+        Assert.Null(note.Summary);
+        Assert.NotNull(note.Tags);
+        Assert.Equal(["useful"], note.Tags);
+    }
+
+    [Fact]
     public async Task Open_ai_provider_factory_uses_environment_api_key_when_config_is_blank()
     {
         const string variableName = "NOTEY_TEST_AI_KEY";
@@ -118,6 +132,39 @@ public sealed class Phase8PipelineStepTests
         {
             Environment.SetEnvironmentVariable(variableName, previousValue);
         }
+    }
+
+    [Fact]
+    public async Task Open_ai_provider_factory_uses_global_api_key_for_provider_when_provider_key_is_blank()
+    {
+        var handler = new RecordingHandler("""
+            { "choices": [{ "message": { "content": "{\"summary\":\"ok\"}" } }] }
+            """);
+        var options = new AiOptions
+        {
+            BaseUrl = "https://example.test/v1",
+            ModelName = "test-model",
+            ApiKey = "global-key",
+            Providers =
+            [
+                new AiProviderOptions
+                {
+                    Id = "custom",
+                    Type = "OpenAiCompatible",
+                    BaseUrl = "https://example.test/v2",
+                    ModelName = "provider-model",
+                    ApiKey = " ",
+                },
+            ],
+        };
+
+        var providers = OpenAiCompatibleAiProviderFactory.CreateProviders(options, () => new HttpClient(handler));
+        var provider = Assert.Single(providers, static candidate => candidate.Id == "custom");
+        await provider.CompleteTextAsync(new AiTextRequest("Summarize", JsonOutput: true));
+
+        Assert.Equal("Bearer", handler.Authorization?.Scheme);
+        Assert.Equal("global-key", handler.Authorization?.Parameter);
+        Assert.Equal(new Uri("https://example.test/v2/chat/completions"), handler.RequestUri);
     }
 
     [Fact]
@@ -162,6 +209,40 @@ public sealed class Phase8PipelineStepTests
         Assert.True(context.TryGetValue<int>(PipelineStepContextKeys.OcrWordCount, out var wordCount));
         Assert.Equal(2, wordCount);
         Assert.Contains(context.Warnings, warning => warning.Message == "low confidence" && warning.SourceStepId == "ocr");
+    }
+
+    [Fact]
+    public async Task Tesseract_step_trims_string_configuration_values()
+    {
+        var engine = new RecordingOcrEngine(new OcrResult("hello world", "deu", null, []));
+        var step = new TesseractOcrStep(engine, new NoteyOptions
+        {
+            Ocr = new OcrOptions
+            {
+                TesseractExecutablePath = "tesseract",
+                DefaultLanguage = "eng",
+            }
+        });
+        var pipeline = new PipelineDefinition
+        {
+            Id = "ocr-pipeline",
+            Steps =
+            [
+                new PipelineStepDefinition
+                {
+                    Id = "ocr",
+                    StepId = TesseractOcrStep.StepTypeId,
+                    Configuration = new JsonObject { ["language"] = " deu " },
+                },
+            ],
+        };
+        var context = new PipelineContext(pipeline.Id, DateTimeOffset.UtcNow);
+
+        await step.ExecuteAsync(
+            new ImageData("screen.png", DateTimeOffset.UtcNow, 200, 100),
+            new PipelineStepExecutionContext(pipeline, pipeline.Steps[0], context, null));
+
+        Assert.Equal("deu", engine.LastRequest?.Language);
     }
 
     [Fact]

@@ -104,7 +104,12 @@ public static class AiStructuredResponseParser
 
     private static string? ReadString(JsonNode? node, string key)
     {
-        return node?[key]?.GetValue<string>()?.Trim();
+        if (node?[key] is not JsonValue value || !value.TryGetValue<string>(out var text))
+        {
+            return null;
+        }
+
+        return text.Trim();
     }
 
     private static IReadOnlyList<EntitySuggestion> ReadEntities(JsonNode? node, string kind)
@@ -156,7 +161,9 @@ public static class AiStructuredResponseParser
         }
 
         return array
-            .Select(static item => item?.GetValue<string>()?.Trim())
+            .Select(static item => item is JsonValue value && value.TryGetValue<string>(out var text)
+                ? text.Trim()
+                : null)
             .Where(static item => !string.IsNullOrWhiteSpace(item))
             .Select(static item => item!)
             .ToArray();

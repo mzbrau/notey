@@ -71,10 +71,12 @@ public static class OpenAiCompatibleAiProviderFactory
             environmentVariable = "NOTEY_AI_API_KEY";
         }
 
+        var configuredApiKey = string.IsNullOrWhiteSpace(provider.ApiKey) ? options.ApiKey : provider.ApiKey;
+
         return new OpenAiCompatibleAiProviderConfiguration(
             provider.Id,
             string.IsNullOrWhiteSpace(provider.BaseUrl) ? options.BaseUrl : provider.BaseUrl,
-            ResolveApiKey(provider.ApiKey, environmentVariable),
+            ResolveApiKey(configuredApiKey, environmentVariable),
             environmentVariable,
             string.IsNullOrWhiteSpace(provider.ModelName) ? options.ModelName : provider.ModelName);
     }

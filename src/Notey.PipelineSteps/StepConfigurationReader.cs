@@ -12,7 +12,12 @@ internal static class StepConfigurationReader
             return null;
         }
 
-        return value?.GetValue<string>();
+        if (value is JsonValue jsonValue && jsonValue.TryGetValue<string>(out var text))
+        {
+            return text.Trim();
+        }
+
+        return value?.ToString().Trim();
     }
 
     public static bool GetBoolean(JsonObject? configuration, string key, bool defaultValue = false)
