@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Notey.Core\Notey.Core.csproj" />
+    <ProjectReference Include="..\Notey.Pipelines\Notey.Pipelines.csproj" />
+    <ProjectReference Include="..\Notey.AI\Notey.AI.csproj" />
+    <ProjectReference Include="..\Notey.Ocr\Notey.Ocr.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

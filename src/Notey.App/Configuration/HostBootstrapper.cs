@@ -3,12 +3,15 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Notey.AI.Abstractions;
+using Notey.AI.Providers;
 using Notey.App.Platform;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
 using Notey.Core.Platform;
+using Notey.Ocr;
+using Notey.PipelineSteps;
 using Notey.Pipelines.Catalog;
 using Notey.Pipelines.Definitions;
 using Notey.Pipelines.Execution;
@@ -49,6 +52,17 @@ public static class HostBootstrapper
                 services.AddSingleton<MainWindow>();
                 services.AddSingleton<IPlatformRuntime>(platformRuntime);
                 services.AddSingleton<IScreenshotAnalysisService, UnconfiguredScreenshotAnalysisService>();
+                services.AddHttpClient();
+                services.AddSingleton<IAiProviderRegistry>(serviceProvider =>
+                    new AiProviderRegistry(
+                        OpenAiCompatibleAiProviderFactory.CreateProviders(
+                            options.Ai,
+                            () => serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("Notey.OpenAiCompatible")),
+                        string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId));
+                services.AddSingleton<ITesseractOcrEngine, TesseractCliOcrEngine>();
+                services.AddSingleton<IPipelineStep, TesseractOcrStep>();
+                services.AddSingleton<IPipelineStep, AiStructuredExtractionStep>();
+                services.AddSingleton<IPipelineStep, MarkdownAssemblyStep>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
                 services.AddSingleton<ObsidianLinkBuilder>();
                 services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
