@@ -10,7 +10,7 @@ public sealed class PlatformRuntime : IPlatformRuntime
 
     public bool SupportsGlobalHotkeys => IsWindows;
 
-    public bool SupportsScreenSnips => false;
+    public bool SupportsScreenSnips => IsWindows;
 
     private static string OperatingSystemDescription()
     {

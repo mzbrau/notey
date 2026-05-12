@@ -48,7 +48,6 @@ public static class HostBootstrapper
                 services.AddSingleton<NoteFileNameGenerator>();
                 services.AddSingleton<MainWindow>();
                 services.AddSingleton<IPlatformRuntime>(platformRuntime);
-                services.AddSingleton<IScreenSnipService, UnavailableScreenSnipService>();
                 services.AddSingleton<IScreenshotAnalysisService, UnconfiguredScreenshotAnalysisService>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
                 services.AddSingleton<ObsidianLinkBuilder>();
@@ -64,11 +63,13 @@ public static class HostBootstrapper
 
                 if (platformRuntime.IsWindows)
                 {
+                    services.AddSingleton<IScreenSnipService, WindowsScreenSnipService>();
                     services.AddSingleton<IGlobalHotkeyService, WindowsGlobalHotkeyService>();
                     services.AddSingleton<ITrayService, AvaloniaTrayService>();
                 }
                 else
                 {
+                    services.AddSingleton<IScreenSnipService, UnavailableScreenSnipService>();
                     services.AddSingleton<IGlobalHotkeyService, NoOpGlobalHotkeyService>();
                     services.AddSingleton<ITrayService, NoOpTrayService>();
                 }

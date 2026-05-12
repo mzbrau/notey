@@ -26,11 +26,11 @@
           <Button x:Name="NewNoteButton" Classes="command" Content="+" ToolTip.Tip="New note" AutomationProperties.Name="New note" />
           <Button x:Name="OpenRecentNoteButton" Classes="command" Content="R" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note" />
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
-          <Button Classes="command" Content="AI" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis" />
-          <Button Classes="command" Content="S" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save" />
+          <Button x:Name="CaptureAnalyzeButton" Classes="command" Content="AI" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis" />
+          <Button x:Name="CaptureSaveButton" Classes="command" Content="S" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save" />
           <Button Classes="command" Content="MD" ToolTip.Tip="Improve markdown manually" AutomationProperties.Name="Improve markdown manually" />
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
-          <Button Classes="command" Content="OK" ToolTip.Tip="Save note" AutomationProperties.Name="Save note" />
+          <Button x:Name="SaveNoteButton" Classes="command" Content="OK" ToolTip.Tip="Save note" AutomationProperties.Name="Save note" />
           <Button Classes="command" Content="..." ToolTip.Tip="Open settings" AutomationProperties.Name="Open settings" />
         </StackPanel>
       </Grid>
