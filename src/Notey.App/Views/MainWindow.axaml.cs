@@ -28,14 +28,15 @@ public sealed partial class MainWindow : Window
     private string _lastSavedText = string.Empty;
 
     public MainWindow()
-        : this(
-            new NoteyOptions(),
-            new FileSystemNoteDraftStore(
-                new FileSystemVaultWorkspace(new NoteyOptions()),
-                new NoteTemplateFactory(),
-                new NoteFileNameGenerator()),
-            TimeProvider.System,
-            NullLogger<MainWindow>.Instance)
+        : this(CreateDefaultDependencies(), TimeProvider.System, NullLogger<MainWindow>.Instance)
+    {
+    }
+
+    private MainWindow(
+        (NoteyOptions Options, INoteDraftStore NoteDraftStore) dependencies,
+        TimeProvider timeProvider,
+        ILogger<MainWindow> logger)
+        : this(dependencies.Options, dependencies.NoteDraftStore, timeProvider, logger)
     {
     }
 
@@ -69,6 +70,16 @@ public sealed partial class MainWindow : Window
         };
 
         logger.LogInformation("Notey shell initialized with {Theme} theme.", options.Ui.Theme);
+    }
+
+    private static (NoteyOptions Options, INoteDraftStore NoteDraftStore) CreateDefaultDependencies()
+    {
+        var options = new NoteyOptions();
+
+        return (options, new FileSystemNoteDraftStore(
+            new FileSystemVaultWorkspace(options),
+            new NoteTemplateFactory(),
+            new NoteFileNameGenerator()));
     }
 
     private void ConfigureEditor()

@@ -57,4 +57,12 @@ public sealed class MarkdownEditorCommandsTests
 
         Assert.Null(edit);
     }
+
+    [Fact]
+    public void TryCreateListContinuation_reports_invalid_caret_parameter_name()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => MarkdownEditorCommands.TryCreateListContinuation("- item", 99));
+
+        Assert.Equal("caretOffset", exception.ParamName);
+    }
 }

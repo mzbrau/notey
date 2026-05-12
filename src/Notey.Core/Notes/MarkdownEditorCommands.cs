@@ -17,7 +17,7 @@ public static partial class MarkdownEditorCommands
     public static MarkdownTextEdit? TryCreateListContinuation(string text, int caretOffset)
     {
         ArgumentNullException.ThrowIfNull(text);
-        ValidateRange(text, caretOffset, 0);
+        ValidateCaretOffset(text, caretOffset);
 
         if (caretOffset == 0)
         {
@@ -65,7 +65,7 @@ public static partial class MarkdownEditorCommands
     private static MarkdownTextEdit ToggleWrap(string text, int selectionStart, int selectionLength, string marker)
     {
         ArgumentNullException.ThrowIfNull(text);
-        ValidateRange(text, selectionStart, selectionLength);
+        ValidateSelectionRange(text, selectionStart, selectionLength);
 
         if (selectionLength == 0)
         {
@@ -107,11 +107,19 @@ public static partial class MarkdownEditorCommands
             && text.AsSpan(selectionStart + selectionLength, marker.Length).SequenceEqual(marker);
     }
 
-    private static void ValidateRange(string text, int selectionStart, int selectionLength)
+    private static void ValidateSelectionRange(string text, int selectionStart, int selectionLength)
     {
         if (selectionStart < 0 || selectionLength < 0 || selectionStart + selectionLength > text.Length)
         {
             throw new ArgumentOutOfRangeException(nameof(selectionStart), "Selection must be within the markdown text.");
+        }
+    }
+
+    private static void ValidateCaretOffset(string text, int caretOffset)
+    {
+        if (caretOffset < 0 || caretOffset > text.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(caretOffset), "Caret offset must be within the markdown text.");
         }
     }
 
