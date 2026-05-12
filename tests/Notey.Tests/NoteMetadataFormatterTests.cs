@@ -12,6 +12,7 @@ public sealed class NoteMetadataFormatterTests
             ["[[People/Jane Doe|Jane Doe]]"],
             ["[[Topics/Product Strategy|Product Strategy]]"],
             ["[[Projects/Notey|Notey]]"],
+            ["#strategy"],
             ["Teams meeting title: Roadmap"]);
 
         var result = formatter.Apply("""
@@ -31,6 +32,7 @@ public sealed class NoteMetadataFormatterTests
               - "[[People/Jane Doe|Jane Doe]]"
             """, result);
         Assert.Contains("- People: [[People/Jane Doe|Jane Doe]]", result);
+        Assert.Contains("- Tags: #strategy", result);
         Assert.Contains("- Screenshot context: Teams meeting title: Roadmap", result);
         Assert.Contains("# Untitled note", result);
     }
@@ -52,7 +54,7 @@ public sealed class NoteMetadataFormatterTests
             <!-- notey-context:end -->
 
             # Notes
-            """, new NoteMetadata(["[[People/New|New]]"], [], [], []));
+            """, new NoteMetadata(["[[People/New|New]]"], [], [], [], []));
 
         Assert.DoesNotContain("[[People/Old|Old]]", result);
         Assert.Contains("[[People/New|New]]", result);
@@ -73,7 +75,7 @@ public sealed class NoteMetadataFormatterTests
             - People: [[People/Old|Old]]
 
             # Notes
-            """, new NoteMetadata(["[[People/New|New]]"], [], [], []));
+            """, new NoteMetadata(["[[People/New|New]]"], [], [], [], []));
 
         Assert.DoesNotContain("[[People/Old|Old]]", result);
         Assert.Single(FindAll(result, "<!-- notey-context:start -->"));
@@ -94,7 +96,7 @@ public sealed class NoteMetadataFormatterTests
             - People: [[People/Old|Old]]
             # Notes
             Important body text
-            """, new NoteMetadata(["[[People/New|New]]"], [], [], []));
+            """, new NoteMetadata(["[[People/New|New]]"], [], [], [], []));
 
         Assert.DoesNotContain("[[People/Old|Old]]", result);
         Assert.Contains("# Notes", result);
@@ -104,7 +106,7 @@ public sealed class NoteMetadataFormatterTests
     [Fact]
     public void ReadFrontmatterInputs_parses_block_arrays_from_existing_frontmatter()
     {
-        var (people, topics, projects, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("""
+        var (people, topics, projects, tags, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("""
             ---
             created: 2026-05-11T22:45:30.0000000+02:00
             people:
@@ -113,6 +115,8 @@ public sealed class NoteMetadataFormatterTests
               - "[[Topics/Product Strategy|Product Strategy]]"
             projects:
               - "[[Projects/Notey|Notey]]"
+            tags:
+              - "#strategy"
             screenshot_context:
               - "Teams meeting"
             ---
@@ -125,28 +129,31 @@ public sealed class NoteMetadataFormatterTests
         Assert.Equal(["[[People/Jane Doe|Jane Doe]]"], people);
         Assert.Equal(["[[Topics/Product Strategy|Product Strategy]]"], topics);
         Assert.Equal(["[[Projects/Notey|Notey]]"], projects);
+        Assert.Equal(["#strategy"], tags);
         Assert.Equal(["Teams meeting"], screenshotContext);
     }
 
     [Fact]
     public void ReadFrontmatterInputs_returns_empty_arrays_for_note_without_frontmatter()
     {
-        var (people, topics, projects, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("# Just a heading\n\ncreated: fake");
+        var (people, topics, projects, tags, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("# Just a heading\n\ncreated: fake");
 
         Assert.Empty(people);
         Assert.Empty(topics);
         Assert.Empty(projects);
+        Assert.Empty(tags);
         Assert.Empty(screenshotContext);
     }
 
     [Fact]
     public void ReadFrontmatterInputs_parses_inline_empty_arrays()
     {
-        var (people, topics, projects, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("""
+        var (people, topics, projects, tags, screenshotContext) = NoteMetadataFormatter.ReadFrontmatterInputs("""
             ---
             people: []
             topics: []
             projects: []
+            tags: []
             screenshot_context: []
             ---
 
@@ -156,6 +163,7 @@ public sealed class NoteMetadataFormatterTests
         Assert.Empty(people);
         Assert.Empty(topics);
         Assert.Empty(projects);
+        Assert.Empty(tags);
         Assert.Empty(screenshotContext);
     }
 

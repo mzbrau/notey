@@ -55,14 +55,14 @@ public sealed class PipelineChoiceWindow : Window
                 {
                     new TextBlock
                     {
-                        Text = "Choose screenshot pipeline",
+                        Text = "Choose processing pipeline",
                         Foreground = new SolidColorBrush(Color.Parse("#E1E2EC")),
                         FontSize = 20,
                         FontWeight = FontWeight.SemiBold
                     },
                     new TextBlock
                     {
-                        Text = "Multiple enabled pipelines can process image captures. Pick one to run for this snip.",
+                        Text = "Multiple enabled pipelines can process this input. Pick one to run.",
                         Foreground = new SolidColorBrush(Color.Parse("#C2C6D6")),
                         TextWrapping = TextWrapping.Wrap
                     },

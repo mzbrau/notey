@@ -15,6 +15,7 @@ public sealed class NoteTemplateFactory
             people: []
             topics: []
             projects: []
+            tags: []
             screenshots: []
             screenshot_context: []
             ---
