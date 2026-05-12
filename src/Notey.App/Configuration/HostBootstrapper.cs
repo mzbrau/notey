@@ -9,6 +9,12 @@ using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
 using Notey.Core.Platform;
+using Notey.Pipelines.Catalog;
+using Notey.Pipelines.Definitions;
+using Notey.Pipelines.Execution;
+using Notey.Pipelines.Registry;
+using Notey.Pipelines.Steps;
+using Notey.Pipelines.Validation;
 using Notey.Vault.Abstractions;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
@@ -48,6 +54,13 @@ public static class HostBootstrapper
                 services.AddSingleton<ObsidianLinkBuilder>();
                 services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
+                services.AddSingleton<IPipelineStepRegistry>(serviceProvider =>
+                    new PipelineStepRegistry(serviceProvider.GetServices<IPipelineStep>()));
+                services.AddSingleton<PipelineValidator>();
+                services.AddSingleton<IPipelineDefinitionSource>(_ =>
+                    new FilePipelineDefinitionSource(ResolvePipelineDefinitionPath(options.Pipelines.DefinitionFilePath)));
+                services.AddSingleton<PipelineCatalog>();
+                services.AddSingleton<PipelineExecutor>();
 
                 if (platformRuntime.IsWindows)
                 {
@@ -61,5 +74,14 @@ public static class HostBootstrapper
                 }
             })
             .Build();
+    }
+
+    private static string ResolvePipelineDefinitionPath(string configuredPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(configuredPath);
+
+        return Path.IsPathRooted(configuredPath)
+            ? configuredPath
+            : Path.Combine(AppContext.BaseDirectory, configuredPath);
     }
 }
