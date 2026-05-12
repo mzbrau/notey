@@ -5,4 +5,7 @@ public sealed record VaultPaths(
     string PeoplePath,
     string TopicsPath,
     string ProjectsPath,
-    string ScreenshotPath);
+    string ScreenshotPath)
+{
+    public string RootPath { get; init; } = string.Empty;
+}

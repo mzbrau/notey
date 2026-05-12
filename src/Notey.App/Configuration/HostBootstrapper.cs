@@ -10,6 +10,7 @@ using Notey.Core.Configuration;
 using Notey.Core.Notes;
 using Notey.Core.Platform;
 using Notey.Vault.Abstractions;
+using Notey.Vault.Linking;
 using Notey.Vault.Notes;
 
 namespace Notey.App.Configuration;
@@ -45,6 +46,8 @@ public static class HostBootstrapper
                 services.AddSingleton<IScreenSnipService, UnavailableScreenSnipService>();
                 services.AddSingleton<IScreenshotAnalysisService, UnconfiguredScreenshotAnalysisService>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
+                services.AddSingleton<ObsidianLinkBuilder>();
+                services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
             })
             .Build();

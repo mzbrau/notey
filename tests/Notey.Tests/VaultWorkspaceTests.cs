@@ -63,4 +63,26 @@ public sealed class VaultWorkspaceTests
 
         Assert.Throws<InvalidOperationException>(() => workspace.GetPaths());
     }
+
+    [Fact]
+    public void GetPaths_rejects_absolute_entity_paths_outside_vault_root()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), "notey-vault");
+        var options = new NoteyOptions
+        {
+            Vault = new VaultOptions
+            {
+                RootPath = rootPath,
+                NotesPath = "Notes",
+                PeoplePath = Path.Combine(Path.GetTempPath(), "notey-people"),
+                TopicsPath = "Topics",
+                ProjectsPath = "Projects",
+                ScreenshotPath = "Attachments/Snips"
+            }
+        };
+
+        var workspace = new FileSystemVaultWorkspace(options);
+
+        Assert.Throws<InvalidOperationException>(() => workspace.GetPaths());
+    }
 }

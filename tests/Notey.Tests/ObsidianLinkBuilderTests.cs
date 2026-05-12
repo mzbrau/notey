@@ -1,0 +1,48 @@
+using Notey.Core.Configuration;
+using Notey.Vault.Abstractions;
+using Notey.Vault.Linking;
+
+namespace Notey.Tests;
+
+public sealed class ObsidianLinkBuilderTests
+{
+    [Fact]
+    public void BuildWikiLink_uses_configured_vault_relative_folder()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), "notey-link-builder");
+        var builder = CreateBuilder(rootPath);
+
+        var link = builder.BuildWikiLink(VaultEntityKind.Person, " Jane   Doe ");
+
+        Assert.Equal("[[People/Jane Doe|Jane Doe]]", link);
+    }
+
+    [Fact]
+    public void BuildWikiLink_sanitizes_file_name_without_changing_alias()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), "notey-link-builder");
+        var builder = CreateBuilder(rootPath);
+
+        var link = builder.BuildWikiLink(VaultEntityKind.Topic, "Roadmap: Q2");
+
+        Assert.Equal("[[Topics/Roadmap- Q2|Roadmap: Q2]]", link);
+    }
+
+    private static ObsidianLinkBuilder CreateBuilder(string rootPath)
+    {
+        var options = new NoteyOptions
+        {
+            Vault = new VaultOptions
+            {
+                RootPath = rootPath,
+                NotesPath = "Notes",
+                PeoplePath = "People",
+                TopicsPath = "Topics",
+                ProjectsPath = "Projects",
+                ScreenshotPath = "Attachments/Snips"
+            }
+        };
+
+        return new ObsidianLinkBuilder(new FileSystemVaultWorkspace(options));
+    }
+}

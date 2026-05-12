@@ -137,6 +137,31 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
     </Style>
 
+    <Style Selector="Border.autocompletePanel">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceBrushRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="BoxShadow" Value="0 12 30 0 #80000000" />
+    </Style>
+
+    <Style Selector="ListBox.autocompleteList">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceHighBrush}" />
+    </Style>
+
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+    </Style>
+
     <Style Selector="TextBlock.editorLineNumber">
       <Setter Property="Foreground" Value="{DynamicResource Notey.SubtleTextBrush}" />
       <Setter Property="FontSize" Value="13" />

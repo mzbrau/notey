@@ -16,6 +16,7 @@ public sealed class NoteTemplateFactory
             topics: []
             projects: []
             screenshots: []
+            screenshot_context: []
             ---
 
             # Untitled note
