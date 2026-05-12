@@ -62,6 +62,7 @@ public static class HostBootstrapper
                 services.AddSingleton<ITesseractOcrEngine, TesseractCliOcrEngine>();
                 services.AddSingleton<IPipelineStep, TesseractOcrStep>();
                 services.AddSingleton<IPipelineStep, AiStructuredExtractionStep>();
+                services.AddSingleton<IPipelineStep, TeamsMeetingNormalizerStep>();
                 services.AddSingleton<IPipelineStep, MarkdownAssemblyStep>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
                 services.AddSingleton<ObsidianLinkBuilder>();

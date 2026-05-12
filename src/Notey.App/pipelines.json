@@ -27,6 +27,44 @@
         }
       ],
       "finalOutputType": "StructuredNoteData"
+    },
+    {
+      "id": "teams-screenshot-ocr-ai-structured",
+      "displayName": "Teams screenshot to meeting context",
+      "description": "Runs Tesseract OCR, asks the configured model for Teams meeting context, then normalizes confident participants separately from suggestions.",
+      "enabled": true,
+      "acceptedInputTypes": [ "ImageData" ],
+      "steps": [
+        {
+          "id": "ocr",
+          "stepId": "tesseract-ocr",
+          "configuration": {
+            "language": "eng"
+          }
+        },
+        {
+          "id": "extract",
+          "stepId": "ai-structured-extraction",
+          "configuration": {
+            "providerId": "default",
+            "systemPrompt": "You analyze OCR text from Microsoft Teams screenshots. Return only JSON and do not invent people, titles, actions, or topics.",
+            "taskPrompt": "Extract Teams meeting context from the OCR text. Identify meetingTitle, visible participants as people with confidence from 0 to 1 and source text, agenda or visible context, action items, topics, projects, tags, and a concise summary. Put agenda/context/actions in sections. Use confidence below 0.75 for partial or ambiguous participant names.",
+            "temperature": 0.1,
+            "maxTokens": 1400
+          }
+        },
+        {
+          "id": "normalize",
+          "stepId": "teams-meeting-normalizer",
+          "configuration": {
+            "participantConfidenceThreshold": 0.75,
+            "topicName": "Teams meeting",
+            "tags": "teams,meeting",
+            "suggestedParticipantSectionHeading": "Suggested participants to review"
+          }
+        }
+      ],
+      "finalOutputType": "StructuredNoteData"
     }
   ]
 }
