@@ -106,7 +106,10 @@ public sealed class RecentNoteChoiceWindow : Window
 
     private void OnRecentNotePointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        CloseSelectedNote();
+        if (e.InitialPressMouseButton == MouseButton.Left)
+        {
+            CloseSelectedNote();
+        }
     }
 
     private void OnRecentNoteListKeyDown(object? sender, KeyEventArgs e)

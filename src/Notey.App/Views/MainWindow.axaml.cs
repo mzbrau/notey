@@ -232,15 +232,12 @@ public sealed partial class MainWindow : Window
 
     private void ApplyEditorTheme()
     {
-        var surfaceBrush = Brush.Parse("#10131A");
         var primaryTextBrush = Brush.Parse("#E1E2EC");
         var subtleTextBrush = Brush.Parse("#565B68");
         var primaryBrush = Brush.Parse("#ADC6FF");
         var selectionBrush = Brush.Parse("#2E4F8E");
+        var surfaceBrush = Brush.Parse("#10131A");
 
-        NoteEditor.Background = surfaceBrush;
-        NoteEditor.Foreground = primaryTextBrush;
-        NoteEditor.LineNumbersForeground = subtleTextBrush;
         NoteEditor.TextArea.Background = surfaceBrush;
         NoteEditor.TextArea.Foreground = primaryTextBrush;
         NoteEditor.TextArea.CaretBrush = primaryBrush;
@@ -1964,6 +1961,10 @@ public sealed partial class MainWindow : Window
             var paths = _vaultWorkspace.GetPaths();
             var filePath = ResolveVaultFilePath(paths.RootPath, e.Embed.VaultRelativePath);
             await ImagePreviewWindow.ShowAsync(this, filePath, e.Embed.VaultRelativePath, _windowClosed.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Window is closing; silently abandon the preview.
         }
         catch (InvalidOperationException ex)
         {

@@ -7,15 +7,16 @@ public sealed record ObsidianImageEmbed(string VaultRelativePath, string RawEmbe
 public static class ObsidianImageEmbedIndex
 {
     private static readonly HashSet<string> SupportedExtensions =
-    [
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".gif",
-        ".webp",
-        ".bmp",
-        ".svg"
-    ];
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".webp",
+            ".bmp",
+            ".svg"
+        };
 
     public static IReadOnlyDictionary<int, ObsidianImageEmbed> Build(string text)
     {

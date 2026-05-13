@@ -54,4 +54,18 @@ public sealed class ObsidianImageEmbedIndexTests
 
         Assert.Empty(embeds);
     }
+
+    [Theory]
+    [InlineData("photo.PNG")]
+    [InlineData("photo.Jpg")]
+    [InlineData("photo.JPEG")]
+    [InlineData("photo.GIF")]
+    [InlineData("photo.WebP")]
+    public void Build_finds_image_embeds_with_uppercase_extensions(string filename)
+    {
+        var embeds = ObsidianImageEmbedIndex.Build($"![[{filename}]]");
+
+        var embed = Assert.Single(embeds);
+        Assert.Equal(filename, embed.Value.VaultRelativePath);
+    }
 }

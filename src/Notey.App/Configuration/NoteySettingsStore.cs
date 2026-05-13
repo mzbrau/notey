@@ -168,14 +168,15 @@ public sealed class NoteySettingsStore(
 
     private async Task WriteLocalSettingsAsync(NoteyOptions options, CancellationToken cancellationToken)
     {
-        var directory = Path.GetDirectoryName(LocalSettingsPath);
+        var targetPath = Path.GetFullPath(LocalSettingsPath);
+        var directory = Path.GetDirectoryName(targetPath);
         if (!string.IsNullOrWhiteSpace(directory))
         {
             Directory.CreateDirectory(directory);
         }
 
         var tempPath = Path.Combine(
-            string.IsNullOrWhiteSpace(directory) ? AppContext.BaseDirectory : directory,
+            directory ?? AppContext.BaseDirectory,
             $"appsettings.Local.{Guid.NewGuid():N}.tmp");
         try
         {
@@ -185,7 +186,7 @@ public sealed class NoteySettingsStore(
                 JsonSerializer.Serialize(document, SerializerOptions) + Environment.NewLine,
                 cancellationToken);
             RestrictLocalSettingsPermissions(tempPath);
-            File.Move(tempPath, LocalSettingsPath, overwrite: true);
+            File.Move(tempPath, targetPath, overwrite: true);
         }
         finally
         {
@@ -224,12 +225,13 @@ public sealed class NoteySettingsStore(
 
     private static void CopyInto(NoteyOptions target, NoteyOptions source)
     {
-        target.Ui = Clone(source).Ui;
-        target.Hotkeys = Clone(source).Hotkeys;
-        target.Vault = Clone(source).Vault;
-        target.Ai = Clone(source).Ai;
-        target.Ocr = Clone(source).Ocr;
-        target.Pipelines = Clone(source).Pipelines;
+        var cloned = Clone(source);
+        target.Ui = cloned.Ui;
+        target.Hotkeys = cloned.Hotkeys;
+        target.Vault = cloned.Vault;
+        target.Ai = cloned.Ai;
+        target.Ocr = cloned.Ocr;
+        target.Pipelines = cloned.Pipelines;
     }
 
     private static bool RequiresRestart(NoteyOptions current, NoteyOptions updated)
