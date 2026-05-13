@@ -28,12 +28,21 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AssemblyName>Notey</AssemblyName>
+    <RootNamespace>Notey.App</RootNamespace>
+    <ApplicationIcon>Assets\notey.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <Authors>Notey contributors</Authors>
+    <Description>Minimal taskbar note capture for Obsidian-compatible vaults.</Description>
+    <PackageProjectUrl>https://github.com/mzbrau/notey</PackageProjectUrl>
   </PropertyGroup>
 
   <ItemGroup>
     <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Update="pipelines*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\notey.ico" />
+    <AvaloniaResource Include="Assets\notey.png" />
+    <AvaloniaResource Include="Assets\notey-tray.png" />
   </ItemGroup>
 
 </Project>

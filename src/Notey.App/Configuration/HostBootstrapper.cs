@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Notey.AI.Abstractions;
 using Notey.AI.Providers;
+using Notey.App.Diagnostics;
 using Notey.App.Platform;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
@@ -49,6 +50,7 @@ public static class HostBootstrapper
                 services.AddSingleton(TimeProvider.System);
                 services.AddSingleton<NoteTemplateFactory>();
                 services.AddSingleton<NoteFileNameGenerator>();
+                services.AddSingleton<DiagnosticsReportWriter>();
                 services.AddSingleton<MainWindow>();
                 services.AddSingleton<IPlatformRuntime>(platformRuntime);
                 services.AddSingleton<IScreenshotAnalysisService, UnconfiguredScreenshotAnalysisService>();
