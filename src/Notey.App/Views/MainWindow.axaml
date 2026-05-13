@@ -34,7 +34,7 @@
                     VerticalAlignment="Center"
                     Spacing="6">
           <Button x:Name="NewNoteButton" Classes="command" ToolTip.Tip="New note" AutomationProperties.Name="New note">
-            <PathIcon Classes="commandIcon" Data="M12,5 L12,19 M5,12 L19,12" />
+            <PathIcon Classes="commandIcon" Data="M6,4 L14,4 L18,8 L18,20 L6,20 Z M13,4 L13,9 L18,9 M12,12 L12,17 M9.5,14.5 L14.5,14.5" />
           </Button>
           <Button x:Name="OpenRecentNoteButton" Classes="command" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note">
             <PathIcon Classes="commandIcon" Data="M4,6 L9,6 L11,8 L20,8 L20,18 L4,18 Z M8,11 L16,11 M8,14 L14,14" />

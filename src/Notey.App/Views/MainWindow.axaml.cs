@@ -34,6 +34,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan ResumeLookback = TimeSpan.FromDays(7);
 
     private readonly INoteDraftStore _noteDraftStore;
+    private readonly IVaultWorkspace _vaultWorkspace;
     private readonly IVaultEntityStore _vaultEntityStore;
     private readonly IScreenSnipService _screenSnipService;
     private readonly ObsidianLinkBuilder _linkBuilder;
@@ -47,8 +48,10 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _autosaveTimer;
     private readonly CancellationTokenSource _windowClosed = new();
     private readonly SemaphoreSlim _autosaveGate = new(1, 1);
+    private readonly ImagePreviewMargin _imagePreviewMargin = new();
     private NoteDraft? _currentDraft;
     private bool _isInitializing;
+    private bool _isOpeningInitialDraft;
     private bool _isCloseConfirmed;
     private bool _isClosePending;
     private bool _isExitRequested;
@@ -77,6 +80,7 @@ public sealed partial class MainWindow : Window
         (
             NoteyOptions Options,
             INoteDraftStore NoteDraftStore,
+            IVaultWorkspace VaultWorkspace,
             IVaultEntityStore VaultEntityStore,
             IScreenSnipService ScreenSnipService,
             ObsidianLinkBuilder LinkBuilder,
@@ -87,6 +91,7 @@ public sealed partial class MainWindow : Window
         : this(
             dependencies.Options,
             dependencies.NoteDraftStore,
+            dependencies.VaultWorkspace,
             dependencies.VaultEntityStore,
             dependencies.ScreenSnipService,
             dependencies.LinkBuilder,
@@ -100,6 +105,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(
         NoteyOptions options,
         INoteDraftStore noteDraftStore,
+        IVaultWorkspace vaultWorkspace,
         IVaultEntityStore vaultEntityStore,
         IScreenSnipService screenSnipService,
         ObsidianLinkBuilder linkBuilder,
@@ -113,6 +119,7 @@ public sealed partial class MainWindow : Window
 
         _options = options;
         _noteDraftStore = noteDraftStore;
+        _vaultWorkspace = vaultWorkspace;
         _vaultEntityStore = vaultEntityStore;
         _screenSnipService = screenSnipService;
         _linkBuilder = linkBuilder;
@@ -123,6 +130,7 @@ public sealed partial class MainWindow : Window
         _settingsStore = settingsStore ?? CreateFallbackSettingsStore(options);
         _autosaveTimer = new DispatcherTimer { Interval = AutosaveDelay };
         _autosaveTimer.Tick += AutosaveTimerOnTick;
+        _imagePreviewMargin.PreviewRequested += OnImagePreviewRequested;
 
         Width = options.Ui.DefaultWindowWidth;
         Height = options.Ui.DefaultWindowHeight;
@@ -162,6 +170,7 @@ public sealed partial class MainWindow : Window
     private static (
         NoteyOptions Options,
         INoteDraftStore NoteDraftStore,
+        IVaultWorkspace VaultWorkspace,
         IVaultEntityStore VaultEntityStore,
         IScreenSnipService ScreenSnipService,
         ObsidianLinkBuilder LinkBuilder,
@@ -181,6 +190,7 @@ public sealed partial class MainWindow : Window
             workspace,
             new NoteTemplateFactory(),
             new NoteFileNameGenerator()),
+            workspace,
             new FileSystemVaultEntityStore(workspace, linkBuilder, TimeProvider.System),
             new UnavailableScreenSnipService(),
             linkBuilder,
@@ -217,6 +227,7 @@ public sealed partial class MainWindow : Window
         NoteEditor.Options.EnableEmailHyperlinks = true;
         ApplyEditorTheme();
         NoteEditor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizingTransformer());
+        NoteEditor.TextArea.LeftMargins.Insert(0, _imagePreviewMargin);
     }
 
     private void ApplyEditorTheme()
@@ -345,34 +356,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        try
-        {
-            await CreateAndLoadDraftAsync();
-        }
-        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
-        {
-            _logger.LogDebug("New note creation was cancelled because the window closed.");
-        }
-        catch (IOException ex)
-        {
-            AutosaveStatusText.Text = "SAVE ERROR";
-            _logger.LogError(ex, "Failed to create a new note draft.");
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            AutosaveStatusText.Text = "SAVE ERROR";
-            _logger.LogError(ex, "Notey does not have permission to create a new note draft.");
-        }
-        catch (InvalidOperationException ex)
-        {
-            AutosaveStatusText.Text = "SAVE ERROR";
-            _logger.LogError(ex, "Notey vault configuration prevented new note creation.");
-        }
-        catch (ArgumentException ex)
-        {
-            AutosaveStatusText.Text = "SAVE ERROR";
-            _logger.LogError(ex, "Notey vault configuration contained an invalid value.");
-        }
+        await TryCreateAndLoadDraftAsync("starting a new note");
     }
 
     public void ReportHotkeyRegistrationFailure()
@@ -436,7 +420,10 @@ public sealed partial class MainWindow : Window
     {
         if (_currentDraft is null)
         {
-            await OpenRecentOrCreateAsync(forceChoice: false);
+            if (!await TryCreateAndLoadDraftAsync("preparing markdown improvement"))
+            {
+                return;
+            }
         }
 
         var targetDraft = _currentDraft;
@@ -575,7 +562,10 @@ public sealed partial class MainWindow : Window
     {
         if (_currentDraft is null)
         {
-            await OpenRecentOrCreateAsync(forceChoice: false);
+            if (!await TryCreateAndLoadDraftAsync("capturing a screenshot"))
+            {
+                return;
+            }
         }
 
         var targetDraft = _currentDraft;
@@ -1145,7 +1135,20 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenInitialDraftAsync()
     {
-        await OpenRecentOrCreateAsync(forceChoice: false);
+        if (_currentDraft is not null || _isOpeningInitialDraft)
+        {
+            return;
+        }
+
+        _isOpeningInitialDraft = true;
+        try
+        {
+            await OpenRecentOrCreateAsync(forceChoice: false);
+        }
+        finally
+        {
+            _isOpeningInitialDraft = false;
+        }
     }
 
     private async Task OpenRecentOrCreateAsync(bool forceChoice)
@@ -1157,35 +1160,46 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var recentDraft = await _noteDraftStore.FindMostRecentAsync(
+            var recentDrafts = await _noteDraftStore.ListRecentAsync(
                 _timeProvider.GetLocalNow().Subtract(ResumeLookback),
                 _windowClosed.Token);
+            if (forceChoice && _currentDraft is not null)
+            {
+                recentDrafts = recentDrafts
+                    .Where(draft => !string.Equals(draft.FilePath, _currentDraft.FilePath, StringComparison.Ordinal))
+                    .ToArray();
+            }
 
-            if (recentDraft is null)
+            if (recentDrafts.Count == 0)
             {
                 if (forceChoice)
                 {
-                    AutosaveStatusText.Text = "NO RECENT NOTE";
+                    var emptyChoice = await RecentNoteChoiceWindow.ShowAsync(this, []);
+                    if (emptyChoice.Action == RecentNoteChoiceAction.NewNote)
+                    {
+                        await TryCreateAndLoadDraftAsync("starting a new note");
+                    }
+
                     return;
                 }
 
-                await CreateAndLoadDraftAsync();
+                await TryCreateAndLoadDraftAsync("opening the initial note");
                 return;
             }
 
-            var choice = await RecentNoteChoiceWindow.ShowAsync(this, recentDraft);
-            switch (choice)
+            var choice = await RecentNoteChoiceWindow.ShowAsync(this, recentDrafts);
+            switch (choice.Action)
             {
-                case RecentNoteChoice.Resume:
-                    await LoadDraftAsync(recentDraft);
+                case RecentNoteChoiceAction.OpenExisting when choice.SelectedNote is not null:
+                    await LoadDraftAsync(await _noteDraftStore.OpenAsync(choice.SelectedNote.FilePath, _windowClosed.Token));
                     break;
-                case RecentNoteChoice.NewNote:
-                    await CreateAndLoadDraftAsync();
+                case RecentNoteChoiceAction.NewNote:
+                    await TryCreateAndLoadDraftAsync("starting a new note");
                     break;
-                case RecentNoteChoice.Cancel:
+                case RecentNoteChoiceAction.Cancel:
                     if (_currentDraft is null)
                     {
-                        await CreateAndLoadDraftAsync();
+                        await TryCreateAndLoadDraftAsync("opening the initial note");
                     }
 
                     break;
@@ -1221,6 +1235,44 @@ public sealed partial class MainWindow : Window
     {
         var draft = await _noteDraftStore.CreateAsync(_timeProvider.GetLocalNow(), _windowClosed.Token);
         await LoadDraftAsync(draft);
+    }
+
+    private async Task<bool> TryCreateAndLoadDraftAsync(string operation)
+    {
+        try
+        {
+            await CreateAndLoadDraftAsync();
+            return true;
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Draft activation while {Operation} was cancelled because the window closed.", operation);
+            return false;
+        }
+        catch (IOException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Failed to create a note draft while {Operation}.", operation);
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Notey does not have permission to create a note draft while {Operation}.", operation);
+            return false;
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Notey vault configuration prevented draft activation while {Operation}.", operation);
+            return false;
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Notey vault configuration contained an invalid value while {Operation}.", operation);
+            return false;
+        }
     }
 
     private async Task LoadDraftAsync(NoteDraft draft)
@@ -1903,6 +1955,44 @@ public sealed partial class MainWindow : Window
     private void FocusEditor()
     {
         NoteEditor.Focus();
+    }
+
+    private async void OnImagePreviewRequested(object? sender, ImagePreviewRequestedEventArgs e)
+    {
+        try
+        {
+            var paths = _vaultWorkspace.GetPaths();
+            var filePath = ResolveVaultFilePath(paths.RootPath, e.Embed.VaultRelativePath);
+            await ImagePreviewWindow.ShowAsync(this, filePath, e.Embed.VaultRelativePath, _windowClosed.Token);
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "PREVIEW UNAVAILABLE";
+            _logger.LogWarning(ex, "Image preview path was invalid for embed {EmbedPath}.", e.Embed.VaultRelativePath);
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "PREVIEW UNAVAILABLE";
+            _logger.LogWarning(ex, "Image preview path was invalid for embed {EmbedPath}.", e.Embed.VaultRelativePath);
+        }
+    }
+
+    private static string ResolveVaultFilePath(string rootPath, string vaultRelativePath)
+    {
+        var normalizedRelativePath = vaultRelativePath
+            .Replace('/', Path.DirectorySeparatorChar)
+            .Replace('\\', Path.DirectorySeparatorChar);
+        var fullPath = Path.GetFullPath(normalizedRelativePath, rootPath);
+        var relativePath = Path.GetRelativePath(rootPath, fullPath);
+        if (relativePath == ".."
+            || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            || relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal)
+            || Path.IsPathFullyQualified(relativePath))
+        {
+            throw new InvalidOperationException("Image preview path must stay within the configured vault root.");
+        }
+
+        return fullPath;
     }
 
     private sealed record PersonAutocompleteSuggestion(string Name, bool IsCreateAction, VaultEntity? Entity)

@@ -48,31 +48,36 @@ public sealed partial class FileSystemNoteDraftStore(
 
     public async Task<NoteDraft?> FindMostRecentAsync(DateTimeOffset createdAfter, CancellationToken cancellationToken = default)
     {
+        var recent = await ListRecentAsync(createdAfter, cancellationToken);
+        return recent.Count == 0
+            ? null
+            : await OpenAsync(recent[0].FilePath, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RecentNoteSummary>> ListRecentAsync(DateTimeOffset createdAfter, CancellationToken cancellationToken = default)
+    {
         var notesPath = workspace.GetPaths().NotesPath;
         if (!Directory.Exists(notesPath))
         {
-            return null;
+            return [];
         }
 
-        NoteDraft? mostRecent = null;
+        var recent = new List<RecentNoteSummary>();
 
         foreach (var filePath in Directory.EnumerateFiles(notesPath, "*.md", SearchOption.TopDirectoryOnly))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var draft = await OpenAsync(filePath, cancellationToken);
-            if (draft.CreatedAt < createdAfter)
+            var summary = await ReadRecentSummaryAsync(filePath, cancellationToken);
+            if (summary.CreatedAt >= createdAfter)
             {
-                continue;
-            }
-
-            if (mostRecent is null || draft.CreatedAt > mostRecent.CreatedAt)
-            {
-                mostRecent = draft;
+                recent.Add(summary);
             }
         }
 
-        return mostRecent;
+        return recent
+            .OrderByDescending(static draft => draft.CreatedAt)
+            .ToArray();
     }
 
     public async Task SaveAsync(NoteDraft draft, string content, CancellationToken cancellationToken = default)
@@ -170,6 +175,24 @@ public sealed partial class FileSystemNoteDraftStore(
         await stream.FlushAsync(cancellationToken);
     }
 
+    private static async Task<RecentNoteSummary> ReadRecentSummaryAsync(string filePath, CancellationToken cancellationToken)
+    {
+        const int previewLength = 8192;
+
+        await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize: 4096, useAsync: true);
+        using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+
+        var buffer = new char[previewLength];
+        var read = await reader.ReadBlockAsync(buffer.AsMemory(0, previewLength), cancellationToken);
+        var preview = new string(buffer, 0, read);
+        var createdAt = TryReadCreatedAt(preview)
+            ?? GetFileCreatedAt(filePath);
+        var title = TryReadTitle(preview)
+            ?? Path.GetFileNameWithoutExtension(filePath);
+
+        return new RecentNoteSummary(filePath, createdAt, title);
+    }
+
     private static void DeleteIfExists(string filePath)
     {
         if (File.Exists(filePath))
@@ -224,6 +247,42 @@ public sealed partial class FileSystemNoteDraftStore(
     private static DateTimeOffset GetFileCreatedAt(string filePath)
     {
         return new DateTimeOffset(File.GetCreationTimeUtc(filePath), TimeSpan.Zero);
+    }
+
+    private static string? TryReadTitle(string content)
+    {
+        var normalized = content.Replace("\r\n", "\n", StringComparison.Ordinal);
+        using var reader = new StringReader(normalized);
+
+        var inFrontmatter = normalized.StartsWith("---\n", StringComparison.Ordinal);
+        var lineNumber = 0;
+
+        while (reader.ReadLine() is { } line)
+        {
+            lineNumber++;
+            if (inFrontmatter)
+            {
+                if (lineNumber == 1)
+                {
+                    continue;
+                }
+
+                if (line == "---")
+                {
+                    inFrontmatter = false;
+                }
+
+                continue;
+            }
+
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("# ", StringComparison.Ordinal) && trimmed.Length > 2)
+            {
+                return trimmed[2..].Trim();
+            }
+        }
+
+        return null;
     }
 
     [GeneratedRegex(@"(?m)^created:\s*(?<created>\S+)\s*$")]

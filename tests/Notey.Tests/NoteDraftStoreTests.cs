@@ -79,6 +79,67 @@ public sealed class NoteDraftStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ListRecentAsync_returns_last_week_notes_sorted_newest_first_with_titles()
+    {
+        var rootPath = CreateTempDirectory();
+        var store = CreateStore(rootPath);
+        _ = await store.CreateAsync(new DateTimeOffset(2026, 5, 1, 8, 0, 0, TimeSpan.Zero));
+        var planning = await store.CreateAsync(new DateTimeOffset(2026, 5, 10, 9, 15, 0, TimeSpan.Zero));
+        var shipped = await store.CreateAsync(new DateTimeOffset(2026, 5, 11, 11, 45, 0, TimeSpan.Zero));
+        await store.SaveAsync(planning, """
+            ---
+            created: 2026-05-10T09:15:00.0000000+00:00
+            ---
+
+            # Planning review
+            """);
+        await store.SaveAsync(shipped, """
+            ---
+            created: 2026-05-11T11:45:00.0000000+00:00
+            ---
+
+            # Shipping update
+            """);
+
+        var recent = await store.ListRecentAsync(new DateTimeOffset(2026, 5, 8, 8, 0, 0, TimeSpan.Zero));
+
+        Assert.Collection(
+            recent,
+            item =>
+            {
+                Assert.Equal(shipped.FilePath, item.FilePath);
+                Assert.Equal("Shipping update", item.Title);
+            },
+            item =>
+            {
+                Assert.Equal(planning.FilePath, item.FilePath);
+                Assert.Equal("Planning review", item.Title);
+            });
+    }
+
+    [Fact]
+    public async Task ListRecentAsync_falls_back_to_filename_when_heading_is_missing()
+    {
+        var rootPath = CreateTempDirectory();
+        var notesPath = Path.Combine(rootPath, "Notes");
+        Directory.CreateDirectory(notesPath);
+        var filePath = Path.Combine(notesPath, "2026-05-11-224530-note.md");
+        await File.WriteAllTextAsync(filePath, """
+            ---
+            created: 2026-05-11T22:45:30.0000000+00:00
+            ---
+
+            Plain text without a heading.
+            """);
+        var store = CreateStore(rootPath);
+
+        var recent = await store.ListRecentAsync(new DateTimeOffset(2026, 5, 8, 8, 0, 0, TimeSpan.Zero));
+
+        var summary = Assert.Single(recent);
+        Assert.Equal("2026-05-11-224530-note", summary.Title);
+    }
+
+    [Fact]
     public async Task OpenAsync_rejects_paths_outside_notes_folder()
     {
         var rootPath = CreateTempDirectory();
