@@ -16,7 +16,8 @@ public sealed class DiagnosticsReportWriter(
 {
     public async Task<string> WriteAsync(string? outputPath = null, CancellationToken cancellationToken = default)
     {
-        var path = ResolveOutputPath(outputPath);
+        var generatedAt = timeProvider.GetUtcNow();
+        var path = ResolveOutputPath(outputPath, generatedAt);
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory))
         {
@@ -27,7 +28,7 @@ public sealed class DiagnosticsReportWriter(
         {
             "# Notey diagnostics",
             string.Empty,
-            $"Generated: {timeProvider.GetUtcNow():O}",
+            $"Generated: {generatedAt:O}",
             $"App version: {GetAppVersion()}",
             $"OS: {RuntimeInformation.OSDescription}",
             $"Architecture: {RuntimeInformation.OSArchitecture}",
@@ -136,7 +137,7 @@ public sealed class DiagnosticsReportWriter(
         }
     }
 
-    private static string ResolveOutputPath(string? outputPath)
+    private static string ResolveOutputPath(string? outputPath, DateTimeOffset generatedAt)
     {
         if (!string.IsNullOrWhiteSpace(outputPath))
         {
@@ -153,7 +154,7 @@ public sealed class DiagnosticsReportWriter(
             baseDirectory,
             "Notey",
             "Diagnostics",
-            $"notey-diagnostics-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.md");
+            $"notey-diagnostics-{generatedAt:yyyyMMdd-HHmmss}.md");
     }
 
     private static string GetAppVersion()

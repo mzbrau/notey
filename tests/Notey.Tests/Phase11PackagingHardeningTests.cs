@@ -134,6 +134,36 @@ public sealed class Phase11PackagingHardeningTests
     }
 
     [Fact]
+    public async Task Diagnostics_report_default_filename_uses_injected_time_provider()
+    {
+        var rootPath = CreateTempDirectory();
+        var pipelinePath = Path.Combine(rootPath, "pipelines.json");
+        await File.WriteAllTextAsync(pipelinePath, """{ "pipelines": [] }""");
+
+        var generatedAt = new DateTimeOffset(2026, 01, 02, 03, 04, 05, TimeSpan.Zero);
+        var writer = new DiagnosticsReportWriter(
+            new NoteyOptions
+            {
+                Pipelines = new PipelineOptions
+                {
+                    DefinitionFilePath = pipelinePath,
+                },
+            },
+            new PipelineCatalog(
+                new FilePipelineDefinitionSource(pipelinePath),
+                new PipelineValidator(new PipelineStepRegistry([]))),
+            new FakePlatformRuntime(),
+            new FixedTimeProvider(generatedAt),
+            NullLogger<DiagnosticsReportWriter>.Instance);
+
+        var writtenPath = await writer.WriteAsync();
+        var report = await File.ReadAllTextAsync(writtenPath);
+
+        Assert.Equal($"notey-diagnostics-{generatedAt:yyyyMMdd-HHmmss}.md", Path.GetFileName(writtenPath));
+        Assert.Contains($"Generated: {generatedAt:O}", report, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Publish_profile_uses_single_file_self_contained_windows_settings()
     {
         var profilePath = Path.Combine(
@@ -203,6 +233,8 @@ public sealed class Phase11PackagingHardeningTests
         Assert.Contains("scripts/publish-windows.ps1", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-artifact", workflow, StringComparison.Ordinal);
         Assert.Contains("[System.IO.Path]::IsPathRooted($OutputPath)", publishScript, StringComparison.Ordinal);
+        Assert.Contains("-p:PublishProfile=\"$publishProfile\"", publishScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("-p:PublishSingleFile=true", publishScript, StringComparison.Ordinal);
     }
 
     private static string CreateTempDirectory()
@@ -237,5 +269,10 @@ public sealed class Phase11PackagingHardeningTests
         public bool SupportsGlobalHotkeys => false;
 
         public bool SupportsScreenSnips => false;
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 }

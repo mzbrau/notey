@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $repoRoot "src/Notey.App/Notey.App.csproj"
+$publishProfile = Join-Path $repoRoot "src/Notey.App/Properties/PublishProfiles/win-x64-folder.pubxml"
 $publishPath = if ([System.IO.Path]::IsPathRooted($OutputPath)) {
     $OutputPath
 } else {
@@ -16,13 +17,8 @@ $publishPath = if ([System.IO.Path]::IsPathRooted($OutputPath)) {
 
 dotnet publish $projectPath `
     --configuration $Configuration `
-    --runtime $RuntimeIdentifier `
-    --self-contained true `
-    -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true `
-    -p:PublishReadyToRun=true `
-    -p:PublishTrimmed=false `
+    -p:PublishProfile="$publishProfile" `
+    -p:RuntimeIdentifier=$RuntimeIdentifier `
     --output $publishPath
 
 Write-Host "Notey published to $publishPath"
