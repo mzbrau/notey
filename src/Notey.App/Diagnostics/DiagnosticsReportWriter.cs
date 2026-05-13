@@ -3,13 +3,11 @@ using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Notey.Core.Configuration;
 using Notey.Core.Platform;
-using Notey.Pipelines.Catalog;
 
 namespace Notey.App.Diagnostics;
 
 public sealed class DiagnosticsReportWriter(
     NoteyOptions options,
-    PipelineCatalog pipelineCatalog,
     IPlatformRuntime platformRuntime,
     TimeProvider timeProvider,
     ILogger<DiagnosticsReportWriter> logger)
@@ -38,11 +36,7 @@ public sealed class DiagnosticsReportWriter(
             "## Vault",
             string.Empty,
             $"- Root path configured: {FormatConfigured(options.Vault.RootPath)}",
-            $"- Notes path: {options.Vault.NotesPath}",
-            $"- People path: {options.Vault.PeoplePath}",
-            $"- Topics path: {options.Vault.TopicsPath}",
-            $"- Projects path: {options.Vault.ProjectsPath}",
-            $"- Screenshot path: {options.Vault.ScreenshotPath}",
+            "- Owned paths: Images, Notes, Notes/Draft, People",
             string.Empty,
             "## AI providers",
             string.Empty,
@@ -70,71 +64,11 @@ public sealed class DiagnosticsReportWriter(
             $"- Tesseract executable: {FormatConfigured(options.Ocr.TesseractExecutablePath)}",
             $"- Tesseract data path configured: {IsConfigured(options.Ocr.TesseractDataPath)}",
             $"- Default language: {FormatConfigured(options.Ocr.DefaultLanguage)}",
-            string.Empty,
-            "## Pipelines",
-            string.Empty,
-            $"- Definition file: {FormatConfigured(options.Pipelines.DefinitionFilePath)}",
-            $"- Default screenshot pipeline: {FormatConfigured(options.Pipelines.DefaultScreenshotPipelineId)}",
         ]);
 
-        await AppendPipelineDiagnosticsAsync(lines, cancellationToken);
         await File.WriteAllTextAsync(path, string.Join('\n', lines) + "\n", cancellationToken);
         logger.LogInformation("Diagnostics report exported to {Path}.", path);
         return path;
-    }
-
-    private async Task AppendPipelineDiagnosticsAsync(ICollection<string> lines, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var snapshot = await pipelineCatalog.LoadAsync(cancellationToken);
-            if (snapshot.LoadWarnings.Count > 0)
-            {
-                lines.Add(string.Empty);
-                lines.Add("### Pipeline catalog warnings");
-                foreach (var warning in snapshot.LoadWarnings)
-                {
-                    lines.Add($"- {warning}");
-                }
-            }
-
-            lines.Add(string.Empty);
-            lines.Add("### Pipeline validation");
-            foreach (var entry in snapshot.Entries)
-            {
-                var state = entry.ValidationResult.IsValid ? "valid" : "invalid";
-                lines.Add($"- `{entry.Definition.Id}`: {state}, enabled={entry.Definition.Enabled}, output={entry.Definition.FinalOutputType}");
-                foreach (var error in entry.ValidationResult.Errors)
-                {
-                    lines.Add($"  - Error: {error}");
-                }
-
-                foreach (var warning in entry.ValidationResult.Warnings)
-                {
-                    lines.Add($"  - Warning: {warning}");
-                }
-            }
-        }
-        catch (IOException ex)
-        {
-            logger.LogError(ex, "Failed to load pipeline definitions while exporting diagnostics.");
-            lines.Add($"- Pipeline diagnostics unavailable: {ex.Message}");
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            logger.LogError(ex, "Notey does not have permission to read pipeline definitions while exporting diagnostics.");
-            lines.Add($"- Pipeline diagnostics unavailable: {ex.Message}");
-        }
-        catch (InvalidOperationException ex)
-        {
-            logger.LogError(ex, "Pipeline configuration prevented diagnostics export.");
-            lines.Add($"- Pipeline diagnostics unavailable: {ex.Message}");
-        }
-        catch (ArgumentException ex)
-        {
-            logger.LogError(ex, "Invalid pipeline configuration prevented diagnostics export.");
-            lines.Add($"- Pipeline diagnostics unavailable: {ex.Message}");
-        }
     }
 
     private static string ResolveOutputPath(string? outputPath, DateTimeOffset generatedAt)

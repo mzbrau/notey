@@ -15,11 +15,6 @@ public sealed class SettingsWindow : Window
     private readonly TextBox _windowHeightInput = CreateTextBox();
     private readonly TextBox _hotkeyInput = CreateTextBox();
     private readonly TextBox _vaultRootInput = CreateTextBox();
-    private readonly TextBox _notesPathInput = CreateTextBox();
-    private readonly TextBox _peoplePathInput = CreateTextBox();
-    private readonly TextBox _topicsPathInput = CreateTextBox();
-    private readonly TextBox _projectsPathInput = CreateTextBox();
-    private readonly TextBox _screenshotPathInput = CreateTextBox();
     private readonly TextBox _aiProviderInput = CreateTextBox();
     private readonly TextBox _aiBaseUrlInput = CreateTextBox();
     private readonly TextBox _aiModelInput = CreateTextBox();
@@ -30,8 +25,6 @@ public sealed class SettingsWindow : Window
     private readonly TextBox _tesseractExecutableInput = CreateTextBox();
     private readonly TextBox _tesseractDataInput = CreateTextBox();
     private readonly TextBox _ocrLanguageInput = CreateTextBox();
-    private readonly TextBox _pipelineDefinitionInput = CreateTextBox();
-    private readonly TextBox _defaultScreenshotPipelineInput = CreateTextBox();
 
     private SettingsWindow(NoteyOptions options)
     {
@@ -117,14 +110,10 @@ public sealed class SettingsWindow : Window
                                     CreateField("Default height", _windowHeightInput),
                                     CreateField("Open-note hotkey", _hotkeyInput),
                                 ]),
-                                CreateSection("Vault", [
-                                    CreateField("Vault root", _vaultRootInput),
-                                    CreateField("Notes path", _notesPathInput),
-                                    CreateField("People path", _peoplePathInput),
-                                    CreateField("Topics path", _topicsPathInput),
-                                    CreateField("Projects path", _projectsPathInput),
-                                    CreateField("Screenshot path", _screenshotPathInput),
-                                ]),
+                                 CreateSection("Vault", [
+                                     CreateField("Vault root", _vaultRootInput),
+                                     CreateWarning("Notey owns Images, Notes, Notes/Draft, and People under this root."),
+                                 ]),
                                 CreateSection("AI", [
                                     CreateField("Default provider id", _aiProviderInput),
                                     CreateField("Base URL", _aiBaseUrlInput),
@@ -135,13 +124,11 @@ public sealed class SettingsWindow : Window
                                     CreateWarning("Plaintext API keys are written to appsettings.Local.json. Prefer environment variables when possible."),
                                     CreateField("Request timeout seconds", _aiTimeoutInput),
                                 ]),
-                                CreateSection("OCR and pipelines", [
+                                CreateSection("OCR", [
                                     CreateField("Tesseract executable", _tesseractExecutableInput),
                                     CreateField("Tesseract data path", _tesseractDataInput),
                                     CreateField("OCR language", _ocrLanguageInput),
-                                    CreateField("Pipeline definition path", _pipelineDefinitionInput),
-                                    CreateField("Default screenshot pipeline", _defaultScreenshotPipelineInput),
-                                    CreateWarning("OCR and pipeline path changes are saved immediately but may require restart before running existing services."),
+                                    CreateWarning("OCR path changes are saved immediately but may require restart before running existing services."),
                                 ]),
                             }
                         }
@@ -245,11 +232,6 @@ public sealed class SettingsWindow : Window
         _windowHeightInput.Text = options.Ui.DefaultWindowHeight.ToString();
         _hotkeyInput.Text = options.Hotkeys.OpenNote;
         _vaultRootInput.Text = options.Vault.RootPath;
-        _notesPathInput.Text = options.Vault.NotesPath;
-        _peoplePathInput.Text = options.Vault.PeoplePath;
-        _topicsPathInput.Text = options.Vault.TopicsPath;
-        _projectsPathInput.Text = options.Vault.ProjectsPath;
-        _screenshotPathInput.Text = options.Vault.ScreenshotPath;
         _aiProviderInput.Text = options.Ai.DefaultProviderId;
         _aiBaseUrlInput.Text = options.Ai.BaseUrl;
         _aiModelInput.Text = options.Ai.ModelName;
@@ -260,8 +242,6 @@ public sealed class SettingsWindow : Window
         _tesseractExecutableInput.Text = options.Ocr.TesseractExecutablePath;
         _tesseractDataInput.Text = options.Ocr.TesseractDataPath;
         _ocrLanguageInput.Text = options.Ocr.DefaultLanguage;
-        _pipelineDefinitionInput.Text = options.Pipelines.DefinitionFilePath;
-        _defaultScreenshotPipelineInput.Text = options.Pipelines.DefaultScreenshotPipelineId;
     }
 
     private void SaveAndClose()
@@ -295,11 +275,6 @@ public sealed class SettingsWindow : Window
 
         options.Hotkeys.OpenNote = Trim(_hotkeyInput.Text);
         options.Vault.RootPath = Trim(_vaultRootInput.Text);
-        options.Vault.NotesPath = Trim(_notesPathInput.Text);
-        options.Vault.PeoplePath = Trim(_peoplePathInput.Text);
-        options.Vault.TopicsPath = Trim(_topicsPathInput.Text);
-        options.Vault.ProjectsPath = Trim(_projectsPathInput.Text);
-        options.Vault.ScreenshotPath = Trim(_screenshotPathInput.Text);
         options.Ai.DefaultProviderId = Trim(_aiProviderInput.Text);
         options.Ai.BaseUrl = Trim(_aiBaseUrlInput.Text);
         options.Ai.ModelName = Trim(_aiModelInput.Text);
@@ -314,8 +289,6 @@ public sealed class SettingsWindow : Window
         options.Ocr.TesseractExecutablePath = Trim(_tesseractExecutableInput.Text);
         options.Ocr.TesseractDataPath = Trim(_tesseractDataInput.Text);
         options.Ocr.DefaultLanguage = Trim(_ocrLanguageInput.Text);
-        options.Pipelines.DefinitionFilePath = Trim(_pipelineDefinitionInput.Text);
-        options.Pipelines.DefaultScreenshotPipelineId = Trim(_defaultScreenshotPipelineInput.Text);
 
         return errors;
     }

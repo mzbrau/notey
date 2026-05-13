@@ -13,8 +13,6 @@ public sealed class NoteyOptions
     public AiOptions Ai { get; set; } = new();
 
     public OcrOptions Ocr { get; set; } = new();
-
-    public PipelineOptions Pipelines { get; set; } = new();
 }
 
 public sealed class UiOptions
@@ -34,16 +32,6 @@ public sealed class HotkeyOptions
 public sealed class VaultOptions
 {
     public string RootPath { get; set; } = string.Empty;
-
-    public string NotesPath { get; set; } = "Notes";
-
-    public string PeoplePath { get; set; } = "People";
-
-    public string TopicsPath { get; set; } = "Topics";
-
-    public string ProjectsPath { get; set; } = "Projects";
-
-    public string ScreenshotPath { get; set; } = "Attachments/Snips";
 }
 
 public sealed class AiOptions
@@ -89,11 +77,4 @@ public sealed class OcrOptions
     public string TesseractDataPath { get; set; } = string.Empty;
 
     public string DefaultLanguage { get; set; } = "eng";
-}
-
-public sealed class PipelineOptions
-{
-    public string DefinitionFilePath { get; set; } = "pipelines.json";
-
-    public string DefaultScreenshotPipelineId { get; set; } = "screenshot-ocr-ai-structured";
 }

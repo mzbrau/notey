@@ -40,12 +40,7 @@ public sealed class NoteySettingsStore(
             },
             Vault = new VaultOptions
             {
-                RootPath = options.Vault.RootPath,
-                NotesPath = options.Vault.NotesPath,
-                PeoplePath = options.Vault.PeoplePath,
-                TopicsPath = options.Vault.TopicsPath,
-                ProjectsPath = options.Vault.ProjectsPath,
-                ScreenshotPath = options.Vault.ScreenshotPath
+                RootPath = options.Vault.RootPath
             },
             Ai = new AiOptions
             {
@@ -72,11 +67,6 @@ public sealed class NoteySettingsStore(
                 TesseractExecutablePath = options.Ocr.TesseractExecutablePath,
                 TesseractDataPath = options.Ocr.TesseractDataPath,
                 DefaultLanguage = options.Ocr.DefaultLanguage
-            },
-            Pipelines = new PipelineOptions
-            {
-                DefinitionFilePath = options.Pipelines.DefinitionFilePath,
-                DefaultScreenshotPipelineId = options.Pipelines.DefaultScreenshotPipelineId
             }
         };
     }
@@ -106,11 +96,6 @@ public sealed class NoteySettingsStore(
             errors.Add($"Open-note hotkey is invalid: {ex.Message}");
         }
 
-        ValidateRequired(errors, options.Vault.NotesPath, "Notes path is required.");
-        ValidateRequired(errors, options.Vault.PeoplePath, "People path is required.");
-        ValidateRequired(errors, options.Vault.TopicsPath, "Topics path is required.");
-        ValidateRequired(errors, options.Vault.ProjectsPath, "Projects path is required.");
-        ValidateRequired(errors, options.Vault.ScreenshotPath, "Screenshot path is required.");
         ValidateRequired(errors, options.Ai.DefaultProviderId, "Default AI provider id is required.");
         ValidateRequired(errors, options.Ai.ApiKeyEnvironmentVariable, "AI API-key environment variable is required.");
         if (!string.IsNullOrWhiteSpace(options.Ai.BaseUrl)
@@ -131,8 +116,6 @@ public sealed class NoteySettingsStore(
 
         ValidateRequired(errors, options.Ocr.TesseractExecutablePath, "Tesseract executable path is required.");
         ValidateRequired(errors, options.Ocr.DefaultLanguage, "OCR default language is required.");
-        ValidateRequired(errors, options.Pipelines.DefinitionFilePath, "Pipeline definition path is required.");
-        ValidateRequired(errors, options.Pipelines.DefaultScreenshotPipelineId, "Default screenshot pipeline id is required.");
 
         return errors;
     }
@@ -161,7 +144,7 @@ public sealed class NoteySettingsStore(
         RefreshAiProviders();
 
         var message = restartRequired
-            ? "Settings saved. OCR and pipeline changes apply after restart."
+            ? "Settings saved. OCR changes apply after restart."
             : "Settings saved.";
         return new NoteySettingsSaveResult(restartRequired, message);
     }
@@ -231,16 +214,13 @@ public sealed class NoteySettingsStore(
         target.Vault = cloned.Vault;
         target.Ai = cloned.Ai;
         target.Ocr = cloned.Ocr;
-        target.Pipelines = cloned.Pipelines;
     }
 
     private static bool RequiresRestart(NoteyOptions current, NoteyOptions updated)
     {
         return !string.Equals(current.Ocr.TesseractExecutablePath, updated.Ocr.TesseractExecutablePath, StringComparison.Ordinal)
             || !string.Equals(current.Ocr.TesseractDataPath, updated.Ocr.TesseractDataPath, StringComparison.Ordinal)
-            || !string.Equals(current.Ocr.DefaultLanguage, updated.Ocr.DefaultLanguage, StringComparison.Ordinal)
-            || !string.Equals(current.Pipelines.DefinitionFilePath, updated.Pipelines.DefinitionFilePath, StringComparison.Ordinal)
-            || !string.Equals(current.Pipelines.DefaultScreenshotPipelineId, updated.Pipelines.DefaultScreenshotPipelineId, StringComparison.Ordinal);
+            || !string.Equals(current.Ocr.DefaultLanguage, updated.Ocr.DefaultLanguage, StringComparison.Ordinal);
     }
 
     private static void ValidateRequired(ICollection<string> errors, string? value, string message)

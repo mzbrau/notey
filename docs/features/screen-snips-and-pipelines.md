@@ -1,29 +1,15 @@
 ---
-id: screen-snips-and-pipelines
-title: Screen snips and pipelines
+id: screen-snips-and-ai
+title: Screen snips and AI
 sidebar_position: 2
 ---
 
-Screen snips are saved into the vault and inserted into the note as Obsidian image embeds.
+Screen snips can be saved into the vault and inserted into the note as Obsidian image embeds, or processed immediately with OCR.
 
-## Save-only snips
+## Persistent image snips
 
-The save-only command captures a region and links the image in the current note.
+The persistent command captures a region, saves it under `Images`, and inserts an Obsidian image embed into the current draft. Embedded vault images are available to OCR during final note processing.
 
-## AI analysis snips
+## Direct OCR snips
 
-The analysis command captures a region, saves it, and then runs a compatible `ImageData` pipeline. If more than one enabled image pipeline exists, Notey shows a chooser.
-
-The default screenshot pipeline is:
-
-```text
-ImageData -> Tesseract OCR -> AI structured extraction -> StructuredNoteData
-```
-
-The Teams pipeline adds a Teams meeting normalizer after structured extraction.
-
-## Text organization pipelines
-
-The manual markdown improve command runs enabled `TextData` pipelines. It sends only user-authored note content plus current editable metadata to the pipeline, excluding generated Notey context and prior AI cleanup blocks.
-
-AI cleanup is inserted as a generated block, while metadata suggestions remain editable until accepted.
+The direct command captures a temporary region, OCRs it immediately, and passes the text to final note processing without inserting an image embed or keeping the temporary file.

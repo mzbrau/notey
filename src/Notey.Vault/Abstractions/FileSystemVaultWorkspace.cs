@@ -10,14 +10,11 @@ public sealed class FileSystemVaultWorkspace(NoteyOptions options) : IVaultWorks
         var rootPath = ResolveRootPath(vault.RootPath);
 
         return new VaultPaths(
-            Normalize(rootPath, vault.NotesPath),
-            Normalize(rootPath, vault.PeoplePath),
-            Normalize(rootPath, vault.TopicsPath),
-            Normalize(rootPath, vault.ProjectsPath),
-            Normalize(rootPath, vault.ScreenshotPath))
-        {
-            RootPath = rootPath
-        };
+            rootPath,
+            Normalize(rootPath, "Images"),
+            Normalize(rootPath, "Notes"),
+            Normalize(rootPath, Path.Combine("Notes", "Draft")),
+            Normalize(rootPath, "People"));
     }
 
     private static string ResolveRootPath(string rootPath)

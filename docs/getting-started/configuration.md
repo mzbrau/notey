@@ -6,20 +6,15 @@ sidebar_position: 2
 
 Notey reads configuration from `appsettings.json` and optional local overrides in `appsettings.Local.json`. Local settings are intentionally ignored by git so API keys and machine-specific paths are not committed.
 
-## Vault paths
+## Vault root
 
-The `Notey:Vault` section controls where notes and linked entity pages are written.
+The `Notey:Vault` section configures a single vault root. Notey owns `Images`, `Notes`, `Notes/Draft`, and `People` under that root.
 
 ```json
 {
   "Notey": {
     "Vault": {
-      "RootPath": "C:/Users/me/Obsidian/MyVault",
-      "NotesPath": "Notes",
-      "PeoplePath": "People",
-      "TopicsPath": "Topics",
-      "ProjectsPath": "Projects",
-      "ScreenshotPath": "Attachments/Snips"
+      "RootPath": "C:/Users/me/Obsidian/MyVault"
     }
   }
 }
@@ -44,7 +39,7 @@ The default AI provider is OpenAI-compatible. Prefer the `NOTEY_AI_API_KEY` envi
 
 ## OCR
 
-The screenshot AI pipelines use OCR first. If `tesseract` is not on `PATH`, configure the executable explicitly.
+Direct screenshot processing and persistent image embeds use OCR. If `tesseract` is not on `PATH`, configure the executable explicitly.
 
 ```json
 {
@@ -57,7 +52,3 @@ The screenshot AI pipelines use OCR first. If `tesseract` is not on `PATH`, conf
   }
 }
 ```
-
-## Pipeline definitions
-
-Pipeline sequences are stored outside code in `pipelines.json`. The app copies `pipelines*.json` next to the executable on build/publish.

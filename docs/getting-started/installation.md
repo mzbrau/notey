@@ -4,7 +4,7 @@ title: Installation
 sidebar_position: 1
 ---
 
-Notey currently publishes as a Windows folder build rather than a full installer. The folder publish is the safest first packaging target because it keeps the application, Avalonia dependencies, OCR configuration files, and JSON pipeline definitions together without adding installer-specific behavior.
+Notey currently publishes as a Windows folder build rather than a full installer. The folder publish is the safest first packaging target because it keeps the application, Avalonia dependencies, and OCR configuration files together without adding installer-specific behavior.
 
 ## Requirements
 
@@ -12,7 +12,7 @@ Notey currently publishes as a Windows folder build rather than a full installer
 - .NET 10 SDK for development builds.
 - Tesseract OCR installed and available on `PATH`, or configured with a full executable path.
 - An Obsidian vault folder or another markdown folder for saved notes.
-- Optional OpenAI-compatible API endpoint for AI screenshot and note organization pipelines.
+- Optional OpenAI-compatible API endpoint for AI note processing.
 
 ## Build from source
 

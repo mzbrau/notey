@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Notey.Core.Notes;
@@ -14,7 +15,7 @@ public sealed partial class FileSystemNoteDraftStore(
 
     public async Task<NoteDraft> CreateAsync(DateTimeOffset createdAt, CancellationToken cancellationToken = default)
     {
-        var notesPath = workspace.GetPaths().NotesPath;
+        var notesPath = workspace.GetPaths().DraftPath;
         Directory.CreateDirectory(notesPath);
 
         var content = templateFactory.Create(createdAt);
@@ -35,12 +36,13 @@ public sealed partial class FileSystemNoteDraftStore(
 
     public async Task<NoteDraft> OpenAsync(string filePath, CancellationToken cancellationToken = default)
     {
-        var notesPath = workspace.GetPaths().NotesPath;
+        var notesPath = workspace.GetPaths().DraftPath;
         var fullFilePath = Path.GetFullPath(filePath);
         EnsureFileIsInsideNotesPath(notesPath, fullFilePath);
 
         var content = await File.ReadAllTextAsync(fullFilePath, cancellationToken);
         var createdAt = TryReadCreatedAt(content)
+            ?? TryReadCreatedAtFromFileName(fullFilePath)
             ?? GetFileCreatedAt(fullFilePath);
 
         return new NoteDraft(fullFilePath, content, createdAt);
@@ -56,7 +58,7 @@ public sealed partial class FileSystemNoteDraftStore(
 
     public async Task<IReadOnlyList<RecentNoteSummary>> ListRecentAsync(DateTimeOffset createdAfter, CancellationToken cancellationToken = default)
     {
-        var notesPath = workspace.GetPaths().NotesPath;
+        var notesPath = workspace.GetPaths().DraftPath;
         if (!Directory.Exists(notesPath))
         {
             return [];
@@ -186,6 +188,7 @@ public sealed partial class FileSystemNoteDraftStore(
         var read = await reader.ReadBlockAsync(buffer.AsMemory(0, previewLength), cancellationToken);
         var preview = new string(buffer, 0, read);
         var createdAt = TryReadCreatedAt(preview)
+            ?? TryReadCreatedAtFromFileName(filePath)
             ?? GetFileCreatedAt(filePath);
         var title = TryReadTitle(preview)
             ?? Path.GetFileNameWithoutExtension(filePath);
@@ -247,6 +250,25 @@ public sealed partial class FileSystemNoteDraftStore(
     private static DateTimeOffset GetFileCreatedAt(string filePath)
     {
         return new DateTimeOffset(File.GetCreationTimeUtc(filePath), TimeSpan.Zero);
+    }
+
+    private static DateTimeOffset? TryReadCreatedAtFromFileName(string filePath)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(filePath);
+        const int timestampLength = 17;
+        if (fileName.Length < timestampLength)
+        {
+            return null;
+        }
+
+        return DateTimeOffset.TryParseExact(
+            fileName[..timestampLength],
+            "yyyy-MM-dd-HHmmss",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal,
+            out var createdAt)
+            ? createdAt
+            : null;
     }
 
     private static string? TryReadTitle(string content)

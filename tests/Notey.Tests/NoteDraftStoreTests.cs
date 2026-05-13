@@ -10,7 +10,7 @@ public sealed class NoteDraftStoreTests : IDisposable
     private readonly List<string> _tempDirectories = [];
 
     [Fact]
-    public async Task CreateAsync_writes_obsidian_template_to_configured_notes_folder()
+    public async Task CreateAsync_writes_empty_draft_to_owned_draft_folder()
     {
         var rootPath = CreateTempDirectory();
         var store = CreateStore(rootPath);
@@ -18,10 +18,10 @@ public sealed class NoteDraftStoreTests : IDisposable
 
         var draft = await store.CreateAsync(createdAt);
 
-        Assert.Equal(Path.Combine(rootPath, "Notes", "2026-05-11-224530-note.md"), draft.FilePath);
+        Assert.Equal(Path.Combine(rootPath, "Notes", "Draft", "2026-05-11-224530-note.md"), draft.FilePath);
         Assert.True(File.Exists(draft.FilePath));
-        Assert.Contains("created: 2026-05-11T22:45:30.0000000+02:00", draft.Content);
-        Assert.Contains("# Untitled note", await File.ReadAllTextAsync(draft.FilePath));
+        Assert.Equal(string.Empty, draft.Content);
+        Assert.Equal(string.Empty, await File.ReadAllTextAsync(draft.FilePath));
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class NoteDraftStoreTests : IDisposable
     public async Task ListRecentAsync_falls_back_to_filename_when_heading_is_missing()
     {
         var rootPath = CreateTempDirectory();
-        var notesPath = Path.Combine(rootPath, "Notes");
+        var notesPath = Path.Combine(rootPath, "Notes", "Draft");
         Directory.CreateDirectory(notesPath);
         var filePath = Path.Combine(notesPath, "2026-05-11-224530-note.md");
         await File.WriteAllTextAsync(filePath, """
@@ -167,7 +167,7 @@ public sealed class NoteDraftStoreTests : IDisposable
     public async Task OpenAsync_does_not_read_created_from_note_body()
     {
         var rootPath = CreateTempDirectory();
-        var notesPath = Path.Combine(rootPath, "Notes");
+        var notesPath = Path.Combine(rootPath, "Notes", "Draft");
         Directory.CreateDirectory(notesPath);
         var filePath = Path.Combine(notesPath, "test.md");
         var expectedCreatedAt = new DateTimeOffset(2026, 5, 11, 22, 45, 30, TimeSpan.Zero);
@@ -193,12 +193,7 @@ public sealed class NoteDraftStoreTests : IDisposable
         {
             Vault = new VaultOptions
             {
-                RootPath = rootPath,
-                NotesPath = "Notes",
-                PeoplePath = "People",
-                TopicsPath = "Topics",
-                ProjectsPath = "Projects",
-                ScreenshotPath = "Attachments/Snips"
+                RootPath = rootPath
             }
         };
 
