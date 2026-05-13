@@ -213,12 +213,16 @@ public sealed class Phase11PackagingHardeningTests
         var root = FindRepoRoot();
         var project = File.ReadAllText(Path.Combine(root, "src", "Notey.App", "Notey.App.csproj"));
         var trayService = File.ReadAllText(Path.Combine(root, "src", "Notey.App", "Platform", "AvaloniaTrayService.cs"));
+        var appMarkup = File.ReadAllText(Path.Combine(root, "src", "Notey.App", "App.axaml"));
+        var mainWindowMarkup = File.ReadAllText(Path.Combine(root, "src", "Notey.App", "Views", "MainWindow.axaml"));
 
         Assert.True(File.Exists(Path.Combine(root, "src", "Notey.App", "Assets", "notey.png")));
         Assert.True(File.Exists(Path.Combine(root, "src", "Notey.App", "Assets", "notey-tray.png")));
         Assert.Contains("Assets\\notey.png", project, StringComparison.Ordinal);
         Assert.Contains("Assets\\notey-tray.png", project, StringComparison.Ordinal);
         Assert.Contains("avares://Notey/Assets/notey-tray.png", trayService, StringComparison.Ordinal);
+        Assert.Contains("avares://Notey/Assets/notey.png", mainWindowMarkup, StringComparison.Ordinal);
+        Assert.Contains("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml", appMarkup, StringComparison.Ordinal);
         Assert.DoesNotContain("avares://Notey.App/Assets", trayService, StringComparison.Ordinal);
     }
 

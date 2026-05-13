@@ -1,8 +1,11 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.Controls;
+using Notey.AI.Providers;
+using Notey.App.Configuration;
 using Notey.App.Editing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -36,6 +39,8 @@ public sealed partial class MainWindow : Window
     private readonly ObsidianLinkBuilder _linkBuilder;
     private readonly PipelineCatalog _pipelineCatalog;
     private readonly PipelineExecutor _pipelineExecutor;
+    private readonly NoteyOptions _options;
+    private readonly NoteySettingsStore _settingsStore;
     private readonly NoteMetadataFormatter _metadataFormatter = new();
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindow> _logger;
@@ -60,6 +65,8 @@ public sealed partial class MainWindow : Window
     public bool HideInsteadOfClose { get; set; }
 
     public bool IsCaptureInProgress => _isCaptureInProgress;
+
+    public event EventHandler? SettingsSaved;
 
     public MainWindow()
         : this(CreateDefaultDependencies(), TimeProvider.System, NullLogger<MainWindow>.Instance)
@@ -99,10 +106,12 @@ public sealed partial class MainWindow : Window
         PipelineCatalog pipelineCatalog,
         PipelineExecutor pipelineExecutor,
         TimeProvider timeProvider,
-        ILogger<MainWindow> logger)
+        ILogger<MainWindow> logger,
+        NoteySettingsStore? settingsStore = null)
     {
         InitializeComponent();
 
+        _options = options;
         _noteDraftStore = noteDraftStore;
         _vaultEntityStore = vaultEntityStore;
         _screenSnipService = screenSnipService;
@@ -111,6 +120,7 @@ public sealed partial class MainWindow : Window
         _pipelineExecutor = pipelineExecutor;
         _timeProvider = timeProvider;
         _logger = logger;
+        _settingsStore = settingsStore ?? CreateFallbackSettingsStore(options);
         _autosaveTimer = new DispatcherTimer { Interval = AutosaveDelay };
         _autosaveTimer.Tick += AutosaveTimerOnTick;
 
@@ -134,6 +144,19 @@ public sealed partial class MainWindow : Window
         };
 
         logger.LogInformation("Notey shell initialized with {Theme} theme.", options.Ui.Theme);
+    }
+
+    private static NoteySettingsStore CreateFallbackSettingsStore(NoteyOptions options)
+    {
+        var providerRegistry = new AiProviderRegistry(
+            OpenAiCompatibleAiProviderFactory.CreateProviders(options.Ai, static () => new HttpClient()),
+            string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId);
+
+        return new NoteySettingsStore(
+            options,
+            providerRegistry,
+            new FallbackHttpClientFactory(),
+            NullLogger<NoteySettingsStore>.Instance);
     }
 
     private static (
@@ -192,7 +215,30 @@ public sealed partial class MainWindow : Window
         };
         NoteEditor.Options.EnableHyperlinks = true;
         NoteEditor.Options.EnableEmailHyperlinks = true;
+        ApplyEditorTheme();
         NoteEditor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizingTransformer());
+    }
+
+    private void ApplyEditorTheme()
+    {
+        var surfaceBrush = Brush.Parse("#10131A");
+        var primaryTextBrush = Brush.Parse("#E1E2EC");
+        var subtleTextBrush = Brush.Parse("#565B68");
+        var primaryBrush = Brush.Parse("#ADC6FF");
+        var selectionBrush = Brush.Parse("#2E4F8E");
+
+        NoteEditor.Background = surfaceBrush;
+        NoteEditor.Foreground = primaryTextBrush;
+        NoteEditor.LineNumbersForeground = subtleTextBrush;
+        NoteEditor.TextArea.Background = surfaceBrush;
+        NoteEditor.TextArea.Foreground = primaryTextBrush;
+        NoteEditor.TextArea.CaretBrush = primaryBrush;
+        NoteEditor.TextArea.SelectionBrush = selectionBrush;
+        NoteEditor.TextArea.SelectionForeground = primaryTextBrush;
+        NoteEditor.TextArea.TextView.LinkTextForegroundBrush = primaryBrush;
+        NoteEditor.TextArea.TextView.LinkTextBackgroundBrush = Brushes.Transparent;
+        NoteEditor.TextArea.TextView.NonPrintableCharacterBrush = subtleTextBrush;
+        NoteEditor.TextArea.TextView.CurrentLineBackground = Brush.Parse("#191B23");
     }
 
     private void ConfigureMetadataInputs()
@@ -224,6 +270,61 @@ public sealed partial class MainWindow : Window
                 AutosaveStatusText.Text = "SAVED";
             }
         };
+        SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
+    }
+
+    private async Task OpenSettingsAsync()
+    {
+        NoteyOptions? updatedOptions;
+        try
+        {
+            updatedOptions = await SettingsWindow.ShowAsync(this, _options);
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "SETTINGS ERROR";
+            _logger.LogError(ex, "Unable to open settings.");
+            return;
+        }
+
+        if (updatedOptions is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await _settingsStore.SaveAsync(updatedOptions, _windowClosed.Token);
+            Width = _options.Ui.DefaultWindowWidth;
+            Height = _options.Ui.DefaultWindowHeight;
+            _openNoteGesture = TryParseOpenNoteGesture(_options.Hotkeys.OpenNote);
+            AutosaveStatusText.Text = result.RestartRequired ? "SETTINGS SAVED - RESTART NEEDED" : "SETTINGS SAVED";
+            SettingsSaved?.Invoke(this, EventArgs.Empty);
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Settings save was cancelled because the window closed.");
+        }
+        catch (IOException ex)
+        {
+            AutosaveStatusText.Text = "SETTINGS ERROR";
+            _logger.LogError(ex, "Failed to write local settings.");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AutosaveStatusText.Text = "SETTINGS ERROR";
+            _logger.LogError(ex, "Notey does not have permission to write local settings.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "SETTINGS INVALID";
+            _logger.LogError(ex, "Invalid settings prevented saving.");
+        }
+        catch (ArgumentException ex)
+        {
+            AutosaveStatusText.Text = "SETTINGS INVALID";
+            _logger.LogError(ex, "Invalid settings prevented saving.");
+        }
     }
 
     public async Task ActivateOrResumeAsync()
@@ -1809,6 +1910,14 @@ public sealed partial class MainWindow : Window
         public override string ToString()
         {
             return IsCreateAction ? $"Create \"{Name}\"" : Name;
+        }
+    }
+
+    private sealed class FallbackHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name)
+        {
+            return new HttpClient();
         }
     }
 

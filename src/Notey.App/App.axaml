@@ -1,5 +1,6 @@
 <Application xmlns="https://github.com/avaloniaui"
               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
               x:Class="Notey.App.App"
               RequestedThemeVariant="Dark">
   <Application.Resources>
@@ -25,6 +26,7 @@
   </Application.Resources>
   <Application.Styles>
     <FluentTheme />
+    <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
     <Style Selector="Window">
       <Setter Property="Background" Value="{DynamicResource Notey.SurfaceBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
@@ -69,6 +71,29 @@
     <Style Selector="Button.command:pressed /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+    </Style>
+
+    <Style Selector="PathIcon.commandIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.SecondaryTextBrush}" />
+    </Style>
+
+    <Style Selector="Button.command:pointerover PathIcon.commandIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+    </Style>
+
+    <Style Selector="Button.command:pressed PathIcon.commandIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+    </Style>
+
+    <Style Selector="ae|TextEditor.noteEditor">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="LineNumbersForeground" Value="{DynamicResource Notey.SubtleTextBrush}" />
+      <Setter Property="FontFamily" Value="Inter, Segoe UI, Arial" />
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="Padding" Value="48,36" />
     </Style>
 
     <Style Selector="ToggleButton.metadataAction">
@@ -162,30 +187,5 @@
       <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
     </Style>
 
-    <Style Selector="TextBlock.editorLineNumber">
-      <Setter Property="Foreground" Value="{DynamicResource Notey.SubtleTextBrush}" />
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="FontFamily" Value="Inter, Segoe UI, Arial" />
-    </Style>
-
-    <Style Selector="TextBlock.editorMarkdownMarker">
-      <Setter Property="Foreground" Value="{DynamicResource Notey.SubtleTextBrush}" />
-      <Setter Property="FontSize" Value="16" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-
-    <Style Selector="TextBlock.editorHeading">
-      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
-      <Setter Property="FontSize" Value="32" />
-      <Setter Property="FontWeight" Value="Bold" />
-      <Setter Property="LetterSpacing" Value="-0.4" />
-    </Style>
-
-    <Style Selector="TextBlock.editorBody">
-      <Setter Property="Foreground" Value="{DynamicResource Notey.SecondaryTextBrush}" />
-      <Setter Property="FontSize" Value="17" />
-      <Setter Property="LineHeight" Value="28" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-    </Style>
   </Application.Styles>
 </Application>

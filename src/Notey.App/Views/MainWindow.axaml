@@ -15,24 +15,47 @@
             BorderThickness="0,0,0,1"
             Background="{DynamicResource Notey.SurfaceBrush}">
       <Grid ColumnDefinitions="Auto,*,Auto" Margin="22,0">
-        <TextBlock Grid.Column="0"
-                   Classes="appTitle"
-                   Text="Notey"
-                   VerticalAlignment="Center" />
+        <StackPanel Grid.Column="0"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    VerticalAlignment="Center">
+          <Image Source="avares://Notey/Assets/notey.png"
+                 Width="22"
+                 Height="22"
+                 Stretch="Uniform"
+                 AutomationProperties.Name="Notey icon" />
+          <TextBlock Classes="appTitle"
+                     Text="Notey"
+                     VerticalAlignment="Center" />
+        </StackPanel>
 
         <StackPanel Grid.Column="2"
                     Orientation="Horizontal"
                     VerticalAlignment="Center"
                     Spacing="6">
-          <Button x:Name="NewNoteButton" Classes="command" Content="+" ToolTip.Tip="New note" AutomationProperties.Name="New note" />
-          <Button x:Name="OpenRecentNoteButton" Classes="command" Content="R" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note" />
+          <Button x:Name="NewNoteButton" Classes="command" ToolTip.Tip="New note" AutomationProperties.Name="New note">
+            <PathIcon Classes="commandIcon" Data="M12,5 L12,19 M5,12 L19,12" />
+          </Button>
+          <Button x:Name="OpenRecentNoteButton" Classes="command" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note">
+            <PathIcon Classes="commandIcon" Data="M4,6 L9,6 L11,8 L20,8 L20,18 L4,18 Z M8,11 L16,11 M8,14 L14,14" />
+          </Button>
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
-          <Button x:Name="CaptureAnalyzeButton" Classes="command" Content="AI" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis" />
-          <Button x:Name="CaptureSaveButton" Classes="command" Content="S" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save" />
-          <Button x:Name="ImproveMarkdownButton" Classes="command" Content="MD" ToolTip.Tip="Improve markdown manually" AutomationProperties.Name="Improve markdown manually" />
+          <Button x:Name="CaptureAnalyzeButton" Classes="command" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis">
+            <PathIcon Classes="commandIcon" Data="M4,7 L8,7 L10,5 L14,5 L16,7 L20,7 L20,18 L4,18 Z M12,9 A3,3 0,1 0,12,15 A3,3 0,1 0,12,9 M17,10 L18,12 L17,14 L16,12 Z" />
+          </Button>
+          <Button x:Name="CaptureSaveButton" Classes="command" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save">
+            <PathIcon Classes="commandIcon" Data="M4,7 L8,7 L10,5 L14,5 L16,7 L20,7 L20,18 L4,18 Z M12,9 A3,3 0,1 0,12,15 A3,3 0,1 0,12,9 M12,12 L12,17 M9,14 L12,17 L15,14" />
+          </Button>
+          <Button x:Name="ImproveMarkdownButton" Classes="command" ToolTip.Tip="Improve markdown manually" AutomationProperties.Name="Improve markdown manually">
+            <PathIcon Classes="commandIcon" Data="M5,5 L19,5 L19,19 L5,19 Z M8,9 L10,14 L12,9 L14,14 L16,9 M8,16 L16,16" />
+          </Button>
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
-          <Button x:Name="SaveNoteButton" Classes="command" Content="OK" ToolTip.Tip="Save note" AutomationProperties.Name="Save note" />
-          <Button Classes="command" Content="..." ToolTip.Tip="Open settings" AutomationProperties.Name="Open settings" />
+          <Button x:Name="SaveNoteButton" Classes="command" ToolTip.Tip="Save note" AutomationProperties.Name="Save note">
+            <PathIcon Classes="commandIcon" Data="M5,12 L10,17 L19,7" />
+          </Button>
+          <Button x:Name="SettingsButton" Classes="command" ToolTip.Tip="Open settings" AutomationProperties.Name="Open settings">
+            <PathIcon Classes="commandIcon" Data="M12,8 A4,4 0,1 0,12,16 A4,4 0,1 0,12,8 M12,3 L13,5.2 L15.4,5.7 L17,4.2 L19.8,7 L18.3,8.6 L18.8,11 L21,12 L18.8,13 L18.3,15.4 L19.8,17 L17,19.8 L15.4,18.3 L13,18.8 L12,21 L11,18.8 L8.6,18.3 L7,19.8 L4.2,17 L5.7,15.4 L5.2,13 L3,12 L5.2,11 L5.7,8.6 L4.2,7 L7,4.2 L8.6,5.7 L11,5.2 Z" />
+          </Button>
         </StackPanel>
       </Grid>
     </Border>
@@ -124,17 +147,12 @@
               BorderThickness="0,0,0,1"
               Background="{DynamicResource Notey.SurfaceBrush}">
         <ae:TextEditor x:Name="NoteEditor"
+                       Classes="noteEditor"
                        ShowLineNumbers="True"
                        IsReadOnly="True"
                        WordWrap="True"
                        HorizontalScrollBarVisibility="Disabled"
-                       VerticalScrollBarVisibility="Auto"
-                       Background="{DynamicResource Notey.SurfaceBrush}"
-                       Foreground="{DynamicResource Notey.PrimaryTextBrush}"
-                       LineNumbersForeground="{DynamicResource Notey.SubtleTextBrush}"
-                       FontFamily="Inter, Segoe UI, Arial"
-                       FontSize="17"
-                       Padding="48,36" />
+                       VerticalScrollBarVisibility="Auto" />
       </Border>
 
       <Border x:Name="PersonAutocompletePanel"

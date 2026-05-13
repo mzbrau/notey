@@ -51,6 +51,7 @@ public static class HostBootstrapper
                 services.AddSingleton<NoteTemplateFactory>();
                 services.AddSingleton<NoteFileNameGenerator>();
                 services.AddSingleton<DiagnosticsReportWriter>();
+                services.AddSingleton<NoteySettingsStore>();
                 services.AddSingleton<MainWindow>();
                 services.AddSingleton<IPlatformRuntime>(platformRuntime);
                 services.AddSingleton<IScreenshotAnalysisService, UnconfiguredScreenshotAnalysisService>();

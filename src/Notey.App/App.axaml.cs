@@ -37,6 +37,7 @@ public sealed class App(IHost host) : Application
             mainWindow.HideInsteadOfClose = platformRuntime.IsWindows;
             desktop.MainWindow = mainWindow;
             mainWindow.Opened += async (_, _) => await InitializePlatformIntegrationAsync(desktop, mainWindow);
+            mainWindow.SettingsSaved += async (_, _) => await RegisterOpenNoteHotkeyAsync(mainWindow);
             desktop.Exit += (_, _) =>
             {
                 host.StopAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
@@ -57,16 +58,23 @@ public sealed class App(IHost host) : Application
         _platformIntegrationInitialized = true;
 
         var trayService = host.Services.GetRequiredService<ITrayService>();
-        var globalHotkeyService = host.Services.GetRequiredService<IGlobalHotkeyService>();
-        var options = host.Services.GetRequiredService<NoteyOptions>();
 
         await trayService.InitializeAsync(new TrayServiceRegistration(
             _ => ActivateMainWindowAsync(mainWindow, createNewNote: false),
             _ => ActivateMainWindowAsync(mainWindow, createNewNote: true),
             _ => ExitAsync(mainWindow)));
 
+        await RegisterOpenNoteHotkeyAsync(mainWindow);
+    }
+
+    private async Task RegisterOpenNoteHotkeyAsync(MainWindow mainWindow)
+    {
+        var globalHotkeyService = host.Services.GetRequiredService<IGlobalHotkeyService>();
+        var options = host.Services.GetRequiredService<NoteyOptions>();
+
         try
         {
+            await globalHotkeyService.UnregisterAllAsync();
             await globalHotkeyService.RegisterAsync(new GlobalHotkeyRegistration(
                 "Open note",
                 options.Hotkeys.OpenNote,
