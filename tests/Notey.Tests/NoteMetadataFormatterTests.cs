@@ -27,10 +27,7 @@ public sealed class NoteMetadataFormatterTests
             # Untitled note
             """, metadata);
 
-        Assert.Contains("""
-            people:
-              - "[[People/Jane Doe|Jane Doe]]"
-            """, result);
+        Assert.Contains("people:\n  - \"[[People/Jane Doe|Jane Doe]]\"", result, StringComparison.Ordinal);
         Assert.Contains("- People: [[People/Jane Doe|Jane Doe]]", result);
         Assert.Contains("- Tags: #strategy", result);
         Assert.Contains("- Screenshot context: Teams meeting title: Roadmap", result);
