@@ -10,4 +10,9 @@ public sealed class NoOpGlobalHotkeyService(ILogger<NoOpGlobalHotkeyService> log
         logger.LogInformation("Global hotkey {Gesture} for {Name} is unavailable on this platform and was registered as a no-op.", registration.Gesture, registration.Name);
         return ValueTask.CompletedTask;
     }
+
+    public ValueTask UnregisterAllAsync(CancellationToken cancellationToken = default)
+    {
+        return ValueTask.CompletedTask;
+    }
 }

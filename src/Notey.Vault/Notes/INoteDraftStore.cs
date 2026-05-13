@@ -8,5 +8,7 @@ public interface INoteDraftStore
 
     Task<NoteDraft?> FindMostRecentAsync(DateTimeOffset createdAfter, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<RecentNoteSummary>> ListRecentAsync(DateTimeOffset createdAfter, CancellationToken cancellationToken = default);
+
     Task SaveAsync(NoteDraft draft, string content, CancellationToken cancellationToken = default);
 }

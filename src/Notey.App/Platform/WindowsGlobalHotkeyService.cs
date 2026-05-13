@@ -57,6 +57,18 @@ public sealed class WindowsGlobalHotkeyService(
         }
     }
 
+    public ValueTask UnregisterAllAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        return new ValueTask(UnregisterAllOnUiThreadAsync());
+    }
+
     private void RegisterOnUiThread(GlobalHotkeyRegistration registration)
     {
         var handle = mainWindow.TryGetPlatformHandle();
@@ -84,6 +96,24 @@ public sealed class WindowsGlobalHotkeyService(
     private async Task RegisterOnUiThreadAsync(GlobalHotkeyRegistration registration)
     {
         await Dispatcher.UIThread.InvokeAsync(() => RegisterOnUiThread(registration));
+    }
+
+    private async Task UnregisterAllOnUiThreadAsync()
+    {
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var handle = mainWindow.TryGetPlatformHandle();
+            if (handle is null || handle.HandleDescriptor != "HWND")
+            {
+                return;
+            }
+
+            foreach (var hotkeyId in _registrations.Keys.ToArray())
+            {
+                _ = UnregisterHotKey(handle.Handle, hotkeyId);
+                _registrations.Remove(hotkeyId);
+            }
+        });
     }
 
     private void EnsureWndProcHook()

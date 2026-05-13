@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Notey.Vault.Notes;
@@ -7,32 +8,28 @@ namespace Notey.App.Views;
 
 public sealed class RecentNoteChoiceWindow : Window
 {
-    public RecentNoteChoiceWindow(NoteDraft recentDraft)
+    private readonly ListBox _recentNoteList = new();
+
+    public RecentNoteChoiceWindow(IReadOnlyList<RecentNoteSummary> recentNotes)
     {
-        Title = "Resume note?";
-        Width = 420;
-        Height = 220;
-        MinWidth = 420;
-        MinHeight = 220;
+        ArgumentNullException.ThrowIfNull(recentNotes);
+
+        Title = "Open previous note";
+        Width = 560;
+        Height = recentNotes.Count == 0 ? 280 : 420;
+        MinWidth = 560;
+        MinHeight = 280;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Brushes.Transparent;
 
-        var resumeButton = new Button
-        {
-            Content = "Resume previous note",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Center
-        };
-        resumeButton.Click += (_, _) => Close(RecentNoteChoice.Resume);
-
-        var newButton = new Button
+        var startNewButton = new Button
         {
             Content = "Start new note",
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Center
         };
-        newButton.Click += (_, _) => Close(RecentNoteChoice.NewNote);
+        startNewButton.Click += (_, _) => Close(RecentNoteChoice.NewNote);
 
         var cancelButton = new Button
         {
@@ -42,50 +39,102 @@ public sealed class RecentNoteChoiceWindow : Window
         };
         cancelButton.Click += (_, _) => Close(RecentNoteChoice.Cancel);
 
+        var contentChildren = new List<Control>
+        {
+            new TextBlock
+            {
+                Text = "Open previous note",
+                Foreground = new SolidColorBrush(Color.Parse("#E1E2EC")),
+                FontSize = 20,
+                FontWeight = FontWeight.SemiBold
+            },
+            new TextBlock
+            {
+                Text = recentNotes.Count == 0
+                    ? "No previous notes were created in the last week."
+                    : "Select a note from the last week to open it.",
+                Foreground = new SolidColorBrush(Color.Parse("#C2C6D6")),
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+
+        if (recentNotes.Count > 0)
+        {
+            _recentNoteList.ItemsSource = recentNotes.Select(static note => new RecentNoteChoiceItem(note)).ToArray();
+            _recentNoteList.PointerReleased += OnRecentNotePointerReleased;
+            _recentNoteList.KeyDown += OnRecentNoteListKeyDown;
+            contentChildren.Add(_recentNoteList);
+        }
+
+        contentChildren.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Children =
+            {
+                cancelButton,
+                startNewButton
+            }
+        });
+
+        var stack = new StackPanel
+        {
+            Spacing = 14
+        };
+
+        foreach (var child in contentChildren)
+        {
+            stack.Children.Add(child);
+        }
+
         Content = new Border
         {
             Background = new SolidColorBrush(Color.Parse("#10131A")),
             BorderBrush = new SolidColorBrush(Color.Parse("#424754")),
             BorderThickness = new Avalonia.Thickness(1),
             Padding = new Avalonia.Thickness(24),
-            Child = new StackPanel
-            {
-                Spacing = 14,
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = "Resume recent note?",
-                        Foreground = new SolidColorBrush(Color.Parse("#E1E2EC")),
-                        FontSize = 20,
-                        FontWeight = FontWeight.SemiBold
-                    },
-                    new TextBlock
-                    {
-                        Text = $"{Path.GetFileName(recentDraft.FilePath)}\nCreated {recentDraft.CreatedAt:ddd, HH:mm}",
-                        Foreground = new SolidColorBrush(Color.Parse("#C2C6D6")),
-                        TextWrapping = TextWrapping.Wrap
-                    },
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        Spacing = 8,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Children =
-                        {
-                            cancelButton,
-                            newButton,
-                            resumeButton
-                        }
-                    }
-                }
-            }
+            Child = stack
         };
     }
 
-    public static async Task<RecentNoteChoice> ShowAsync(Window owner, NoteDraft recentDraft)
+    public static async Task<RecentNoteChoice> ShowAsync(Window owner, IReadOnlyList<RecentNoteSummary> recentNotes)
     {
-        var dialog = new RecentNoteChoiceWindow(recentDraft);
+        var dialog = new RecentNoteChoiceWindow(recentNotes);
         return await dialog.ShowDialog<RecentNoteChoice>(owner);
+    }
+
+    private void OnRecentNotePointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton == MouseButton.Left)
+        {
+            CloseSelectedNote();
+        }
+    }
+
+    private void OnRecentNoteListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            CloseSelectedNote();
+            e.Handled = true;
+        }
+    }
+
+    private void CloseSelectedNote()
+    {
+        if (_recentNoteList.SelectedItem is RecentNoteChoiceItem item)
+        {
+            Close(RecentNoteChoice.Open(item.Note));
+        }
+    }
+
+    private sealed record RecentNoteChoiceItem(RecentNoteSummary Note)
+    {
+        public override string ToString()
+        {
+            var fileName = Path.GetFileName(Note.FilePath);
+            return $"{Note.Title}\n{fileName} - Created {Note.CreatedAt:ddd, HH:mm}";
+        }
     }
 }
