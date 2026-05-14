@@ -185,7 +185,7 @@ internal sealed class MainWindowTestHarness : IDisposable
 
         if (Directory.Exists(path))
         {
-            throw new IOException($"Failed to delete temporary test directory '{path}'.", lastException);
+            throw new IOException($"Failed to delete temporary test directory '{path}' after 5 attempts.", lastException);
         }
     }
 
