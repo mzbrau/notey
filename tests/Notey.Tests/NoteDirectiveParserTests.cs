@@ -62,6 +62,16 @@ public sealed class NoteDirectiveParserTests
     }
 
     [Fact]
+    public void SlashCommandCompletionQuery_does_not_match_slash_inside_word()
+    {
+        var text = "Visit http://example.com";
+
+        var query = SlashCommandCompletionQuery.TryCreate(text, text.Length);
+
+        Assert.Null(query);
+    }
+
+    [Fact]
     public void SlashCommandParameterQuery_matches_parameter_after_command()
     {
         var query = SlashCommandParameterQuery.TryCreate("/topic Acc", 10);

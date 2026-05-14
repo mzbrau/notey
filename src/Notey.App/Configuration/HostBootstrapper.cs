@@ -40,6 +40,7 @@ public static class HostBootstrapper
                 var options = new NoteyOptions();
                 var platformRuntime = new PlatformRuntime();
                 context.Configuration.GetSection(NoteyOptions.SectionName).Bind(options);
+                WarnIfLegacyVaultPathKeysConfigured(context.Configuration);
 
                 services.AddSingleton(options);
                 services.AddSingleton(TimeProvider.System);
@@ -79,5 +80,32 @@ public static class HostBootstrapper
                 }
             })
             .Build();
+    }
+
+    private static void WarnIfLegacyVaultPathKeysConfigured(IConfiguration configuration)
+    {
+        var vaultSection = configuration.GetSection($"{NoteyOptions.SectionName}:Vault");
+        var legacyKeys = vaultSection
+            .GetChildren()
+            .Select(static child => child.Key)
+            .Where(static key =>
+                key is "NotesPath" or "PeoplePath" or "TopicsPath" or "ProjectsPath" or "ScreenshotPath")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (legacyKeys.Length == 0)
+        {
+            return;
+        }
+
+        using var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.ClearProviders();
+            builder.AddConsole();
+        });
+        var logger = loggerFactory.CreateLogger("Notey.Configuration");
+        logger.LogWarning(
+            "Notey no longer supports Notey:Vault legacy path keys ({Keys}). Use Notey:Vault:RootPath and Notey-owned folders under that root instead.",
+            string.Join(", ", legacyKeys));
     }
 }

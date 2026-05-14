@@ -187,6 +187,21 @@ public sealed class NoteDraftStoreTests : IDisposable
         Assert.Equal(expectedCreatedAt, draft.CreatedAt);
     }
 
+    [Fact]
+    public async Task OpenAsync_reads_created_at_from_timestamp_filename_when_frontmatter_is_missing()
+    {
+        var rootPath = CreateTempDirectory();
+        var notesPath = Path.Combine(rootPath, "Notes", "Draft");
+        Directory.CreateDirectory(notesPath);
+        var filePath = Path.Combine(notesPath, "2026-05-11-224530-note.md");
+        await File.WriteAllTextAsync(filePath, "Draft body only.");
+        var store = CreateStore(rootPath);
+
+        var draft = await store.OpenAsync(filePath);
+
+        Assert.Equal(new DateTimeOffset(2026, 5, 11, 22, 45, 30, TimeSpan.Zero), draft.CreatedAt);
+    }
+
     private static FileSystemNoteDraftStore CreateStore(string rootPath)
     {
         var options = new NoteyOptions

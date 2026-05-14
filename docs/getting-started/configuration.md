@@ -10,6 +10,8 @@ Notey reads configuration from `appsettings.json` and optional local overrides i
 
 The `Notey:Vault` section configures a single vault root. Notey owns `Images`, `Notes`, `Notes/Draft`, and `People` under that root.
 
+> **Breaking change:** legacy keys (`NotesPath`, `PeoplePath`, `TopicsPath`, `ProjectsPath`, `ScreenshotPath`) are no longer used. Configure only `Notey:Vault:RootPath`.
+
 ```json
 {
   "Notey": {

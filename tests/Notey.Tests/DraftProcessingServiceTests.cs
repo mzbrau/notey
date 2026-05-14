@@ -67,6 +67,33 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_appends_topic_note_adds_exact_date_heading_when_only_prefix_exists()
+    {
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "accounts.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        await File.WriteAllTextAsync(target, """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            ---
+            Existing intro.
+
+            ## 2026-05-130
+
+            Earlier note.
+            """);
+        var service = CreateService(rootPath, """{ "body": "New note." }""");
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var content = await File.ReadAllTextAsync(target);
+        Assert.Contains("## 2026-05-130", content);
+        Assert.Contains("## 2026-05-13", content);
+    }
+
+    [Fact]
     public async Task ProcessAsync_appends_tasks_to_tasks_file()
     {
         var rootPath = CreateTempDirectory();
@@ -78,6 +105,30 @@ public sealed class DraftProcessingServiceTests : IDisposable
 
         var tasks = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "tasks.md"));
         Assert.Contains("- [ ] Send recap (due: 2026-05-20)", tasks);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_appends_tasks_under_exact_date_heading()
+    {
+        var rootPath = CreateTempDirectory();
+        var tasksPath = Path.Combine(rootPath, "Notes", "tasks.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(tasksPath)!);
+        await File.WriteAllTextAsync(tasksPath, """
+            # Tasks
+
+            ## 2026-05-130
+
+            - [ ] Existing task
+            """);
+        var service = CreateService(rootPath, """{ "body": "" }""");
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/task New task", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var tasks = await File.ReadAllTextAsync(tasksPath);
+        Assert.Contains("## 2026-05-130", tasks);
+        Assert.Contains("## 2026-05-13", tasks);
     }
 
     [Fact]
@@ -122,6 +173,73 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "ocr-note.md"));
         Assert.Contains("Clean OCR note.", content);
         Assert.False(File.Exists(draft.FilePath));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_merge_preserves_existing_metadata_and_dynamic_directives()
+    {
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "accounts.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        await File.WriteAllTextAsync(target, """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            meeting: true
+            topic: "Accounts"
+            customer: "Microsoft"
+            ---
+            Existing note.
+            """);
+        var service = CreateService(rootPath, """{ "body": "Appended note." }""");
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var content = await File.ReadAllTextAsync(target);
+        Assert.Contains("meeting: true", content);
+        Assert.Contains("topic: \"Accounts\"", content);
+        Assert.Contains("customer: \"Microsoft\"", content);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_merge_reads_yaml_arrays_with_nonstandard_indentation()
+    {
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "accounts.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        await File.WriteAllTextAsync(target, """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            tags:
+            - "#legacy"
+            ---
+            Existing note.
+            """);
+        var service = CreateService(rootPath, """{ "body": "Appended note.", "tags": ["new"] }""");
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var content = await File.ReadAllTextAsync(target);
+        Assert.Contains("  - \"#legacy\"", content);
+        Assert.Contains("  - \"#new\"", content);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_escapes_newlines_in_yaml_values()
+    {
+        var rootPath = CreateTempDirectory();
+        var service = CreateService(rootPath, """{ "body": "Rendered body.", "people": ["Jane\nDoe"] }""");
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "accounts.md"));
+        Assert.Contains("  - \"Jane\\nDoe\"", content);
+        Assert.DoesNotContain("  - \"Jane\nDoe\"", content, StringComparison.Ordinal);
     }
 
     private DraftProcessingService CreateService(string rootPath, string aiResponse)

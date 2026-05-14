@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -26,6 +27,7 @@ public sealed partial class MainWindow : Window
 {
     private static readonly TimeSpan AutosaveDelay = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan IdleProcessingDelay = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan IndexRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RecentFinalNoteLookback = TimeSpan.FromDays(14);
 
     private readonly NoteyOptions _options;
@@ -64,6 +66,7 @@ public sealed partial class MainWindow : Window
     private IReadOnlyList<VaultFolderCommand> _folderCommands = [];
     private IReadOnlyList<CompletionSuggestion> _completionSuggestions = [];
     private CancellationTokenSource? _idleProcessingCancellation;
+    private DateTimeOffset _nextIndexRefreshAt = DateTimeOffset.MinValue;
 
     public bool HideInsteadOfClose { get; set; }
 
@@ -140,8 +143,8 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _windowClosed.Cancel();
-            _idleProcessingCancellation?.Cancel();
-            _idleProcessingCancellation?.Dispose();
+            CancelIdleProcessing();
+            DisposeIdleProcessingCancellation();
             _windowClosed.Dispose();
             _saveGate.Dispose();
         };
@@ -200,7 +203,7 @@ public sealed partial class MainWindow : Window
             }
 
             _revision++;
-            _idleProcessingCancellation?.Cancel();
+            CancelIdleProcessing();
             UpdateCompletion();
             UpdateContextChip();
             ScheduleAutosave();
@@ -260,7 +263,7 @@ public sealed partial class MainWindow : Window
         }
 
         _idleProcessingTimer.Stop();
-        if (_currentDraft is not null && !await ProcessCurrentDraftAsync(ProcessTrigger.NewNote))
+        if (_currentDraft is not null && !await FlushAutosaveAsync())
         {
             return;
         }
@@ -362,7 +365,7 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenRecentFinalNoteAsync()
     {
-        if (_currentDraft is not null && !await ProcessCurrentDraftAsync(ProcessTrigger.OpenRecent))
+        if (_currentDraft is not null && !await FlushAutosaveAsync())
         {
             return;
         }
@@ -398,6 +401,11 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
+            if (string.Equals(Path.GetFileName(filePath), "tasks.md", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var created = new DateTimeOffset(File.GetLastWriteTimeUtc(filePath), TimeSpan.Zero);
             if (created < createdAfter)
             {
@@ -419,7 +427,19 @@ public sealed partial class MainWindow : Window
             _currentDraft = null;
             _currentFinalNotePath = filePath;
             _directOcrSnippets.Clear();
-            NoteEditor.Document.Text = await File.ReadAllTextAsync(filePath, _windowClosed.Token);
+            string content;
+            try
+            {
+                content = await File.ReadAllTextAsync(filePath, _windowClosed.Token);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+            {
+                AutosaveStatusText.Text = "OPEN ERROR";
+                _logger.LogError(ex, "Failed to load final note {FilePath}.", filePath);
+                return;
+            }
+
+            NoteEditor.Document.Text = content;
             NoteEditor.CaretOffset = 0;
             NoteEditor.IsReadOnly = true;
             DateChipText.Text = Path.GetFileNameWithoutExtension(filePath);
@@ -504,7 +524,7 @@ public sealed partial class MainWindow : Window
             _logger.LogDebug("Draft processing was cancelled because the window closed.");
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or JsonException)
         {
             AutosaveStatusText.Text = "PROCESSING FAILED";
             _logger.LogError(ex, "Failed to process draft {DraftPath}.", draftPath);
@@ -513,6 +533,11 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
+            if (ReferenceEquals(_idleProcessingCancellation, cancellation))
+            {
+                _idleProcessingCancellation = null;
+            }
+
             cancellation.Dispose();
             _isProcessingDraft = false;
         }
@@ -587,6 +612,11 @@ public sealed partial class MainWindow : Window
     private async void IdleProcessingTimerOnTick(object? sender, EventArgs e)
     {
         _idleProcessingTimer.Stop();
+        if (!HasExplicitProcessingDirectives())
+        {
+            return;
+        }
+
         await ProcessCurrentDraftAsync(ProcessTrigger.Idle);
     }
 
@@ -628,7 +658,18 @@ public sealed partial class MainWindow : Window
         var processed = await ProcessCurrentDraftAsync(ProcessTrigger.Close);
         if (!processed)
         {
+            _logger.LogWarning("Draft processing failed while closing. Continuing close without processing.");
+
+            if (HideInsteadOfClose && !_isExitRequested)
+            {
+                _isClosePending = false;
+                Hide();
+                return;
+            }
+
             _isClosePending = false;
+            _isCloseConfirmed = true;
+            Close();
             return;
         }
 
@@ -728,23 +769,25 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await RefreshIndexesAsync();
         var text = NoteEditor.Document.Text;
         var caretOffset = NoteEditor.CaretOffset;
         if (SlashCommandCompletionQuery.TryCreate(text, caretOffset) is { } commandQuery)
         {
+            await RefreshIndexesAsync();
             ShowCompletion(BuildCommandSuggestions(commandQuery));
             return;
         }
 
         if (SlashCommandParameterQuery.TryCreate(text, caretOffset) is { } parameterQuery)
         {
+            await RefreshIndexesAsync();
             ShowCompletion(await BuildParameterSuggestionsAsync(parameterQuery));
             return;
         }
 
         if (PersonReferenceCompletionQuery.TryCreate(text, caretOffset) is { } personQuery)
         {
+            await RefreshIndexesAsync();
             ShowCompletion(BuildPersonSuggestions(personQuery));
             return;
         }
@@ -849,7 +892,7 @@ public sealed partial class MainWindow : Window
             {
                 var entity = await _vaultEntityStore.EnsureAsync(VaultEntityKind.Person, suggestion.Payload ?? suggestion.InsertionText, _windowClosed.Token);
                 insertionText = entity.ToWikiLink();
-                await RefreshIndexesAsync();
+                await RefreshIndexesAsync(force: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
             {
@@ -905,12 +948,18 @@ public sealed partial class MainWindow : Window
             : $"{searchText[..(marker + 2)].TrimEnd()} {dueDate:yyyy-MM-dd}";
     }
 
-    private async Task RefreshIndexesAsync()
+    private async Task RefreshIndexesAsync(bool force = false)
     {
+        if (!force && _timeProvider.GetUtcNow() < _nextIndexRefreshAt)
+        {
+            return;
+        }
+
         try
         {
             _folderCommands = await _documentStoreIndex.GetFolderCommandsAsync(_windowClosed.Token);
             _peopleIndex = await _vaultEntityStore.GetAllAsync(VaultEntityKind.Person, _windowClosed.Token);
+            _nextIndexRefreshAt = _timeProvider.GetUtcNow().Add(IndexRefreshInterval);
         }
         catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
         {
@@ -920,6 +969,51 @@ public sealed partial class MainWindow : Window
         {
             _logger.LogError(ex, "Failed to refresh vault indexes.");
         }
+    }
+
+    private void CancelIdleProcessing()
+    {
+        try
+        {
+            _idleProcessingCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private void DisposeIdleProcessingCancellation()
+    {
+        try
+        {
+            _idleProcessingCancellation?.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            _idleProcessingCancellation = null;
+        }
+    }
+
+    private bool HasExplicitProcessingDirectives()
+    {
+        if (_currentDraft is null)
+        {
+            return false;
+        }
+
+        if (_directOcrSnippets.Any(static snippet => !string.IsNullOrWhiteSpace(snippet)))
+        {
+            return true;
+        }
+
+        var parsed = _directiveParser.Parse(NoteEditor.Document.Text, _folderCommands.Select(static command => command.CommandName));
+        return parsed.IsMeeting
+            || !string.IsNullOrWhiteSpace(parsed.Topic)
+            || parsed.DynamicDirectives.Count > 0
+            || parsed.Tasks.Count > 0;
     }
 
     private async Task CapturePersistentImageAsync()

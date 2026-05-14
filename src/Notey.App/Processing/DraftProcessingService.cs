@@ -278,7 +278,7 @@ public sealed partial class DraftProcessingService(
             : "# Tasks\n";
         var builder = new StringBuilder(content.TrimEnd());
         var heading = $"## {localNow:yyyy-MM-dd}";
-        if (!content.Contains(heading, StringComparison.Ordinal))
+        if (!ContainsLine(content, heading))
         {
             builder.AppendLine().AppendLine().AppendLine(heading);
         }
@@ -308,7 +308,7 @@ public sealed partial class DraftProcessingService(
         existing = ApplyMetadata(existing, metadata);
         var heading = $"## {localNow:yyyy-MM-dd}";
         var separator = existing.EndsWith('\n') ? string.Empty : "\n";
-        if (!existing.Contains(heading, StringComparison.Ordinal))
+        if (!ContainsLine(existing, heading))
         {
             existing = $"{existing}{separator}\n{heading}\n\n{body.Trim()}\n";
         }
@@ -347,8 +347,13 @@ public sealed partial class DraftProcessingService(
 
     private static ProcessedNoteMetadata MergeMetadata(string frontmatter, ProcessedNoteMetadata metadata)
     {
+        var existingDynamicDirectives = ReadYamlDynamicDirectives(frontmatter);
+
         return metadata with
         {
+            IsMeeting = metadata.IsMeeting || ReadYamlBoolean(frontmatter, "meeting"),
+            Topic = FirstNonEmpty(metadata.Topic, ReadYamlScalar(frontmatter, "topic")),
+            DynamicDirectives = UnionDynamicDirectives(existingDynamicDirectives, metadata.DynamicDirectives),
             People = Union(ReadYamlArray(frontmatter, "people"), metadata.People),
             Tags = Union(ReadYamlArray(frontmatter, "tags"), metadata.Tags),
             Links = Union(ReadYamlArray(frontmatter, "links"), metadata.Links)
@@ -408,9 +413,14 @@ public sealed partial class DraftProcessingService(
             }
 
             var values = new List<string>();
-            for (var child = index + 1; child < lines.Length && lines[child].StartsWith("  - ", StringComparison.Ordinal); child++)
+            for (var child = index + 1; child < lines.Length; child++)
             {
-                values.Add(Unquote(lines[child][4..].Trim()));
+                if (!TryReadYamlArrayItem(lines[child], out var item))
+                {
+                    break;
+                }
+
+                values.Add(Unquote(item));
             }
 
             return values;
@@ -440,6 +450,20 @@ public sealed partial class DraftProcessingService(
             .Select(static item => item.Trim())
             .Where(static item => item.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<DynamicNoteDirective> UnionDynamicDirectives(
+        IEnumerable<DynamicNoteDirective> existing,
+        IEnumerable<DynamicNoteDirective> additions)
+    {
+        return existing
+            .Concat(additions)
+            .Where(static directive => !string.IsNullOrWhiteSpace(directive.CommandName) && !string.IsNullOrWhiteSpace(directive.Value))
+            .GroupBy(
+                static directive => $"{directive.CommandName.Trim()}:{directive.Value.Trim()}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(static group => group.First())
             .ToArray();
     }
 
@@ -505,17 +529,157 @@ public sealed partial class DraftProcessingService(
         }
     }
 
+    private static bool ContainsLine(string text, string line)
+    {
+        return text.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n')
+            .Any(candidate => string.Equals(candidate.TrimEnd(), line, StringComparison.Ordinal));
+    }
+
+    private static bool TryReadYamlArrayItem(string line, out string value)
+    {
+        var trimmed = line.TrimStart();
+        if (!trimmed.StartsWith("- ", StringComparison.Ordinal))
+        {
+            value = string.Empty;
+            return false;
+        }
+
+        value = trimmed[2..].Trim();
+        return true;
+    }
+
+    private static bool ReadYamlBoolean(string frontmatter, string key)
+    {
+        var value = ReadYamlScalar(frontmatter, key);
+        return bool.TryParse(value, out var parsed) && parsed;
+    }
+
+    private static string? ReadYamlScalar(string frontmatter, string key)
+    {
+        foreach (var line in frontmatter.Split('\n'))
+        {
+            if (!line.StartsWith($"{key}:", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return Unquote(line[(key.Length + 1)..].Trim());
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<DynamicNoteDirective> ReadYamlDynamicDirectives(string frontmatter)
+    {
+        var reservedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "created",
+            "processed",
+            "meeting",
+            "topic",
+            "people",
+            "tags",
+            "links"
+        };
+
+        var directives = new List<DynamicNoteDirective>();
+        foreach (var line in frontmatter.Split('\n'))
+        {
+            var separator = line.IndexOf(':');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var key = line[..separator].Trim();
+            if (key.Length == 0 || reservedKeys.Contains(key) || key.StartsWith("-", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var value = Unquote(line[(separator + 1)..].Trim());
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            directives.Add(new DynamicNoteDirective(key, value, 0));
+        }
+
+        return directives;
+    }
+
     private static string EscapeYaml(string value)
     {
-        return value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            builder.Append(character switch
+            {
+                '\\' => "\\\\",
+                '"' => "\\\"",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                _ when char.IsControl(character) => $"\\u{(int)character:x4}",
+                _ => character.ToString()
+            });
+        }
+
+        return builder.ToString();
     }
 
     private static string Unquote(string value)
     {
         var trimmed = value.Trim();
         return trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"'
-            ? trimmed[1..^1].Replace("\\\"", "\"", StringComparison.Ordinal).Replace("\\\\", "\\", StringComparison.Ordinal)
+            ? UnescapeYamlQuoted(trimmed[1..^1])
             : trimmed;
+    }
+
+    private static string UnescapeYamlQuoted(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (character != '\\' || index == value.Length - 1)
+            {
+                builder.Append(character);
+                continue;
+            }
+
+            var escaped = value[++index];
+            switch (escaped)
+            {
+                case '\\':
+                    builder.Append('\\');
+                    break;
+                case '"':
+                    builder.Append('"');
+                    break;
+                case 'n':
+                    builder.Append('\n');
+                    break;
+                case 'r':
+                    builder.Append('\r');
+                    break;
+                case 't':
+                    builder.Append('\t');
+                    break;
+                case 'u' when index + 4 < value.Length
+                    && int.TryParse(value.AsSpan(index + 1, 4), System.Globalization.NumberStyles.HexNumber, null, out var unicode):
+                    builder.Append((char)unicode);
+                    index += 4;
+                    break;
+                default:
+                    builder.Append(escaped);
+                    break;
+            }
+        }
+
+        return builder.ToString();
     }
 
     private static void DeleteIfExists(string filePath)
