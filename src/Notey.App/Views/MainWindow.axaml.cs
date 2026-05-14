@@ -399,31 +399,30 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenRecentFinalNoteAsync()
     {
-        if (_isRecentNoteDialogOpen)
+        if (!TryBeginOpenRecentDialog(ref _isRecentNoteDialogOpen))
         {
             return;
         }
 
-        DraftProcessOutcome outcome = DraftProcessOutcome.NoChange;
-        if (_currentDraft is not null)
-        {
-            outcome = await ProcessCurrentDraftAsync(ProcessTrigger.OpenRecent, applyImmediateFollowUp: false);
-            if (!outcome.Succeeded)
-            {
-                return;
-            }
-        }
-        else if (_currentFinalNotePath is not null && !await ProcessCurrentRecentNoteAsync())
-        {
-            return;
-        }
-
-        var recent = await ListRecentFinalNotesAsync(_timeProvider.GetLocalNow().Subtract(RecentFinalNoteLookback), _windowClosed.Token);
-        _isRecentNoteDialogOpen = true;
-        RecentDialogOverlay.IsVisible = true;
         OpenRecentNoteButton.IsEnabled = false;
         try
         {
+            DraftProcessOutcome outcome = DraftProcessOutcome.NoChange;
+            if (_currentDraft is not null)
+            {
+                outcome = await ProcessCurrentDraftAsync(ProcessTrigger.OpenRecent, applyImmediateFollowUp: false);
+                if (!outcome.Succeeded)
+                {
+                    return;
+                }
+            }
+            else if (_currentFinalNotePath is not null && !await ProcessCurrentRecentNoteAsync())
+            {
+                return;
+            }
+
+            var recent = await ListRecentFinalNotesAsync(_timeProvider.GetLocalNow().Subtract(RecentFinalNoteLookback), _windowClosed.Token);
+            RecentDialogOverlay.IsVisible = true;
             var choice = await RecentNoteChoiceWindow.ShowAsync(this, recent);
             if (choice.Action == RecentNoteChoiceAction.OpenExisting && choice.SelectedNote is not null)
             {
@@ -1747,6 +1746,17 @@ public sealed partial class MainWindow : Window
     internal static bool IsOpenRecentDialogShortcut(Key key, KeyModifiers modifiers)
     {
         return key == Key.R && IsCommandModifier(modifiers);
+    }
+
+    internal static bool TryBeginOpenRecentDialog(ref bool isRecentNoteDialogOpen)
+    {
+        if (isRecentNoteDialogOpen)
+        {
+            return false;
+        }
+
+        isRecentNoteDialogOpen = true;
+        return true;
     }
 
     private static bool IsCommandModifier(KeyModifiers modifiers)

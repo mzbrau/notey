@@ -15,4 +15,26 @@ public sealed class MainWindowShortcutTests
     {
         Assert.Equal(expected, MainWindow.IsOpenRecentDialogShortcut(key, modifiers));
     }
+
+    [Fact]
+    public void TryBeginOpenRecentDialog_sets_guard_on_first_entry()
+    {
+        var isOpen = false;
+
+        var opened = MainWindow.TryBeginOpenRecentDialog(ref isOpen);
+
+        Assert.True(opened);
+        Assert.True(isOpen);
+    }
+
+    [Fact]
+    public void TryBeginOpenRecentDialog_rejects_reentry_when_already_open()
+    {
+        var isOpen = true;
+
+        var opened = MainWindow.TryBeginOpenRecentDialog(ref isOpen);
+
+        Assert.False(opened);
+        Assert.True(isOpen);
+    }
 }
