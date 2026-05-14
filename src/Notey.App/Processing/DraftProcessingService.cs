@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -50,7 +51,7 @@ public sealed partial class DraftProcessingService(
 
         var aiResult = string.IsNullOrWhiteSpace(body) && ocrSnippets.Count == 0
             ? ProcessedNoteAiResult.Empty
-            : await RunAiAsync(parsed, commands, string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body, ocrSnippets, cancellationToken);
+            : await RunAiAsync(parsed, commands, body, ocrSnippets, cancellationToken);
         var localNow = timeProvider.GetLocalNow();
         var writtenPaths = new List<string>();
 
@@ -90,6 +91,45 @@ public sealed partial class DraftProcessingService(
         return DraftProcessingResult.Completed(draft.FilePath, writtenPaths);
     }
 
+    public async Task SaveExistingNoteAsync(
+        string filePath,
+        string markdown,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ArgumentNullException.ThrowIfNull(markdown);
+
+        await WriteUtf8AtomicallyAsync(filePath, markdown, cancellationToken);
+    }
+
+    public async Task<string> ProcessExistingNoteAsync(
+        string filePath,
+        string markdown,
+        DateTimeOffset createdAt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ArgumentNullException.ThrowIfNull(markdown);
+
+        var paths = workspace.GetPaths();
+        var commands = await documentStoreIndex.GetFolderCommandsAsync(cancellationToken);
+        var normalizedMarkdown = markdown.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var (frontmatter, body) = SplitFrontmatter(normalizedMarkdown);
+        var parsed = ParseExistingNoteDirectives(frontmatter, body);
+        var ocrSnippets = await OcrIncludedImagesAsync(body, paths, cancellationToken);
+        var aiResult = string.IsNullOrWhiteSpace(body) && ocrSnippets.Count == 0
+            ? ProcessedNoteAiResult.Empty
+            : await RunAiAsync(parsed, commands, body, ocrSnippets, cancellationToken);
+        var finalBody = string.IsNullOrWhiteSpace(aiResult.Body)
+            ? string.IsNullOrWhiteSpace(body) ? string.Join("\n\n", ocrSnippets) : body
+            : aiResult.Body.Trim();
+        var metadata = BuildMetadata(parsed, aiResult, createdAt, timeProvider.GetLocalNow());
+        var updatedMarkdown = RenderProcessedDocument(normalizedMarkdown, finalBody, metadata);
+
+        await WriteUtf8AtomicallyAsync(filePath, updatedMarkdown, cancellationToken);
+        return updatedMarkdown;
+    }
+
     private async Task<ProcessedNoteAiResult> RunAiAsync(
         ParsedNoteDirectives parsed,
         IReadOnlyList<VaultFolderCommand> commands,
@@ -99,20 +139,27 @@ public sealed partial class DraftProcessingService(
     {
         if (!aiProviderRegistry.TryGet(options.Ai.DefaultProviderId, out var provider))
         {
-            throw new InvalidOperationException($"AI provider '{options.Ai.DefaultProviderId}' is not configured.");
+            return CreateFallbackAiResult(body, ocrSnippets);
         }
 
-        var response = await provider.CompleteTextAsync(
-            new AiTextRequest(
-                BuildPrompt(parsed, commands, body, ocrSnippets),
-                "You process captured markdown notes for Obsidian. Return only JSON.",
-                options.Ai.ModelName,
-                JsonOutput: true,
-                Temperature: 0.1,
-                MaxTokens: 1600),
-            cancellationToken);
+        try
+        {
+            var response = await provider.CompleteTextAsync(
+                new AiTextRequest(
+                    BuildPrompt(parsed, commands, string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body, ocrSnippets),
+                    "You process captured markdown notes for Obsidian. Return only JSON.",
+                    options.Ai.ModelName,
+                    JsonOutput: true,
+                    Temperature: 0.1,
+                    MaxTokens: 1600),
+                cancellationToken);
 
-        return ProcessedNoteAiResult.Parse(response.Text);
+            return ProcessedNoteAiResult.Parse(response.Text);
+        }
+        catch (AiProviderException ex) when (IsAiConfigurationError(ex))
+        {
+            return CreateFallbackAiResult(body, ocrSnippets);
+        }
     }
 
     private static string BuildPrompt(
@@ -276,15 +323,18 @@ public sealed partial class DraftProcessingService(
         var content = File.Exists(tasksPath)
             ? await File.ReadAllTextAsync(tasksPath, cancellationToken)
             : "# Tasks\n";
-        var builder = new StringBuilder(content.TrimEnd());
+        var builder = new StringBuilder(content);
         var heading = $"## {localNow:yyyy-MM-dd}";
         if (!ContainsLine(content, heading))
         {
-            builder.AppendLine().AppendLine().AppendLine(heading);
+            EnsureEndsWithNewline(builder);
+            builder.AppendLine();
+            builder.AppendLine(heading);
         }
 
         foreach (var task in tasks)
         {
+            EnsureEndsWithNewline(builder);
             builder.Append("- [ ] ").Append(task.Text);
             if (task.DueDate is { } dueDate)
             {
@@ -323,6 +373,30 @@ public sealed partial class DraftProcessingService(
     private static string RenderNewDocument(string body, ProcessedNoteMetadata metadata)
     {
         return $"{RenderFrontmatter(metadata)}\n{body.Trim()}\n";
+    }
+
+    private static string RenderProcessedDocument(string markdown, string body, ProcessedNoteMetadata metadata)
+    {
+        var updatedMarkdown = ApplyMetadata(markdown, metadata);
+        var (frontmatter, _) = SplitFrontmatter(updatedMarkdown);
+        return $"{frontmatter}\n{body.Trim()}\n";
+    }
+
+    private static (string Frontmatter, string Body) SplitFrontmatter(string markdown)
+    {
+        if (!markdown.StartsWith("---\n", StringComparison.Ordinal))
+        {
+            return ("---\n---", markdown);
+        }
+
+        var endIndex = markdown.IndexOf("\n---", 4, StringComparison.Ordinal);
+        if (endIndex < 0)
+        {
+            return ("---\n---", markdown);
+        }
+
+        var endOfFrontmatter = endIndex + "\n---".Length;
+        return (markdown[..endOfFrontmatter], markdown[endOfFrontmatter..].TrimStart('\n'));
     }
 
     private static string ApplyMetadata(string markdown, ProcessedNoteMetadata metadata)
@@ -365,8 +439,8 @@ public sealed partial class DraftProcessingService(
         var lines = new List<string>
         {
             "---",
-            $"created: {metadata.CreatedAt:O}",
-            $"processed: {metadata.ProcessedAt:O}",
+            $"created: {FormatTimestamp(metadata.CreatedAt)}",
+            $"processed: {FormatTimestamp(metadata.ProcessedAt)}",
             $"meeting: {metadata.IsMeeting.ToString().ToLowerInvariant()}",
         };
 
@@ -385,6 +459,17 @@ public sealed partial class DraftProcessingService(
         AppendYamlArray(lines, "links", metadata.Links);
         lines.Add("---");
         return string.Join('\n', lines);
+    }
+
+    private static ParsedNoteDirectives ParseExistingNoteDirectives(string frontmatter, string body)
+    {
+        return new ParsedNoteDirectives(
+            ReadYamlBoolean(frontmatter, "meeting"),
+            ReadYamlScalar(frontmatter, "topic"),
+            [],
+            ReadYamlDynamicDirectives(frontmatter),
+            [],
+            body.Trim());
     }
 
     private static IReadOnlyList<string> ReadYamlArray(string frontmatter, string key)
@@ -467,9 +552,80 @@ public sealed partial class DraftProcessingService(
             .ToArray();
     }
 
+    private static string FormatTimestamp(DateTimeOffset value)
+    {
+        return value.ToString("yyyy-MM-ddTHH:mmzzz", CultureInfo.InvariantCulture);
+    }
+
     private static string FirstNonEmpty(params string?[] values)
     {
         return values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "note";
+    }
+
+    private static ProcessedNoteAiResult CreateFallbackAiResult(string body, IReadOnlyList<string> ocrSnippets)
+    {
+        var fallbackTitle = BuildFallbackTitle(body, ocrSnippets);
+        return new ProcessedNoteAiResult(fallbackTitle, fallbackTitle, null, [], [], []);
+    }
+
+    private static string BuildFallbackTitle(string body, IReadOnlyList<string> ocrSnippets)
+    {
+        foreach (var candidate in EnumerateFallbackTitleCandidates(body, ocrSnippets))
+        {
+            var normalized = NormalizeFallbackTitleCandidate(candidate);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                return normalized;
+            }
+        }
+
+        return "note";
+    }
+
+    private static IEnumerable<string> EnumerateFallbackTitleCandidates(string body, IReadOnlyList<string> ocrSnippets)
+    {
+        foreach (var line in body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                yield return line;
+            }
+        }
+
+        foreach (var snippet in ocrSnippets)
+        {
+            foreach (var line in snippet.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    yield return line;
+                }
+            }
+        }
+    }
+
+    private static string NormalizeFallbackTitleCandidate(string candidate)
+    {
+        var trimmed = candidate.Trim();
+        while (trimmed.StartsWith('#'))
+        {
+            trimmed = trimmed[1..].TrimStart();
+        }
+
+        trimmed = trimmed.Trim('*', '-', '_', '`', '>', '[', ']', '(', ')', ':', ';', '.', ',', '!', '?', '"', '\'');
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return trimmed.Length <= 80 ? trimmed : trimmed[..80].Trim();
+    }
+
+    private static bool IsAiConfigurationError(AiProviderException exception)
+    {
+        return exception.Message.Contains("has no configured base URL", StringComparison.Ordinal)
+            || exception.Message.Contains("has no API key", StringComparison.Ordinal)
+            || exception.Message.Contains("has no configured model name", StringComparison.Ordinal);
     }
 
     private static string ToFileStem(string title)
@@ -534,6 +690,14 @@ public sealed partial class DraftProcessingService(
         return text.Replace("\r\n", "\n", StringComparison.Ordinal)
             .Split('\n')
             .Any(candidate => string.Equals(candidate.TrimEnd(), line, StringComparison.Ordinal));
+    }
+
+    private static void EnsureEndsWithNewline(StringBuilder builder)
+    {
+        if (builder.Length == 0 || builder[^1] != '\n')
+        {
+            builder.Append('\n');
+        }
     }
 
     private static bool TryReadYamlArrayItem(string line, out string value)

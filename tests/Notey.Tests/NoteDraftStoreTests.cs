@@ -18,7 +18,7 @@ public sealed class NoteDraftStoreTests : IDisposable
 
         var draft = await store.CreateAsync(createdAt);
 
-        Assert.Equal(Path.Combine(rootPath, "Notes", "Draft", "2026-05-11-224530-note.md"), draft.FilePath);
+        Assert.Equal(Path.Combine(rootPath, "Notes", "Draft", "2026-05-11-2245-note.md"), draft.FilePath);
         Assert.True(File.Exists(draft.FilePath));
         Assert.Equal(string.Empty, draft.Content);
         Assert.Equal(string.Empty, await File.ReadAllTextAsync(draft.FilePath));
@@ -123,7 +123,7 @@ public sealed class NoteDraftStoreTests : IDisposable
         var rootPath = CreateTempDirectory();
         var notesPath = Path.Combine(rootPath, "Notes", "Draft");
         Directory.CreateDirectory(notesPath);
-        var filePath = Path.Combine(notesPath, "2026-05-11-224530-note.md");
+        var filePath = Path.Combine(notesPath, "2026-05-11-2245-note.md");
         await File.WriteAllTextAsync(filePath, """
             ---
             created: 2026-05-11T22:45:30.0000000+00:00
@@ -136,7 +136,7 @@ public sealed class NoteDraftStoreTests : IDisposable
         var recent = await store.ListRecentAsync(new DateTimeOffset(2026, 5, 8, 8, 0, 0, TimeSpan.Zero));
 
         var summary = Assert.Single(recent);
-        Assert.Equal("2026-05-11-224530-note", summary.Title);
+        Assert.Equal("2026-05-11-2245-note", summary.Title);
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public sealed class NoteDraftStoreTests : IDisposable
         _ = await store.CreateAsync(createdAt);
         var secondDraft = await store.CreateAsync(createdAt);
 
-        Assert.EndsWith("2026-05-11-224530-note-2.md", secondDraft.FilePath);
+        Assert.EndsWith("2026-05-11-2245-note-2.md", secondDraft.FilePath);
     }
 
     [Fact]
@@ -200,6 +200,21 @@ public sealed class NoteDraftStoreTests : IDisposable
         var draft = await store.OpenAsync(filePath);
 
         Assert.Equal(new DateTimeOffset(2026, 5, 11, 22, 45, 30, TimeSpan.Zero), draft.CreatedAt);
+    }
+
+    [Fact]
+    public async Task OpenAsync_reads_created_at_from_minute_resolution_filename_when_frontmatter_is_missing()
+    {
+        var rootPath = CreateTempDirectory();
+        var notesPath = Path.Combine(rootPath, "Notes", "Draft");
+        Directory.CreateDirectory(notesPath);
+        var filePath = Path.Combine(notesPath, "2026-05-11-2245-note.md");
+        await File.WriteAllTextAsync(filePath, "Draft body only.");
+        var store = CreateStore(rootPath);
+
+        var draft = await store.OpenAsync(filePath);
+
+        Assert.Equal(new DateTimeOffset(2026, 5, 11, 22, 45, 0, TimeSpan.Zero), draft.CreatedAt);
     }
 
     private static FileSystemNoteDraftStore CreateStore(string rootPath)

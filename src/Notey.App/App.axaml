@@ -187,5 +187,57 @@
       <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
     </Style>
 
+    <Style Selector="ListBox.recentNoteList">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+    </Style>
+
+    <Style Selector="ListBox.recentNoteList ListBoxItem">
+      <Setter Property="Margin" Value="0,0,0,10" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+
+    <Style Selector="ListBox.recentNoteList ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceLowBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.OutlineVariantBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="16,14" />
+    </Style>
+
+    <Style Selector="ListBox.recentNoteList ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceHighBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+    </Style>
+
+    <Style Selector="ListBox.recentNoteList ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+    </Style>
+
+    <Style Selector="TextBlock.recentNoteTitle">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="TextBlock.recentNoteFileName">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="TextBlock.recentNotePath">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.SecondaryTextBrush}" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <Style Selector="TextBlock.recentNoteMeta">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.MutedTextBrush}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
   </Application.Styles>
 </Application>

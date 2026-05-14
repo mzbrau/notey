@@ -16,4 +16,6 @@ public sealed record RecentNoteChoice(RecentNoteChoiceAction Action, RecentNoteS
     public static RecentNoteChoice NewNote { get; } = new(RecentNoteChoiceAction.NewNote, null);
 
     public static RecentNoteChoice Open(RecentNoteSummary note) => new(RecentNoteChoiceAction.OpenExisting, note);
+
+    public static RecentNoteChoice FromDialogResult(RecentNoteChoice? choice) => choice ?? Cancel;
 }

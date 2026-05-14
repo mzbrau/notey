@@ -136,7 +136,7 @@ public sealed class FileSystemVaultEntityStore(
 
     private string CreateEntityDocument(VaultEntityKind kind, string name)
     {
-        var timestamp = timeProvider.GetLocalNow().ToString("O", CultureInfo.InvariantCulture);
+        var timestamp = timeProvider.GetLocalNow().ToString("yyyy-MM-ddTHH:mmzzz", CultureInfo.InvariantCulture);
         var type = ObsidianLinkBuilder.GetKindLabel(kind);
 
         return $"""

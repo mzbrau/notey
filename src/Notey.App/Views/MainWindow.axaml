@@ -8,7 +8,7 @@
         Height="760"
         MinWidth="840"
         MinHeight="520">
-  <Grid RowDefinitions="52,Auto,*,30"
+  <Grid RowDefinitions="52,Auto,*,34"
         Background="{DynamicResource Notey.SurfaceBrush}">
     <Border Grid.Row="0"
             BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
@@ -36,7 +36,7 @@
           <Button x:Name="NewNoteButton" Classes="command" ToolTip.Tip="Process current draft and start new note" AutomationProperties.Name="New note">
             <PathIcon Classes="commandIcon" Data="M6,4 L14,4 L18,8 L18,20 L6,20 Z M13,4 L13,9 L18,9 M12,12 L12,17 M9.5,14.5 L14.5,14.5" />
           </Button>
-          <Button x:Name="OpenRecentNoteButton" Classes="command" ToolTip.Tip="Open recent final note read-only" AutomationProperties.Name="Open recent final note">
+          <Button x:Name="OpenRecentNoteButton" Classes="command" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent final note">
             <PathIcon Classes="commandIcon" Data="M4,6 L9,6 L11,8 L20,8 L20,18 L4,18 Z M8,11 L16,11 M8,14 L14,14" />
           </Button>
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
@@ -108,14 +108,33 @@
             BorderThickness="0,1,0,0"
             Background="{DynamicResource Notey.SurfaceLowestBrush}"
             Padding="14,0">
-      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto"
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto"
             ColumnSpacing="16">
         <TextBlock Grid.Column="0" Classes="label" Text="CAPTURE DRAFT" VerticalAlignment="Center" Foreground="{DynamicResource Notey.SecondaryTextBrush}" />
         <TextBlock x:Name="AutosaveStatusText" Grid.Column="1" Classes="label" Text="CREATING DRAFT" VerticalAlignment="Center" />
         <TextBlock x:Name="WordCountText" Grid.Column="2" Classes="label" Text="WORDS 0" VerticalAlignment="Center" />
-        <TextBlock Grid.Column="4" Classes="label" Text="UTF-8" VerticalAlignment="Center" />
-        <TextBlock x:Name="CursorPositionText" Grid.Column="5" Classes="label" Text="LINE 1, COL 1" VerticalAlignment="Center" />
+        <TextBlock x:Name="CurrentNotePathText"
+                   Grid.Column="3"
+                   Classes="label"
+                   IsVisible="False"
+                   Text=""
+                   TextTrimming="CharacterEllipsis"
+                   VerticalAlignment="Center" />
+        <Button x:Name="OpenInObsidianButton"
+                Grid.Column="4"
+                Content="Open in Obsidian"
+                IsVisible="False"
+                Padding="10,2"
+                VerticalAlignment="Center" />
+        <TextBlock Grid.Column="5" Classes="label" Text="UTF-8" VerticalAlignment="Center" />
+        <TextBlock x:Name="CursorPositionText" Grid.Column="6" Classes="label" Text="LINE 1, COL 1" VerticalAlignment="Center" />
       </Grid>
     </Border>
+
+    <Border x:Name="RecentDialogOverlay"
+            Grid.RowSpan="4"
+            Background="#01000000"
+            IsVisible="False"
+            ZIndex="100" />
   </Grid>
 </Window>
