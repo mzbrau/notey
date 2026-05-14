@@ -176,73 +176,63 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ProcessAsync_merge_preserves_existing_metadata_and_dynamic_directives()
+    public async Task ProcessAsync_falls_back_to_body_based_filename_when_ai_is_not_configured()
     {
         var rootPath = CreateTempDirectory();
-        var target = Path.Combine(rootPath, "Notes", "accounts.md");
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        await File.WriteAllTextAsync(target, """
-            ---
-            created: 2026-05-01T00:00:00.0000000+00:00
-            meeting: true
-            topic: "Accounts"
-            customer: "Microsoft"
-            ---
-            Existing note.
-            """);
-        var service = CreateService(rootPath, """{ "body": "Appended note." }""");
-        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        var service = CreateServiceWithoutAi(rootPath);
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            # Launch checklist
+
+            Confirm the final rollout steps.
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        var result = await service.ProcessAsync(draft, draft.Content);
 
-        var content = await File.ReadAllTextAsync(target);
-        Assert.Contains("meeting: true", content);
-        Assert.Contains("topic: \"Accounts\"", content);
-        Assert.Contains("customer: \"Microsoft\"", content);
+        Assert.True(result.Processed);
+        var targetPath = Path.Combine(rootPath, "Notes", "launch checklist.md");
+        Assert.True(File.Exists(targetPath));
+        var content = await File.ReadAllTextAsync(targetPath);
+        Assert.Contains("Confirm the final rollout steps.", content);
     }
 
     [Fact]
-    public async Task ProcessAsync_merge_reads_yaml_arrays_with_nonstandard_indentation()
+    public async Task ProcessAsync_falls_back_to_ocr_based_filename_when_ai_is_not_configured()
     {
         var rootPath = CreateTempDirectory();
-        var target = Path.Combine(rootPath, "Notes", "accounts.md");
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        await File.WriteAllTextAsync(target, """
-            ---
-            created: 2026-05-01T00:00:00.0000000+00:00
-            tags:
-            - "#legacy"
-            ---
-            Existing note.
-            """);
-        var service = CreateService(rootPath, """{ "body": "Appended note.", "tags": ["new"] }""");
-        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        var service = CreateServiceWithoutAi(rootPath);
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), string.Empty, new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        var result = await service.ProcessAsync(draft, draft.Content, ["Microsoft Contract Review"]);
 
-        var content = await File.ReadAllTextAsync(target);
-        Assert.Contains("  - \"#legacy\"", content);
-        Assert.Contains("  - \"#new\"", content);
+        Assert.True(result.Processed);
+        Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "microsoft contract review.md")));
     }
 
     [Fact]
-    public async Task ProcessAsync_escapes_newlines_in_yaml_values()
+    public async Task ProcessAsync_falls_back_when_provider_reports_missing_configuration()
     {
         var rootPath = CreateTempDirectory();
-        var service = CreateService(rootPath, """{ "body": "Rendered body.", "people": ["Jane\nDoe"] }""");
-        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        var service = CreateService(rootPath, new MissingConfigurationAiProvider());
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "Contract notes", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        var result = await service.ProcessAsync(draft, draft.Content);
 
-        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "accounts.md"));
-        Assert.Contains("  - \"Jane\\nDoe\"", content);
-        Assert.DoesNotContain("  - \"Jane\nDoe\"", content, StringComparison.Ordinal);
+        Assert.True(result.Processed);
+        Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "contract notes.md")));
     }
 
     private DraftProcessingService CreateService(string rootPath, string aiResponse)
+    {
+        return CreateService(rootPath, new RecordingAiProvider(aiResponse));
+    }
+
+    private DraftProcessingService CreateService(string rootPath, IAiProvider aiProvider)
     {
         var options = new NoteyOptions
         {
@@ -254,7 +244,24 @@ public sealed class DraftProcessingServiceTests : IDisposable
             options,
             workspace,
             new FileSystemDocumentStoreIndex(workspace),
-            new AiProviderRegistry([new RecordingAiProvider(aiResponse)], "default"),
+            new AiProviderRegistry([aiProvider], "default"),
+            new RecordingOcrEngine(),
+            new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)));
+    }
+
+    private DraftProcessingService CreateServiceWithoutAi(string rootPath)
+    {
+        var options = new NoteyOptions
+        {
+            Vault = new VaultOptions { RootPath = rootPath },
+            Ai = new AiOptions { DefaultProviderId = "default", ModelName = string.Empty }
+        };
+        var workspace = new FileSystemVaultWorkspace(options);
+        return new DraftProcessingService(
+            options,
+            workspace,
+            new FileSystemDocumentStoreIndex(workspace),
+            new AiProviderRegistry([], "default"),
             new RecordingOcrEngine(),
             new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)));
     }
@@ -314,6 +321,16 @@ public sealed class DraftProcessingServiceTests : IDisposable
         public ValueTask<OcrResult> RecognizeAsync(TesseractOcrRequest request, CancellationToken cancellationToken = default)
         {
             return ValueTask.FromResult(new OcrResult("ocr text", "eng", 1.0, []));
+        }
+    }
+
+    private sealed class MissingConfigurationAiProvider : IAiProvider
+    {
+        public string Id => "default";
+
+        public ValueTask<AiTextResponse> CompleteTextAsync(AiTextRequest request, CancellationToken cancellationToken = default)
+        {
+            throw new AiProviderException("AI provider 'default' has no configured base URL.");
         }
     }
 

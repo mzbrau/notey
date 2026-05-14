@@ -50,7 +50,7 @@ public sealed partial class DraftProcessingService(
 
         var aiResult = string.IsNullOrWhiteSpace(body) && ocrSnippets.Count == 0
             ? ProcessedNoteAiResult.Empty
-            : await RunAiAsync(parsed, commands, string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body, ocrSnippets, cancellationToken);
+            : await RunAiAsync(parsed, commands, body, ocrSnippets, cancellationToken);
         var localNow = timeProvider.GetLocalNow();
         var writtenPaths = new List<string>();
 
@@ -99,20 +99,27 @@ public sealed partial class DraftProcessingService(
     {
         if (!aiProviderRegistry.TryGet(options.Ai.DefaultProviderId, out var provider))
         {
-            throw new InvalidOperationException($"AI provider '{options.Ai.DefaultProviderId}' is not configured.");
+            return CreateFallbackAiResult(body, ocrSnippets);
         }
 
-        var response = await provider.CompleteTextAsync(
-            new AiTextRequest(
-                BuildPrompt(parsed, commands, body, ocrSnippets),
-                "You process captured markdown notes for Obsidian. Return only JSON.",
-                options.Ai.ModelName,
-                JsonOutput: true,
-                Temperature: 0.1,
-                MaxTokens: 1600),
-            cancellationToken);
+        try
+        {
+            var response = await provider.CompleteTextAsync(
+                new AiTextRequest(
+                    BuildPrompt(parsed, commands, string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body, ocrSnippets),
+                    "You process captured markdown notes for Obsidian. Return only JSON.",
+                    options.Ai.ModelName,
+                    JsonOutput: true,
+                    Temperature: 0.1,
+                    MaxTokens: 1600),
+                cancellationToken);
 
-        return ProcessedNoteAiResult.Parse(response.Text);
+            return ProcessedNoteAiResult.Parse(response.Text);
+        }
+        catch (AiProviderException ex) when (IsAiConfigurationError(ex))
+        {
+            return CreateFallbackAiResult(body, ocrSnippets);
+        }
     }
 
     private static string BuildPrompt(
@@ -470,6 +477,72 @@ public sealed partial class DraftProcessingService(
     private static string FirstNonEmpty(params string?[] values)
     {
         return values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "note";
+    }
+
+    private static ProcessedNoteAiResult CreateFallbackAiResult(string body, IReadOnlyList<string> ocrSnippets)
+    {
+        var fallbackTitle = BuildFallbackTitle(body, ocrSnippets);
+        return new ProcessedNoteAiResult(fallbackTitle, fallbackTitle, null, [], [], []);
+    }
+
+    private static string BuildFallbackTitle(string body, IReadOnlyList<string> ocrSnippets)
+    {
+        foreach (var candidate in EnumerateFallbackTitleCandidates(body, ocrSnippets))
+        {
+            var normalized = NormalizeFallbackTitleCandidate(candidate);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                return normalized;
+            }
+        }
+
+        return "note";
+    }
+
+    private static IEnumerable<string> EnumerateFallbackTitleCandidates(string body, IReadOnlyList<string> ocrSnippets)
+    {
+        foreach (var line in body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                yield return line;
+            }
+        }
+
+        foreach (var snippet in ocrSnippets)
+        {
+            foreach (var line in snippet.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    yield return line;
+                }
+            }
+        }
+    }
+
+    private static string NormalizeFallbackTitleCandidate(string candidate)
+    {
+        var trimmed = candidate.Trim();
+        while (trimmed.StartsWith('#'))
+        {
+            trimmed = trimmed[1..].TrimStart();
+        }
+
+        trimmed = trimmed.Trim('*', '-', '_', '`', '>', '[', ']', '(', ')', ':', ';', '.', ',', '!', '?', '"', '\'');
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return trimmed.Length <= 80 ? trimmed : trimmed[..80].Trim();
+    }
+
+    private static bool IsAiConfigurationError(AiProviderException exception)
+    {
+        return exception.Message.Contains("has no configured base URL", StringComparison.Ordinal)
+            || exception.Message.Contains("has no API key", StringComparison.Ordinal)
+            || exception.Message.Contains("has no configured model name", StringComparison.Ordinal);
     }
 
     private static string ToFileStem(string title)

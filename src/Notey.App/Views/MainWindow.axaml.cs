@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
@@ -61,6 +62,7 @@ public sealed partial class MainWindow : Window
     private bool _isClosePending;
     private bool _isExitRequested;
     private long _revision;
+    private long? _suppressedCompletionRevision;
     private HotkeyGesture? _openNoteGesture;
     private IReadOnlyList<VaultEntity> _peopleIndex = [];
     private IReadOnlyList<VaultFolderCommand> _folderCommands = [];
@@ -209,7 +211,7 @@ public sealed partial class MainWindow : Window
             ScheduleAutosave();
             ScheduleIdleProcessing();
         };
-        NoteEditor.KeyDown += OnEditorKeyDown;
+        NoteEditor.TextArea.AddHandler(KeyDownEvent, OnEditorKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         NoteEditor.KeyUp += (_, _) =>
         {
             UpdateEditorStatus();
@@ -524,7 +526,21 @@ public sealed partial class MainWindow : Window
             _logger.LogDebug("Draft processing was cancelled because the window closed.");
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or JsonException)
+        catch (AiProviderException ex)
+        {
+            AutosaveStatusText.Text = IsAiConfigurationError(ex) ? "AI NOT CONFIGURED" : "AI ERROR";
+            _logger.LogError(ex, "AI processing failed for draft {DraftPath}.", draftPath);
+            NoteEditor.IsReadOnly = wasReadOnly;
+            return false;
+        }
+        catch (HttpRequestException ex)
+        {
+            AutosaveStatusText.Text = "AI ERROR";
+            _logger.LogError(ex, "AI request failed for draft {DraftPath}.", draftPath);
+            NoteEditor.IsReadOnly = wasReadOnly;
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
         {
             AutosaveStatusText.Text = "PROCESSING FAILED";
             _logger.LogError(ex, "Failed to process draft {DraftPath}.", draftPath);
@@ -763,6 +779,17 @@ public sealed partial class MainWindow : Window
 
     private async void UpdateCompletion()
     {
+        if (_suppressedCompletionRevision is { } suppressedRevision)
+        {
+            if (_revision <= suppressedRevision)
+            {
+                HideCompletion();
+                return;
+            }
+
+            _suppressedCompletionRevision = null;
+        }
+
         if (NoteEditor.IsReadOnly)
         {
             HideCompletion();
@@ -902,6 +929,7 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        _suppressedCompletionRevision = _revision + 1;
         NoteEditor.Document.Replace(suggestion.ReplacementStart, suggestion.ReplacementLength, insertionText);
         NoteEditor.CaretOffset = suggestion.ReplacementStart + insertionText.Length;
         HideCompletion();
@@ -916,9 +944,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var selectedSuggestion = CompletionList.SelectedItem as CompletionSuggestion;
+        var selectedIndex = CompletionList.SelectedIndex;
+
         _completionSuggestions = suggestions;
         CompletionList.ItemsSource = suggestions;
-        CompletionList.SelectedIndex = 0;
+        CompletionList.SelectedIndex = ResolveCompletionSelectionIndex(suggestions, selectedSuggestion, selectedIndex);
         CompletionPanel.IsVisible = true;
     }
 
@@ -940,6 +971,27 @@ public sealed partial class MainWindow : Window
         CompletionList.SelectedIndex = Math.Clamp(selectedIndex + delta, 0, _completionSuggestions.Count - 1);
     }
 
+    private static int ResolveCompletionSelectionIndex(
+        IReadOnlyList<CompletionSuggestion> suggestions,
+        CompletionSuggestion? currentSelection,
+        int currentIndex)
+    {
+        if (currentSelection is not null)
+        {
+            for (var index = 0; index < suggestions.Count; index++)
+            {
+                if (suggestions[index] == currentSelection)
+                {
+                    return index;
+                }
+            }
+        }
+
+        return currentIndex >= 0
+            ? Math.Clamp(currentIndex, 0, suggestions.Count - 1)
+            : 0;
+    }
+
     private static string ReplaceDueDate(string searchText, DateOnly dueDate)
     {
         var marker = searchText.IndexOf("//", StringComparison.Ordinal);
@@ -948,7 +1000,14 @@ public sealed partial class MainWindow : Window
             : $"{searchText[..(marker + 2)].TrimEnd()} {dueDate:yyyy-MM-dd}";
     }
 
-    private async Task RefreshIndexesAsync(bool force = false)
+    private static bool IsAiConfigurationError(AiProviderException exception)
+    {
+        return exception.Message.Contains("has no configured base URL", StringComparison.Ordinal)
+            || exception.Message.Contains("has no API key", StringComparison.Ordinal)
+            || exception.Message.Contains("has no configured model name", StringComparison.Ordinal);
+    }
+
+    private async Task RefreshIndexesAsync()
     {
         if (!force && _timeProvider.GetUtcNow() < _nextIndexRefreshAt)
         {
