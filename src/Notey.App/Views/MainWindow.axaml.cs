@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -64,6 +65,7 @@ public sealed partial class MainWindow : Window
     private bool _isCloseConfirmed;
     private bool _isClosePending;
     private bool _isExitRequested;
+    private bool _isRecentNoteDialogOpen;
     private long _revision;
     private long? _suppressedCompletionRevision;
     private HotkeyGesture? _openNoteGesture;
@@ -145,6 +147,7 @@ public sealed partial class MainWindow : Window
         UpdateCurrentNoteFooter();
 
         Opened += async (_, _) => await OpenInitialDraftAsync();
+        AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         Closing += OnClosing;
         Closed += (_, _) =>
         {
@@ -396,6 +399,11 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenRecentFinalNoteAsync()
     {
+        if (_isRecentNoteDialogOpen)
+        {
+            return;
+        }
+
         DraftProcessOutcome outcome = DraftProcessOutcome.NoChange;
         if (_currentDraft is not null)
         {
@@ -411,18 +419,30 @@ public sealed partial class MainWindow : Window
         }
 
         var recent = await ListRecentFinalNotesAsync(_timeProvider.GetLocalNow().Subtract(RecentFinalNoteLookback), _windowClosed.Token);
-        var choice = await RecentNoteChoiceWindow.ShowAsync(this, recent);
-        if (choice.Action == RecentNoteChoiceAction.OpenExisting && choice.SelectedNote is not null)
+        _isRecentNoteDialogOpen = true;
+        RecentDialogOverlay.IsVisible = true;
+        OpenRecentNoteButton.IsEnabled = false;
+        try
         {
-            await LoadRecentNoteAsync(choice.SelectedNote.FilePath);
+            var choice = await RecentNoteChoiceWindow.ShowAsync(this, recent);
+            if (choice.Action == RecentNoteChoiceAction.OpenExisting && choice.SelectedNote is not null)
+            {
+                await LoadRecentNoteAsync(choice.SelectedNote.FilePath);
+            }
+            else if (choice.Action == RecentNoteChoiceAction.NewNote)
+            {
+                await TryCreateAndLoadDraftAsync("starting a new note");
+            }
+            else if (outcome.DraftChanged)
+            {
+                await ApplyProcessedDraftFollowUpAsync(ProcessTrigger.OpenRecent, outcome.PrimaryFinalNotePath);
+            }
         }
-        else if (choice.Action == RecentNoteChoiceAction.NewNote)
+        finally
         {
-            await TryCreateAndLoadDraftAsync("starting a new note");
-        }
-        else if (outcome.DraftChanged)
-        {
-            await ApplyProcessedDraftFollowUpAsync(ProcessTrigger.OpenRecent, outcome.PrimaryFinalNotePath);
+            _isRecentNoteDialogOpen = false;
+            RecentDialogOverlay.IsVisible = false;
+            OpenRecentNoteButton.IsEnabled = true;
         }
     }
 
@@ -436,7 +456,7 @@ public sealed partial class MainWindow : Window
             return [];
         }
 
-        var recent = new List<RecentNoteSummary>();
+        var recentCandidates = new List<(string FilePath, DateTimeOffset CreatedAt)>();
         foreach (var filePath in Directory.EnumerateFiles(paths.NotesPath, "*.md", SearchOption.AllDirectories))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -456,10 +476,18 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
-            recent.Add(new RecentNoteSummary(filePath, created, Path.GetFileNameWithoutExtension(filePath)));
+            recentCandidates.Add((filePath, created));
         }
 
-        return RecentNotes.OrderByMostRecent(recent, 20);
+        var recent = new List<RecentNoteSummary>();
+        foreach (var candidate in recentCandidates
+                     .OrderByDescending(static item => item.CreatedAt)
+                     .Take(20))
+        {
+            recent.Add(await CreateRecentFinalNoteSummaryAsync(candidate.FilePath, candidate.CreatedAt, cancellationToken));
+        }
+
+        return recent;
     }
 
     private async Task LoadRecentNoteAsync(string filePath)
@@ -828,6 +856,17 @@ public sealed partial class MainWindow : Window
                 e.Handled = true;
             }
         }
+    }
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (!IsOpenRecentDialogShortcut(e.Key, e.KeyModifiers))
+        {
+            return;
+        }
+
+        _ = OpenRecentFinalNoteAsync();
+        e.Handled = true;
     }
 
     private bool TryHandleCompletionKey(KeyEventArgs e)
@@ -1705,6 +1744,11 @@ public sealed partial class MainWindow : Window
             : text;
     }
 
+    internal static bool IsOpenRecentDialogShortcut(Key key, KeyModifiers modifiers)
+    {
+        return key == Key.R && IsCommandModifier(modifiers);
+    }
+
     private static bool IsCommandModifier(KeyModifiers modifiers)
     {
         return modifiers == KeyModifiers.Control || modifiers == KeyModifiers.Meta;
@@ -1717,6 +1761,54 @@ public sealed partial class MainWindow : Window
             && !relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
             && !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal)
             && !Path.IsPathFullyQualified(relativePath);
+    }
+
+    private async Task<RecentNoteSummary> CreateRecentFinalNoteSummaryAsync(
+        string filePath,
+        DateTimeOffset createdAt,
+        CancellationToken cancellationToken)
+    {
+        var title = Path.GetFileNameWithoutExtension(filePath);
+        var content = string.Empty;
+
+        try
+        {
+            content = await File.ReadAllTextAsync(filePath, cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            _logger.LogWarning(ex, "Failed to read recent note contents for filtering from {FilePath}.", filePath);
+        }
+
+        return new RecentNoteSummary(filePath, createdAt, title)
+        {
+            SearchText = BuildRecentNoteSearchText(filePath, title, content)
+        };
+    }
+
+    private static string BuildRecentNoteSearchText(string filePath, string title, string content)
+    {
+        var parts = new StringBuilder();
+        AppendSearchPart(parts, title);
+        AppendSearchPart(parts, Path.GetFileName(filePath));
+        AppendSearchPart(parts, filePath);
+        AppendSearchPart(parts, content);
+        return parts.ToString();
+    }
+
+    private static void AppendSearchPart(StringBuilder builder, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (builder.Length > 0)
+        {
+            builder.Append('\n');
+        }
+
+        builder.Append(value);
     }
 
     private static void DeleteIfExists(string filePath)

@@ -130,5 +130,11 @@
         <TextBlock x:Name="CursorPositionText" Grid.Column="6" Classes="label" Text="LINE 1, COL 1" VerticalAlignment="Center" />
       </Grid>
     </Border>
+
+    <Border x:Name="RecentDialogOverlay"
+            Grid.RowSpan="4"
+            Background="#01000000"
+            IsVisible="False"
+            ZIndex="100" />
   </Grid>
 </Window>
