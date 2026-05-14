@@ -9,6 +9,18 @@ public sealed class VaultWorkspaceTests
     public void GetPaths_derives_owned_vault_paths()
     {
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (!Path.IsPathFullyQualified(documents))
+        {
+            documents = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Documents");
+        }
+
+        if (!Path.IsPathFullyQualified(documents))
+        {
+            documents = Path.GetFullPath(documents);
+        }
+
         var workspace = new FileSystemVaultWorkspace(new NoteyOptions
         {
             Vault = new VaultOptions

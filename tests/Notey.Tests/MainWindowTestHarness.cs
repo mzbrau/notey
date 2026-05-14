@@ -129,8 +129,20 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     public void Dispose()
     {
-        Window.Close();
-        Dispatcher.UIThread.RunJobs();
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            Window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+        else
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                Window.Close();
+                Dispatcher.UIThread.RunJobs();
+            }).GetTask().GetAwaiter().GetResult();
+        }
+
         DeleteDirectoryWithRetries(RootPath);
     }
 
@@ -143,6 +155,8 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     private static void DeleteDirectoryWithRetries(string path)
     {
+        Exception? lastException = null;
+
         for (var attempt = 0; attempt < 5; attempt++)
         {
             try
@@ -154,14 +168,24 @@ internal sealed class MainWindowTestHarness : IDisposable
 
                 return;
             }
-            catch (IOException) when (attempt < 4)
+            catch (IOException ex)
+            {
+                lastException = ex;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                lastException = ex;
+            }
+
+            if (attempt < 4)
             {
                 Thread.Sleep(50);
             }
-            catch (UnauthorizedAccessException) when (attempt < 4)
-            {
-                Thread.Sleep(50);
-            }
+        }
+
+        if (Directory.Exists(path))
+        {
+            throw new IOException($"Failed to delete temporary test directory '{path}'.", lastException);
         }
     }
 

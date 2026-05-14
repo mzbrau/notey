@@ -20,10 +20,21 @@ public sealed class FileSystemVaultWorkspace(NoteyOptions options) : IVaultWorks
     private static string ResolveRootPath(string rootPath)
     {
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (!Path.IsPathFullyQualified(documents))
+        {
+            documents = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Documents");
+        }
+
+        if (!Path.IsPathFullyQualified(documents))
+        {
+            documents = Path.GetFullPath(documents);
+        }
 
         if (string.IsNullOrWhiteSpace(rootPath))
         {
-            return Path.Combine(documents, "Notey");
+            return Path.GetFullPath(Path.Combine(documents, "Notey"));
         }
 
         return Path.IsPathFullyQualified(rootPath)

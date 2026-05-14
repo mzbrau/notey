@@ -1,6 +1,8 @@
 using Avalonia.Headless.XUnit;
 using Notey.App.Views;
 
+#pragma warning disable xUnit1051 // AvaloniaFact does not provide xUnit test-context cancellation token support.
+
 namespace Notey.Tests;
 
 public sealed class MainWindowUiFlowTests
@@ -118,3 +120,5 @@ public sealed class MainWindowUiFlowTests
         Assert.DoesNotContain("Original recent note body.", updatedContent);
     }
 }
+
+#pragma warning restore xUnit1051
