@@ -32,4 +32,11 @@ public sealed class RecentNoteChoiceTests
 
         Assert.Same(choice, result);
     }
+
+    [Fact]
+    public void ShouldOpenSelectedNote_requires_selection()
+    {
+        Assert.True(RecentNoteChoiceWindow.ShouldOpenSelectedNote(hasSelection: true));
+        Assert.False(RecentNoteChoiceWindow.ShouldOpenSelectedNote(hasSelection: false));
+    }
 }

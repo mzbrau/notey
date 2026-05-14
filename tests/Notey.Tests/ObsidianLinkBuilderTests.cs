@@ -49,6 +49,29 @@ public sealed class ObsidianLinkBuilderTests
         Assert.Throws<InvalidOperationException>(() => builder.BuildImageEmbed(Path.Combine(Path.GetTempPath(), "outside.png")));
     }
 
+    [Fact]
+    public void BuildOpenFileUri_uses_vault_name_and_relative_file_path()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), "notey-link-builder");
+        var builder = CreateBuilder(rootPath);
+        var notePath = Path.Combine(rootPath, "Notes", "Projects", "Launch Plan.md");
+
+        var uri = builder.BuildOpenFileUri(notePath);
+
+        Assert.Equal("obsidian", uri.Scheme);
+        Assert.Equal("open", uri.Host);
+        Assert.Equal("?vault=notey-link-builder&file=Notes%2FProjects%2FLaunch%20Plan.md", uri.Query);
+    }
+
+    [Fact]
+    public void BuildOpenFileUri_rejects_paths_outside_vault()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), "notey-link-builder");
+        var builder = CreateBuilder(rootPath);
+
+        Assert.Throws<InvalidOperationException>(() => builder.BuildOpenFileUri(Path.Combine(Path.GetTempPath(), "outside.md")));
+    }
+
     private static ObsidianLinkBuilder CreateBuilder(string rootPath)
     {
         var options = new NoteyOptions

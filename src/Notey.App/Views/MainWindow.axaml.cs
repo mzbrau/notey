@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia.Controls;
@@ -53,7 +54,9 @@ public sealed partial class MainWindow : Window
 
     private NoteDraft? _currentDraft;
     private string? _currentFinalNotePath;
+    private DateTimeOffset? _currentRecentNoteCreatedAt;
     private string _lastSavedText = string.Empty;
+    private bool _recentNoteNeedsProcessing;
     private bool _isInitializing;
     private bool _isSwitchingDraft;
     private bool _isCaptureInProgress;
@@ -139,6 +142,7 @@ public sealed partial class MainWindow : Window
         ConfigureCommands();
         UpdateEditorStatus();
         UpdateContextChip();
+        UpdateCurrentNoteFooter();
 
         Opened += async (_, _) => await OpenInitialDraftAsync();
         Closing += OnClosing;
@@ -205,6 +209,10 @@ public sealed partial class MainWindow : Window
             }
 
             _revision++;
+            if (_currentFinalNotePath is not null)
+            {
+                _recentNoteNeedsProcessing = true;
+            }
             CancelIdleProcessing();
             UpdateCompletion();
             UpdateContextChip();
@@ -238,11 +246,12 @@ public sealed partial class MainWindow : Window
         CaptureSaveButton.Click += async (_, _) => await CapturePersistentImageAsync();
         SaveNoteButton.Click += async (_, _) =>
         {
-            if (await FlushAutosaveAsync())
+            if (await FlushCurrentDocumentAsync(processRecentNote: true))
             {
                 AutosaveStatusText.Text = "SAVED";
             }
         };
+        OpenInObsidianButton.Click += (_, _) => OpenCurrentNoteInObsidian();
         SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
     }
 
@@ -273,6 +282,17 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            return;
+        }
+
+        if (_currentFinalNotePath is not null)
+        {
+            if (!await ProcessCurrentRecentNoteAsync())
+            {
+                return;
+            }
+
+            await TryCreateAndLoadDraftAsync("starting a new note");
             return;
         }
 
@@ -351,6 +371,8 @@ public sealed partial class MainWindow : Window
         {
             _currentDraft = draft;
             _currentFinalNotePath = null;
+            _currentRecentNoteCreatedAt = null;
+            _recentNoteNeedsProcessing = false;
             _directOcrSnippets.Clear();
             NoteEditor.Document.Text = draft.Content;
             NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
@@ -362,6 +384,7 @@ public sealed partial class MainWindow : Window
             _revision++;
             UpdateEditorStatus();
             UpdateContextChip();
+            UpdateCurrentNoteFooter();
             FocusEditor();
         }
         finally
@@ -382,12 +405,16 @@ public sealed partial class MainWindow : Window
                 return;
             }
         }
+        else if (_currentFinalNotePath is not null && !await ProcessCurrentRecentNoteAsync())
+        {
+            return;
+        }
 
         var recent = await ListRecentFinalNotesAsync(_timeProvider.GetLocalNow().Subtract(RecentFinalNoteLookback), _windowClosed.Token);
         var choice = await RecentNoteChoiceWindow.ShowAsync(this, recent);
         if (choice.Action == RecentNoteChoiceAction.OpenExisting && choice.SelectedNote is not null)
         {
-            await LoadFinalNoteAsync(choice.SelectedNote.FilePath);
+            await LoadRecentNoteAsync(choice.SelectedNote.FilePath);
         }
         else if (choice.Action == RecentNoteChoiceAction.NewNote)
         {
@@ -435,15 +462,12 @@ public sealed partial class MainWindow : Window
         return RecentNotes.OrderByMostRecent(recent, 20);
     }
 
-    private async Task LoadFinalNoteAsync(string filePath)
+    private async Task LoadRecentNoteAsync(string filePath)
     {
         _isInitializing = true;
         HideCompletion();
         try
         {
-            _currentDraft = null;
-            _currentFinalNotePath = filePath;
-            _directOcrSnippets.Clear();
             string content;
             try
             {
@@ -456,13 +480,21 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            _currentDraft = null;
+            _currentFinalNotePath = filePath;
+            _currentRecentNoteCreatedAt = ResolveRecentNoteCreatedAt(filePath, content);
+            _recentNoteNeedsProcessing = false;
+            _directOcrSnippets.Clear();
             NoteEditor.Document.Text = content;
             NoteEditor.CaretOffset = 0;
-            NoteEditor.IsReadOnly = true;
+            NoteEditor.IsReadOnly = false;
+            _lastSavedText = content;
             DateChipText.Text = Path.GetFileNameWithoutExtension(filePath);
-            AutosaveStatusText.Text = "FINAL NOTE";
+            AutosaveStatusText.Text = "SAVED";
             UpdateEditorStatus();
-            ContextChipText.Text = "Read-only final note";
+            UpdateContextChip();
+            UpdateCurrentNoteFooter();
+            FocusEditor();
         }
         finally
         {
@@ -588,7 +620,7 @@ public sealed partial class MainWindow : Window
     {
         if (trigger == ProcessTrigger.OpenRecent && primaryFinalNotePath is not null)
         {
-            await LoadFinalNoteAsync(primaryFinalNotePath);
+            await LoadRecentNoteAsync(primaryFinalNotePath);
             return;
         }
 
@@ -673,7 +705,7 @@ public sealed partial class MainWindow : Window
     private async void AutosaveTimerOnTick(object? sender, EventArgs e)
     {
         _autosaveTimer.Stop();
-        await FlushAutosaveAsync();
+        await FlushCurrentDocumentAsync();
     }
 
     private async void IdleProcessingTimerOnTick(object? sender, EventArgs e)
@@ -722,21 +754,29 @@ public sealed partial class MainWindow : Window
         _isClosePending = true;
         _autosaveTimer.Stop();
         _idleProcessingTimer.Stop();
-        var processed = await ProcessCurrentDraftAsync(ProcessTrigger.Close);
-        if (!processed.Succeeded)
+        if (_currentDraft is not null)
         {
-            _logger.LogWarning("Draft processing failed while closing. Continuing close without processing.");
-
-            if (HideInsteadOfClose && !_isExitRequested)
+            var processed = await ProcessCurrentDraftAsync(ProcessTrigger.Close);
+            if (!processed.Succeeded)
             {
+                _logger.LogWarning("Draft processing failed while closing. Continuing close without processing.");
+
+                if (HideInsteadOfClose && !_isExitRequested)
+                {
+                    _isClosePending = false;
+                    Hide();
+                    return;
+                }
+
                 _isClosePending = false;
-                Hide();
+                _isCloseConfirmed = true;
+                Close();
                 return;
             }
-
+        }
+        else if (_currentFinalNotePath is not null && !await ProcessCurrentRecentNoteAsync())
+        {
             _isClosePending = false;
-            _isCloseConfirmed = true;
-            Close();
             return;
         }
 
@@ -1190,6 +1230,11 @@ public sealed partial class MainWindow : Window
             return true;
         }
 
+        if (_currentFinalNotePath is not null && !await ProcessCurrentRecentNoteAsync())
+        {
+            return false;
+        }
+
         return await TryCreateAndLoadDraftAsync("capturing content");
     }
 
@@ -1307,7 +1352,7 @@ public sealed partial class MainWindow : Window
     {
         if (_currentFinalNotePath is not null)
         {
-            ContextChipText.Text = "Read-only final note";
+            ContextChipText.Text = "Opened recent note";
             return;
         }
 
@@ -1351,6 +1396,212 @@ public sealed partial class MainWindow : Window
         var status = NoteEditorStatus.FromText(NoteEditor.Document.Text, NoteEditor.CaretOffset);
         WordCountText.Text = $"WORDS {status.WordCount}";
         CursorPositionText.Text = $"LINE {status.Line}, COL {status.Column}";
+    }
+
+    private void UpdateCurrentNoteFooter()
+    {
+        var isRecentNoteOpen = _currentFinalNotePath is not null;
+        CurrentNotePathText.IsVisible = isRecentNoteOpen;
+        OpenInObsidianButton.IsVisible = isRecentNoteOpen;
+        OpenInObsidianButton.IsEnabled = isRecentNoteOpen;
+        CurrentNotePathText.Text = isRecentNoteOpen ? _currentFinalNotePath : string.Empty;
+    }
+
+    private async Task<bool> FlushCurrentDocumentAsync(bool processRecentNote = false)
+    {
+        if (_currentDraft is not null)
+        {
+            return await FlushAutosaveAsync();
+        }
+
+        if (_currentFinalNotePath is not null)
+        {
+            return processRecentNote
+                ? await ProcessCurrentRecentNoteAsync()
+                : await SaveCurrentRecentNoteAsync();
+        }
+
+        return true;
+    }
+
+    private async Task<bool> SaveCurrentRecentNoteAsync()
+    {
+        if (_currentFinalNotePath is null)
+        {
+            return true;
+        }
+
+        await _saveGate.WaitAsync(_windowClosed.Token);
+        try
+        {
+            var text = NoteEditor.Document.Text;
+            if (string.Equals(text, _lastSavedText, StringComparison.Ordinal))
+            {
+                AutosaveStatusText.Text = "SAVED";
+                return true;
+            }
+
+            AutosaveStatusText.Text = "SAVING";
+            await _draftProcessingService.SaveExistingNoteAsync(_currentFinalNotePath, text, _windowClosed.Token);
+            _lastSavedText = text;
+            AutosaveStatusText.Text = "SAVED";
+            return true;
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Recent note save was cancelled because the window closed.");
+            return true;
+        }
+        catch (IOException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Failed to save recent note {FilePath}.", _currentFinalNotePath);
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Notey does not have permission to save recent note {FilePath}.", _currentFinalNotePath);
+            return false;
+        }
+        catch (InvalidOperationException ex)
+        {
+            AutosaveStatusText.Text = "SAVE ERROR";
+            _logger.LogError(ex, "Notey could not save recent note {FilePath}.", _currentFinalNotePath);
+            return false;
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
+    }
+
+    private async Task<bool> ProcessCurrentRecentNoteAsync()
+    {
+        if (_currentFinalNotePath is null || !_recentNoteNeedsProcessing)
+        {
+            return true;
+        }
+
+        await _saveGate.WaitAsync(_windowClosed.Token);
+        var wasReadOnly = NoteEditor.IsReadOnly;
+        NoteEditor.IsReadOnly = true;
+        try
+        {
+            AutosaveStatusText.Text = "PROCESSING";
+            var caretOffset = NoteEditor.CaretOffset;
+            var updatedContent = await _draftProcessingService.ProcessExistingNoteAsync(
+                _currentFinalNotePath,
+                NoteEditor.Document.Text,
+                _currentRecentNoteCreatedAt ?? _timeProvider.GetLocalNow(),
+                _windowClosed.Token);
+
+            _isInitializing = true;
+            try
+            {
+                NoteEditor.Document.Text = updatedContent;
+                NoteEditor.CaretOffset = Math.Min(caretOffset, NoteEditor.Document.TextLength);
+                _lastSavedText = updatedContent;
+                _recentNoteNeedsProcessing = false;
+                UpdateEditorStatus();
+                UpdateContextChip();
+                UpdateCurrentNoteFooter();
+            }
+            finally
+            {
+                _isInitializing = false;
+            }
+
+            AutosaveStatusText.Text = "SAVED";
+            return true;
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Recent note processing was cancelled because the window closed.");
+            return true;
+        }
+        catch (AiProviderException ex)
+        {
+            AutosaveStatusText.Text = IsAiConfigurationError(ex) ? "AI NOT CONFIGURED" : "AI ERROR";
+            _logger.LogError(ex, "AI processing failed for recent note {FilePath}.", _currentFinalNotePath);
+            return false;
+        }
+        catch (HttpRequestException ex)
+        {
+            AutosaveStatusText.Text = "AI ERROR";
+            _logger.LogError(ex, "AI request failed for recent note {FilePath}.", _currentFinalNotePath);
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        {
+            AutosaveStatusText.Text = "PROCESSING FAILED";
+            _logger.LogError(ex, "Failed to process recent note {FilePath}.", _currentFinalNotePath);
+            return false;
+        }
+        finally
+        {
+            NoteEditor.IsReadOnly = wasReadOnly;
+            _saveGate.Release();
+        }
+    }
+
+    private void OpenCurrentNoteInObsidian()
+    {
+        if (_currentFinalNotePath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var uri = _linkBuilder.BuildOpenFileUri(_currentFinalNotePath);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = uri.AbsoluteUri,
+                UseShellExecute = true
+            });
+            AutosaveStatusText.Text = "OPENED IN OBSIDIAN";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or Win32Exception or PlatformNotSupportedException)
+        {
+            AutosaveStatusText.Text = "OBSIDIAN ERROR";
+            _logger.LogError(ex, "Failed to open recent note {FilePath} in Obsidian.", _currentFinalNotePath);
+        }
+    }
+
+    private static DateTimeOffset ResolveRecentNoteCreatedAt(string filePath, string content)
+    {
+        return TryReadCreatedAtFromFrontmatter(content)
+            ?? new DateTimeOffset(File.GetCreationTimeUtc(filePath), TimeSpan.Zero);
+    }
+
+    private static DateTimeOffset? TryReadCreatedAtFromFrontmatter(string markdown)
+    {
+        var normalized = markdown.Replace("\r\n", "\n", StringComparison.Ordinal);
+        if (!normalized.StartsWith("---\n", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var endIndex = normalized.IndexOf("\n---", 4, StringComparison.Ordinal);
+        if (endIndex < 0)
+        {
+            return null;
+        }
+
+        foreach (var line in normalized[4..endIndex].Split('\n'))
+        {
+            if (!line.StartsWith("created:", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return DateTimeOffset.TryParse(line["created:".Length..].Trim(), out var createdAt)
+                ? createdAt
+                : null;
+        }
+
+        return null;
     }
 
     private void FocusEditor()

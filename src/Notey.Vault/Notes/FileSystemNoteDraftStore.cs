@@ -18,8 +18,9 @@ public sealed partial class FileSystemNoteDraftStore(
         var notesPath = workspace.GetPaths().DraftPath;
         Directory.CreateDirectory(notesPath);
 
-        var content = templateFactory.Create(createdAt);
-        var fileName = fileNameGenerator.Generate(createdAt);
+        var normalizedCreatedAt = TruncateToMinute(createdAt);
+        var content = templateFactory.Create(normalizedCreatedAt);
+        var fileName = fileNameGenerator.Generate(normalizedCreatedAt);
 
         for (var index = 1; index < int.MaxValue; index++)
         {
@@ -27,7 +28,7 @@ public sealed partial class FileSystemNoteDraftStore(
 
             if (await TryCreateDraftFileAsync(filePath, content, cancellationToken))
             {
-                return new NoteDraft(filePath, content, createdAt);
+                return new NoteDraft(filePath, content, normalizedCreatedAt);
             }
         }
 
@@ -253,19 +254,31 @@ public sealed partial class FileSystemNoteDraftStore(
     private static DateTimeOffset? TryReadCreatedAtFromFileName(string filePath)
     {
         var fileName = Path.GetFileNameWithoutExtension(filePath);
-        const int timestampLength = 17;
-        if (fileName.Length < timestampLength)
+        const int minuteTimestampLength = 15;
+        const int secondTimestampLength = 17;
+        if (fileName.Length < minuteTimestampLength)
         {
             return null;
         }
 
+        if (fileName.Length >= secondTimestampLength
+            && DateTimeOffset.TryParseExact(
+                fileName[..secondTimestampLength],
+                "yyyy-MM-dd-HHmmss",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out var secondResolutionCreatedAt))
+        {
+            return secondResolutionCreatedAt;
+        }
+
         return DateTimeOffset.TryParseExact(
-            fileName[..timestampLength],
-            "yyyy-MM-dd-HHmmss",
+            fileName[..minuteTimestampLength],
+            "yyyy-MM-dd-HHmm",
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal,
-            out var createdAt)
-            ? createdAt
+            out var minuteResolutionCreatedAt)
+            ? minuteResolutionCreatedAt
             : null;
     }
 
@@ -303,6 +316,11 @@ public sealed partial class FileSystemNoteDraftStore(
         }
 
         return null;
+    }
+
+    private static DateTimeOffset TruncateToMinute(DateTimeOffset value)
+    {
+        return new DateTimeOffset(value.Year, value.Month, value.Day, value.Hour, value.Minute, 0, value.Offset);
     }
 
     [GeneratedRegex(@"(?m)^created:\s*(?<created>\S+)\s*$")]

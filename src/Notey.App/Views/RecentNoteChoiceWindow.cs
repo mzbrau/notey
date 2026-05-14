@@ -209,6 +209,7 @@ public sealed class RecentNoteChoiceWindow : Window
             .Select(RecentNoteChoiceItem.FromSummary)
             .ToArray();
         _recentNoteList.KeyDown += OnRecentNoteListKeyDown;
+        _recentNoteList.DoubleTapped += OnRecentNoteListDoubleTapped;
         _recentNoteList.SelectionChanged += OnRecentNoteSelectionChanged;
         _recentNoteList[ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto;
         _recentNoteList[ScrollViewer.HorizontalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled;
@@ -287,6 +288,17 @@ public sealed class RecentNoteChoiceWindow : Window
         }
     }
 
+    private void OnRecentNoteListDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (!ShouldOpenSelectedNote(_recentNoteList.SelectedItem is RecentNoteChoiceItem))
+        {
+            return;
+        }
+
+        CloseSelectedNote();
+        e.Handled = true;
+    }
+
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
@@ -307,6 +319,11 @@ public sealed class RecentNoteChoiceWindow : Window
     private void UpdateOpenButtonState()
     {
         _openSelectedButton.IsEnabled = _recentNoteList.SelectedItem is RecentNoteChoiceItem;
+    }
+
+    internal static bool ShouldOpenSelectedNote(bool hasSelection)
+    {
+        return hasSelection;
     }
 
     private sealed record RecentNoteChoiceItem(RecentNoteSummary Note)

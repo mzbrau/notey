@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -88,6 +89,45 @@ public sealed partial class DraftProcessingService(
 
         DeleteIfExists(draft.FilePath);
         return DraftProcessingResult.Completed(draft.FilePath, writtenPaths);
+    }
+
+    public async Task SaveExistingNoteAsync(
+        string filePath,
+        string markdown,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ArgumentNullException.ThrowIfNull(markdown);
+
+        await WriteUtf8AtomicallyAsync(filePath, markdown, cancellationToken);
+    }
+
+    public async Task<string> ProcessExistingNoteAsync(
+        string filePath,
+        string markdown,
+        DateTimeOffset createdAt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ArgumentNullException.ThrowIfNull(markdown);
+
+        var paths = workspace.GetPaths();
+        var commands = await documentStoreIndex.GetFolderCommandsAsync(cancellationToken);
+        var normalizedMarkdown = markdown.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var (frontmatter, body) = SplitFrontmatter(normalizedMarkdown);
+        var parsed = ParseExistingNoteDirectives(frontmatter, body);
+        var ocrSnippets = await OcrIncludedImagesAsync(body, paths, cancellationToken);
+        var aiResult = string.IsNullOrWhiteSpace(body) && ocrSnippets.Count == 0
+            ? ProcessedNoteAiResult.Empty
+            : await RunAiAsync(parsed, commands, body, ocrSnippets, cancellationToken);
+        var finalBody = string.IsNullOrWhiteSpace(aiResult.Body)
+            ? string.IsNullOrWhiteSpace(body) ? string.Join("\n\n", ocrSnippets) : body
+            : aiResult.Body.Trim();
+        var metadata = BuildMetadata(parsed, aiResult, createdAt, timeProvider.GetLocalNow());
+        var updatedMarkdown = RenderProcessedDocument(normalizedMarkdown, finalBody, metadata);
+
+        await WriteUtf8AtomicallyAsync(filePath, updatedMarkdown, cancellationToken);
+        return updatedMarkdown;
     }
 
     private async Task<ProcessedNoteAiResult> RunAiAsync(
@@ -283,15 +323,18 @@ public sealed partial class DraftProcessingService(
         var content = File.Exists(tasksPath)
             ? await File.ReadAllTextAsync(tasksPath, cancellationToken)
             : "# Tasks\n";
-        var builder = new StringBuilder(content.TrimEnd());
+        var builder = new StringBuilder(content);
         var heading = $"## {localNow:yyyy-MM-dd}";
         if (!ContainsLine(content, heading))
         {
-            builder.AppendLine().AppendLine().AppendLine(heading);
+            EnsureEndsWithNewline(builder);
+            builder.AppendLine();
+            builder.AppendLine(heading);
         }
 
         foreach (var task in tasks)
         {
+            EnsureEndsWithNewline(builder);
             builder.Append("- [ ] ").Append(task.Text);
             if (task.DueDate is { } dueDate)
             {
@@ -330,6 +373,30 @@ public sealed partial class DraftProcessingService(
     private static string RenderNewDocument(string body, ProcessedNoteMetadata metadata)
     {
         return $"{RenderFrontmatter(metadata)}\n{body.Trim()}\n";
+    }
+
+    private static string RenderProcessedDocument(string markdown, string body, ProcessedNoteMetadata metadata)
+    {
+        var updatedMarkdown = ApplyMetadata(markdown, metadata);
+        var (frontmatter, _) = SplitFrontmatter(updatedMarkdown);
+        return $"{frontmatter}\n{body.Trim()}\n";
+    }
+
+    private static (string Frontmatter, string Body) SplitFrontmatter(string markdown)
+    {
+        if (!markdown.StartsWith("---\n", StringComparison.Ordinal))
+        {
+            return ("---\n---", markdown);
+        }
+
+        var endIndex = markdown.IndexOf("\n---", 4, StringComparison.Ordinal);
+        if (endIndex < 0)
+        {
+            return ("---\n---", markdown);
+        }
+
+        var endOfFrontmatter = endIndex + "\n---".Length;
+        return (markdown[..endOfFrontmatter], markdown[endOfFrontmatter..].TrimStart('\n'));
     }
 
     private static string ApplyMetadata(string markdown, ProcessedNoteMetadata metadata)
@@ -372,8 +439,8 @@ public sealed partial class DraftProcessingService(
         var lines = new List<string>
         {
             "---",
-            $"created: {metadata.CreatedAt:O}",
-            $"processed: {metadata.ProcessedAt:O}",
+            $"created: {FormatTimestamp(metadata.CreatedAt)}",
+            $"processed: {FormatTimestamp(metadata.ProcessedAt)}",
             $"meeting: {metadata.IsMeeting.ToString().ToLowerInvariant()}",
         };
 
@@ -392,6 +459,17 @@ public sealed partial class DraftProcessingService(
         AppendYamlArray(lines, "links", metadata.Links);
         lines.Add("---");
         return string.Join('\n', lines);
+    }
+
+    private static ParsedNoteDirectives ParseExistingNoteDirectives(string frontmatter, string body)
+    {
+        return new ParsedNoteDirectives(
+            ReadYamlBoolean(frontmatter, "meeting"),
+            ReadYamlScalar(frontmatter, "topic"),
+            [],
+            ReadYamlDynamicDirectives(frontmatter),
+            [],
+            body.Trim());
     }
 
     private static IReadOnlyList<string> ReadYamlArray(string frontmatter, string key)
@@ -472,6 +550,11 @@ public sealed partial class DraftProcessingService(
                 StringComparer.OrdinalIgnoreCase)
             .Select(static group => group.First())
             .ToArray();
+    }
+
+    private static string FormatTimestamp(DateTimeOffset value)
+    {
+        return value.ToString("yyyy-MM-ddTHH:mmzzz", CultureInfo.InvariantCulture);
     }
 
     private static string FirstNonEmpty(params string?[] values)
@@ -607,6 +690,14 @@ public sealed partial class DraftProcessingService(
         return text.Replace("\r\n", "\n", StringComparison.Ordinal)
             .Split('\n')
             .Any(candidate => string.Equals(candidate.TrimEnd(), line, StringComparison.Ordinal));
+    }
+
+    private static void EnsureEndsWithNewline(StringBuilder builder)
+    {
+        if (builder.Length == 0 || builder[^1] != '\n')
+        {
+            builder.Append('\n');
+        }
     }
 
     private static bool TryReadYamlArrayItem(string line, out string value)

@@ -132,6 +132,23 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_appends_tasks_on_new_line_when_existing_heading_has_no_trailing_newline()
+    {
+        var rootPath = CreateTempDirectory();
+        var tasksPath = Path.Combine(rootPath, "Notes", "tasks.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(tasksPath)!);
+        await File.WriteAllTextAsync(tasksPath, "# Tasks\n\n## 2026-05-13\n- [ ] Existing task");
+        var service = CreateService(rootPath, """{ "body": "" }""");
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/task New task", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var tasks = await File.ReadAllTextAsync(tasksPath);
+        Assert.Contains("- [ ] Existing task\n- [ ] New task", tasks);
+    }
+
+    [Fact]
     public async Task ProcessAsync_routes_by_first_dynamic_directive()
     {
         var rootPath = CreateTempDirectory();
@@ -225,6 +242,50 @@ public sealed class DraftProcessingServiceTests : IDisposable
 
         Assert.True(result.Processed);
         Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "contract notes.md")));
+    }
+
+    [Fact]
+    public async Task ProcessExistingNoteAsync_preserves_created_timestamp_and_updates_existing_file_in_place()
+    {
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "accounts.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        await File.WriteAllTextAsync(target, """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            processed: 2026-05-02T00:00:00.0000000+00:00
+            meeting: false
+            topic: "Accounts"
+            tags:
+              - "#old"
+            links: []
+            ---
+            Current body.
+            """);
+        var service = CreateService(rootPath, """{ "body": "Updated body.", "tags": ["new"], "links": ["https://example.com"] }""");
+
+        var updated = await service.ProcessExistingNoteAsync(
+            target,
+            """
+            ---
+            processed: 2026-05-02T00:00:00.0000000+00:00
+            meeting: false
+            topic: "Accounts"
+            tags:
+              - "#old"
+            links: []
+            ---
+            Current body.
+            """,
+            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero));
+
+        Assert.Equal(updated, await File.ReadAllTextAsync(target));
+        Assert.Contains("created: 2026-05-01T00:00+00:00", updated);
+        Assert.Matches(@"processed: 2026-05-13T\d{2}:\d{2}[+-]\d{2}:\d{2}", updated);
+        Assert.Contains("  - \"#old\"", updated);
+        Assert.Contains("  - \"#new\"", updated);
+        Assert.Contains("  - \"https://example.com\"", updated);
+        Assert.Contains("Updated body.", updated);
     }
 
     private DraftProcessingService CreateService(string rootPath, string aiResponse)

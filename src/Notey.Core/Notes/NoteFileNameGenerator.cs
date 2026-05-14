@@ -4,6 +4,6 @@ public sealed class NoteFileNameGenerator
 {
     public string Generate(DateTimeOffset createdAt)
     {
-        return $"{createdAt:yyyy-MM-dd-HHmmss}-note.md";
+        return $"{createdAt:yyyy-MM-dd-HHmm}-note.md";
     }
 }
