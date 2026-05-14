@@ -77,9 +77,7 @@ public sealed partial class FileSystemNoteDraftStore(
             }
         }
 
-        return recent
-            .OrderByDescending(static draft => draft.CreatedAt)
-            .ToArray();
+        return RecentNotes.OrderByMostRecent(recent);
     }
 
     public async Task SaveAsync(NoteDraft draft, string content, CancellationToken cancellationToken = default)

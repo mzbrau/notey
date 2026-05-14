@@ -265,8 +265,14 @@ public sealed partial class MainWindow : Window
         }
 
         _idleProcessingTimer.Stop();
-        if (_currentDraft is not null && !await FlushAutosaveAsync())
+        if (_currentDraft is not null)
         {
+            var outcome = await ProcessCurrentDraftAsync(ProcessTrigger.NewNote);
+            if (!outcome.Succeeded)
+            {
+                return;
+            }
+
             return;
         }
 
@@ -367,9 +373,14 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenRecentFinalNoteAsync()
     {
-        if (_currentDraft is not null && !await FlushAutosaveAsync())
+        DraftProcessOutcome outcome = DraftProcessOutcome.NoChange;
+        if (_currentDraft is not null)
         {
-            return;
+            outcome = await ProcessCurrentDraftAsync(ProcessTrigger.OpenRecent, applyImmediateFollowUp: false);
+            if (!outcome.Succeeded)
+            {
+                return;
+            }
         }
 
         var recent = await ListRecentFinalNotesAsync(_timeProvider.GetLocalNow().Subtract(RecentFinalNoteLookback), _windowClosed.Token);
@@ -381,6 +392,10 @@ public sealed partial class MainWindow : Window
         else if (choice.Action == RecentNoteChoiceAction.NewNote)
         {
             await TryCreateAndLoadDraftAsync("starting a new note");
+        }
+        else if (outcome.DraftChanged)
+        {
+            await ApplyProcessedDraftFollowUpAsync(ProcessTrigger.OpenRecent, outcome.PrimaryFinalNotePath);
         }
     }
 
@@ -417,7 +432,7 @@ public sealed partial class MainWindow : Window
             recent.Add(new RecentNoteSummary(filePath, created, Path.GetFileNameWithoutExtension(filePath)));
         }
 
-        return recent.OrderByDescending(static item => item.CreatedAt).Take(20).ToArray();
+        return RecentNotes.OrderByMostRecent(recent, 20);
     }
 
     private async Task LoadFinalNoteAsync(string filePath)
@@ -455,22 +470,22 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> ProcessCurrentDraftAsync(ProcessTrigger trigger)
+    private async Task<DraftProcessOutcome> ProcessCurrentDraftAsync(ProcessTrigger trigger, bool applyImmediateFollowUp = true)
     {
         if (_currentDraft is null)
         {
-            return true;
+            return DraftProcessOutcome.NoChange;
         }
 
         if (_isProcessingDraft)
         {
             AutosaveStatusText.Text = "PROCESSING";
-            return false;
+            return DraftProcessOutcome.Failure;
         }
 
         if (!await FlushAutosaveAsync())
         {
-            return false;
+            return DraftProcessOutcome.Failure;
         }
 
         var content = NoteEditor.Document.Text;
@@ -482,7 +497,14 @@ public sealed partial class MainWindow : Window
         {
             DeleteIfExists(_currentDraft.FilePath);
             _currentDraft = null;
-            return true;
+            _lastSavedText = string.Empty;
+            _directOcrSnippets.Clear();
+            if (applyImmediateFollowUp)
+            {
+                await ApplyProcessedDraftFollowUpAsync(trigger, primaryFinalNotePath: null);
+            }
+
+            return DraftProcessOutcome.Changed(primaryFinalNotePath: null);
         }
 
         _isProcessingDraft = true;
@@ -503,49 +525,52 @@ public sealed partial class MainWindow : Window
             if (result.Processed)
             {
                 AutosaveStatusText.Text = "PROCESSED";
+                var primaryFinalNotePath = SelectPrimaryWrittenNotePath(result.WrittenPaths);
                 _currentDraft = null;
                 _lastSavedText = string.Empty;
                 _directOcrSnippets.Clear();
-                await TryCreateAndLoadDraftAsync("continuing after processing");
-            }
-            else
-            {
-                AutosaveStatusText.Text = result.Message?.ToUpperInvariant() ?? "NOTHING TO PROCESS";
+                if (applyImmediateFollowUp)
+                {
+                    await ApplyProcessedDraftFollowUpAsync(trigger, primaryFinalNotePath);
+                }
+
+                return DraftProcessOutcome.Changed(primaryFinalNotePath);
             }
 
-            return true;
+            AutosaveStatusText.Text = result.Message?.ToUpperInvariant() ?? "NOTHING TO PROCESS";
+            return DraftProcessOutcome.NoChange;
         }
         catch (OperationCanceledException) when (trigger == ProcessTrigger.Idle)
         {
             AutosaveStatusText.Text = "PROCESSING CANCELLED";
             NoteEditor.IsReadOnly = false;
-            return true;
+            return DraftProcessOutcome.NoChange;
         }
         catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
         {
             _logger.LogDebug("Draft processing was cancelled because the window closed.");
-            return true;
+            return DraftProcessOutcome.NoChange;
         }
         catch (AiProviderException ex)
         {
             AutosaveStatusText.Text = IsAiConfigurationError(ex) ? "AI NOT CONFIGURED" : "AI ERROR";
             _logger.LogError(ex, "AI processing failed for draft {DraftPath}.", draftPath);
             NoteEditor.IsReadOnly = wasReadOnly;
-            return false;
+            return DraftProcessOutcome.Failure;
         }
         catch (HttpRequestException ex)
         {
             AutosaveStatusText.Text = "AI ERROR";
             _logger.LogError(ex, "AI request failed for draft {DraftPath}.", draftPath);
             NoteEditor.IsReadOnly = wasReadOnly;
-            return false;
+            return DraftProcessOutcome.Failure;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
         {
             AutosaveStatusText.Text = "PROCESSING FAILED";
             _logger.LogError(ex, "Failed to process draft {DraftPath}.", draftPath);
             NoteEditor.IsReadOnly = wasReadOnly;
-            return false;
+            return DraftProcessOutcome.Failure;
         }
         finally
         {
@@ -557,6 +582,32 @@ public sealed partial class MainWindow : Window
             cancellation.Dispose();
             _isProcessingDraft = false;
         }
+    }
+
+    private async Task ApplyProcessedDraftFollowUpAsync(ProcessTrigger trigger, string? primaryFinalNotePath)
+    {
+        if (trigger == ProcessTrigger.OpenRecent && primaryFinalNotePath is not null)
+        {
+            await LoadFinalNoteAsync(primaryFinalNotePath);
+            return;
+        }
+
+        var operation = trigger switch
+        {
+            ProcessTrigger.NewNote => "starting a new note",
+            ProcessTrigger.OpenRecent => "continuing after opening recent notes",
+            _ => "continuing after processing"
+        };
+
+        await TryCreateAndLoadDraftAsync(operation);
+    }
+
+    internal static string? SelectPrimaryWrittenNotePath(IReadOnlyList<string> writtenPaths)
+    {
+        ArgumentNullException.ThrowIfNull(writtenPaths);
+
+        return writtenPaths.FirstOrDefault(static path =>
+            !string.Equals(Path.GetFileName(path), "tasks.md", StringComparison.OrdinalIgnoreCase));
     }
 
     private CancellationTokenSource CreateIdleProcessingCancellation()
@@ -672,7 +723,7 @@ public sealed partial class MainWindow : Window
         _autosaveTimer.Stop();
         _idleProcessingTimer.Stop();
         var processed = await ProcessCurrentDraftAsync(ProcessTrigger.Close);
-        if (!processed)
+        if (!processed.Succeeded)
         {
             _logger.LogWarning("Draft processing failed while closing. Continuing close without processing.");
 
@@ -1007,7 +1058,7 @@ public sealed partial class MainWindow : Window
             || exception.Message.Contains("has no configured model name", StringComparison.Ordinal);
     }
 
-    private async Task RefreshIndexesAsync()
+    private async Task RefreshIndexesAsync(bool force = false)
     {
         if (!force && _timeProvider.GetUtcNow() < _nextIndexRefreshAt)
         {
@@ -1450,6 +1501,15 @@ public sealed partial class MainWindow : Window
         {
             return DisplayText;
         }
+    }
+
+    private sealed record DraftProcessOutcome(bool Succeeded, bool DraftChanged, string? PrimaryFinalNotePath)
+    {
+        public static DraftProcessOutcome Failure { get; } = new(false, false, null);
+
+        public static DraftProcessOutcome NoChange { get; } = new(true, false, null);
+
+        public static DraftProcessOutcome Changed(string? primaryFinalNotePath) => new(true, true, primaryFinalNotePath);
     }
 
     private enum CompletionKind
