@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
     private readonly ITesseractOcrEngine _ocrEngine;
     private readonly ObsidianLinkBuilder _linkBuilder;
     private readonly DraftProcessingService _draftProcessingService;
+    private readonly IRecentNoteChooser _recentNoteChooser;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindow> _logger;
     private readonly NoteySettingsStore _settingsStore;
@@ -114,6 +115,7 @@ public sealed partial class MainWindow : Window
         DraftProcessingService draftProcessingService,
         TimeProvider timeProvider,
         ILogger<MainWindow> logger,
+        IRecentNoteChooser? recentNoteChooser = null,
         NoteySettingsStore? settingsStore = null)
     {
         InitializeComponent();
@@ -127,6 +129,7 @@ public sealed partial class MainWindow : Window
         _ocrEngine = ocrEngine;
         _linkBuilder = linkBuilder;
         _draftProcessingService = draftProcessingService;
+        _recentNoteChooser = recentNoteChooser ?? new RecentNoteDialogChooser();
         _timeProvider = timeProvider;
         _logger = logger;
         _settingsStore = settingsStore ?? CreateFallbackSettingsStore(options);
@@ -397,7 +400,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task OpenRecentFinalNoteAsync()
+    internal async Task OpenRecentFinalNoteAsync()
     {
         if (!TryBeginOpenRecentDialog(ref _isRecentNoteDialogOpen))
         {
@@ -423,7 +426,7 @@ public sealed partial class MainWindow : Window
 
             var recent = await ListRecentFinalNotesAsync(_timeProvider.GetLocalNow().Subtract(RecentFinalNoteLookback), _windowClosed.Token);
             RecentDialogOverlay.IsVisible = true;
-            var choice = await RecentNoteChoiceWindow.ShowAsync(this, recent);
+            var choice = await _recentNoteChooser.ChooseAsync(this, recent);
             if (choice.Action == RecentNoteChoiceAction.OpenExisting && choice.SelectedNote is not null)
             {
                 await LoadRecentNoteAsync(choice.SelectedNote.FilePath);

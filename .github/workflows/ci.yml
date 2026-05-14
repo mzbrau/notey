@@ -9,8 +9,12 @@ on:
 
 jobs:
   build-test:
-    name: Build and test
-    runs-on: windows-latest
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -30,12 +34,12 @@ jobs:
         run: dotnet test Notey.slnx --configuration Release --no-build --logger "console;verbosity=minimal"
 
       - name: Publish Windows folder
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.os == 'windows-latest'
         shell: pwsh
         run: ./scripts/publish-windows.ps1 -Configuration Release -RuntimeIdentifier win-x64 -OutputPath artifacts/publish/Notey-win-x64
 
       - name: Upload Windows artifact
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v5
         with:
           name: Notey-win-x64
