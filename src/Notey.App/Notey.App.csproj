@@ -5,9 +5,7 @@
     <ProjectReference Include="..\Notey.Vault\Notey.Vault.csproj" />
     <ProjectReference Include="..\Notey.Capture\Notey.Capture.csproj" />
     <ProjectReference Include="..\Notey.AI\Notey.AI.csproj" />
-    <ProjectReference Include="..\Notey.Pipelines\Notey.Pipelines.csproj" />
     <ProjectReference Include="..\Notey.Ocr\Notey.Ocr.csproj" />
-    <ProjectReference Include="..\Notey.PipelineSteps\Notey.PipelineSteps.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,7 +37,6 @@
 
   <ItemGroup>
     <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Update="pipelines*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\notey.ico" />
     <AvaloniaResource Include="Assets\notey.png" />
     <AvaloniaResource Include="Assets\notey-tray.png" />

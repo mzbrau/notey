@@ -6,31 +6,24 @@ namespace Notey.Tests;
 public sealed class VaultWorkspaceTests
 {
     [Fact]
-    public void GetPaths_normalizes_configured_vault_paths()
+    public void GetPaths_derives_owned_vault_paths()
     {
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        var options = new NoteyOptions
+        var workspace = new FileSystemVaultWorkspace(new NoteyOptions
         {
             Vault = new VaultOptions
             {
-                RootPath = "Vault",
-                NotesPath = "Notes",
-                PeoplePath = "People",
-                TopicsPath = "Topics",
-                ProjectsPath = "Projects",
-                ScreenshotPath = "Attachments/Snips"
+                RootPath = "Vault"
             }
-        };
-
-        var workspace = new FileSystemVaultWorkspace(options);
+        });
 
         var paths = workspace.GetPaths();
 
+        Assert.Equal(Path.Combine(documents, "Vault"), paths.RootPath);
+        Assert.Equal(Path.Combine(documents, "Vault", "Images"), paths.ImagesPath);
         Assert.Equal(Path.Combine(documents, "Vault", "Notes"), paths.NotesPath);
+        Assert.Equal(Path.Combine(documents, "Vault", "Notes", "Draft"), paths.DraftPath);
         Assert.Equal(Path.Combine(documents, "Vault", "People"), paths.PeoplePath);
-        Assert.Equal(Path.Combine(documents, "Vault", "Topics"), paths.TopicsPath);
-        Assert.Equal(Path.Combine(documents, "Vault", "Projects"), paths.ProjectsPath);
-        Assert.Equal(Path.Combine(documents, "Vault", "Attachments", "Snips"), paths.ScreenshotPath);
     }
 
     [Fact]
@@ -45,44 +38,22 @@ public sealed class VaultWorkspaceTests
     }
 
     [Fact]
-    public void GetPaths_rejects_empty_paths()
-    {
-        var options = new NoteyOptions
-        {
-            Vault = new VaultOptions
-            {
-                NotesPath = "",
-                PeoplePath = "People",
-                TopicsPath = "Topics",
-                ProjectsPath = "Projects",
-                ScreenshotPath = "Attachments/Snips"
-            }
-        };
-
-        var workspace = new FileSystemVaultWorkspace(options);
-
-        Assert.Throws<InvalidOperationException>(() => workspace.GetPaths());
-    }
-
-    [Fact]
-    public void GetPaths_rejects_absolute_entity_paths_outside_vault_root()
+    public void GetPaths_derives_owned_paths_from_absolute_root()
     {
         var rootPath = Path.Combine(Path.GetTempPath(), "notey-vault");
-        var options = new NoteyOptions
+        var workspace = new FileSystemVaultWorkspace(new NoteyOptions
         {
             Vault = new VaultOptions
             {
-                RootPath = rootPath,
-                NotesPath = "Notes",
-                PeoplePath = Path.Combine(Path.GetTempPath(), "notey-people"),
-                TopicsPath = "Topics",
-                ProjectsPath = "Projects",
-                ScreenshotPath = "Attachments/Snips"
+                RootPath = rootPath
             }
-        };
+        });
 
-        var workspace = new FileSystemVaultWorkspace(options);
+        var paths = workspace.GetPaths();
 
-        Assert.Throws<InvalidOperationException>(() => workspace.GetPaths());
+        Assert.Equal(Path.Combine(rootPath, "Images"), paths.ImagesPath);
+        Assert.Equal(Path.Combine(rootPath, "Notes"), paths.NotesPath);
+        Assert.Equal(Path.Combine(rootPath, "Notes", "Draft"), paths.DraftPath);
+        Assert.Equal(Path.Combine(rootPath, "People"), paths.PeoplePath);
     }
 }

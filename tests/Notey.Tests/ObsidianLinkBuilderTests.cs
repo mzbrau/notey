@@ -25,7 +25,7 @@ public sealed class ObsidianLinkBuilderTests
 
         var link = builder.BuildWikiLink(VaultEntityKind.Topic, "Roadmap: Q2");
 
-        Assert.Equal("[[Topics/Roadmap- Q2|Roadmap: Q2]]", link);
+        Assert.Equal("[[Notes/Topics/Roadmap- Q2|Roadmap: Q2]]", link);
     }
 
     [Fact]
@@ -55,12 +55,7 @@ public sealed class ObsidianLinkBuilderTests
         {
             Vault = new VaultOptions
             {
-                RootPath = rootPath,
-                NotesPath = "Notes",
-                PeoplePath = "People",
-                TopicsPath = "Topics",
-                ProjectsPath = "Projects",
-                ScreenshotPath = "Attachments/Snips"
+                RootPath = rootPath
             }
         };
 

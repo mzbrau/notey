@@ -8,7 +8,7 @@
         Height="760"
         MinWidth="840"
         MinHeight="520">
-  <Grid RowDefinitions="52,Auto,Auto,*,30"
+  <Grid RowDefinitions="52,Auto,*,30"
         Background="{DynamicResource Notey.SurfaceBrush}">
     <Border Grid.Row="0"
             BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
@@ -33,24 +33,21 @@
                     Orientation="Horizontal"
                     VerticalAlignment="Center"
                     Spacing="6">
-          <Button x:Name="NewNoteButton" Classes="command" ToolTip.Tip="New note" AutomationProperties.Name="New note">
+          <Button x:Name="NewNoteButton" Classes="command" ToolTip.Tip="Process current draft and start new note" AutomationProperties.Name="New note">
             <PathIcon Classes="commandIcon" Data="M6,4 L14,4 L18,8 L18,20 L6,20 Z M13,4 L13,9 L18,9 M12,12 L12,17 M9.5,14.5 L14.5,14.5" />
           </Button>
-          <Button x:Name="OpenRecentNoteButton" Classes="command" ToolTip.Tip="Open recent note" AutomationProperties.Name="Open recent note">
+          <Button x:Name="OpenRecentNoteButton" Classes="command" ToolTip.Tip="Open recent final note read-only" AutomationProperties.Name="Open recent final note">
             <PathIcon Classes="commandIcon" Data="M4,6 L9,6 L11,8 L20,8 L20,18 L4,18 Z M8,11 L16,11 M8,14 L14,14" />
           </Button>
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
-          <Button x:Name="CaptureAnalyzeButton" Classes="command" ToolTip.Tip="Capture screenshot for AI analysis" AutomationProperties.Name="Capture screenshot for AI analysis">
+          <Button x:Name="CaptureAnalyzeButton" Classes="command" ToolTip.Tip="OCR temporary screenshot and discard image" AutomationProperties.Name="OCR temporary screenshot">
             <PathIcon Classes="commandIcon" Data="M4,7 L8,7 L10,5 L14,5 L16,7 L20,7 L20,18 L4,18 Z M12,9 A3,3 0,1 0,12,15 A3,3 0,1 0,12,9 M17,10 L18,12 L17,14 L16,12 Z" />
           </Button>
-          <Button x:Name="CaptureSaveButton" Classes="command" ToolTip.Tip="Capture screenshot and save" AutomationProperties.Name="Capture screenshot and save">
+          <Button x:Name="CaptureSaveButton" Classes="command" ToolTip.Tip="Capture persistent image" AutomationProperties.Name="Capture persistent image">
             <PathIcon Classes="commandIcon" Data="M4,7 L8,7 L10,5 L14,5 L16,7 L20,7 L20,18 L4,18 Z M12,9 A3,3 0,1 0,12,15 A3,3 0,1 0,12,9 M12,12 L12,17 M9,14 L12,17 L15,14" />
           </Button>
-          <Button x:Name="ImproveMarkdownButton" Classes="command" ToolTip.Tip="Improve markdown manually" AutomationProperties.Name="Improve markdown manually">
-            <PathIcon Classes="commandIcon" Data="M5,5 L19,5 L19,19 L5,19 Z M8,9 L10,14 L12,9 L14,14 L16,9 M8,16 L16,16" />
-          </Button>
           <Rectangle Width="1" Height="22" Fill="{DynamicResource Notey.OutlineVariantBrush}" Margin="6,0" />
-          <Button x:Name="SaveNoteButton" Classes="command" ToolTip.Tip="Save note" AutomationProperties.Name="Save note">
+          <Button x:Name="SaveNoteButton" Classes="command" ToolTip.Tip="Save draft" AutomationProperties.Name="Save draft">
             <PathIcon Classes="commandIcon" Data="M5,12 L10,17 L19,7" />
           </Button>
           <Button x:Name="SettingsButton" Classes="command" ToolTip.Tip="Open settings" AutomationProperties.Name="Open settings">
@@ -65,84 +62,21 @@
             BorderThickness="0,0,0,1"
             Background="{DynamicResource Notey.SurfaceLowBrush}"
             Padding="28,10">
-      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto"
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*"
             ColumnSpacing="12"
             VerticalAlignment="Center">
-        <TextBlock Grid.Column="0" Classes="label" Text="DATE" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="0" Classes="label" Text="DRAFT" VerticalAlignment="Center" />
         <Border Grid.Column="1" Classes="metadata-chip">
-          <TextBlock x:Name="DateChipText" Classes="chipText" Text="Today" />
+          <TextBlock x:Name="DateChipText" Classes="chipText" Text="No draft" />
         </Border>
-
         <TextBlock Grid.Column="2" Classes="label" Text="CONTEXT" VerticalAlignment="Center" Margin="10,0,0,0" />
-        <StackPanel Grid.Column="3"
-                    Orientation="Horizontal"
-                    Spacing="8"
-                    VerticalAlignment="Center">
-          <Border Classes="metadata-chip person-chip">
-            <TextBlock x:Name="PeopleChipText" Classes="chipText personText" Text="@person" />
-          </Border>
-           <Border Classes="metadata-chip topic-chip">
-             <TextBlock x:Name="TopicChipText" Classes="chipText topicText" Text="#topic" />
-           </Border>
-          <Border Classes="metadata-chip topic-chip">
-            <TextBlock x:Name="TagsChipText" Classes="chipText topicText" Text="#tag" />
-          </Border>
-           <Border Classes="metadata-chip">
-             <TextBlock x:Name="ProjectChipText" Classes="chipText" Text="[[Project]]" />
-           </Border>
-        </StackPanel>
-
-        <ToggleButton x:Name="MetadataToggle"
-                      Grid.Column="5"
-                      Classes="metadataAction"
-                      Content="Modify Metadata"
-                      ToolTip.Tip="Edit note metadata"
-                      AutomationProperties.Name="Modify metadata" />
+        <Border Grid.Column="3" Classes="metadata-chip" HorizontalAlignment="Left">
+          <TextBlock x:Name="ContextChipText" Classes="chipText" Text="/ for commands, @ for people" />
+        </Border>
       </Grid>
     </Border>
 
-    <Border Grid.Row="2"
-            IsVisible="{Binding IsChecked, ElementName=MetadataToggle}"
-            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
-            BorderThickness="0,0,0,1"
-            Background="{DynamicResource Notey.SurfaceBrushRaised}"
-            Padding="28,14">
-      <Grid ColumnDefinitions="*,*,*,*,*"
-            RowDefinitions="Auto,Auto,Auto,Auto"
-            ColumnSpacing="12"
-            RowSpacing="8">
-        <TextBlock Grid.Column="0" Classes="label" Text="PEOPLE" />
-        <TextBlock Grid.Column="1" Classes="label" Text="TOPICS" />
-        <TextBlock Grid.Column="2" Classes="label" Text="PROJECT" />
-        <TextBlock Grid.Column="3" Classes="label" Text="TAGS" />
-        <TextBlock Grid.Column="4" Classes="label" Text="SCREENSHOT CONTEXT" />
-
-        <TextBox x:Name="PeopleInput" Grid.Row="1" Grid.Column="0" Classes="metadataInput" PlaceholderText="@person, @person" />
-        <TextBox x:Name="TopicsInput" Grid.Row="1" Grid.Column="1" Classes="metadataInput" PlaceholderText="#topic, #meeting" />
-        <TextBox x:Name="ProjectsInput" Grid.Row="1" Grid.Column="2" Classes="metadataInput" PlaceholderText="[[Project]]" />
-        <TextBox x:Name="TagsInput" Grid.Row="1" Grid.Column="3" Classes="metadataInput" PlaceholderText="#tag, #tag" />
-        <TextBox x:Name="ScreenshotContextInput" Grid.Row="1" Grid.Column="4" Classes="metadataInput" PlaceholderText="Screenshot context notes" />
-
-        <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4" Classes="label" Text="AI SUGGESTIONS (EDIT THEN ACCEPT)" Margin="0,8,0,0" />
-        <Button x:Name="AcceptMetadataSuggestionsButton"
-                Grid.Row="2"
-                Grid.Column="4"
-                Classes="command"
-                Content="ACCEPT"
-                Width="84"
-                MinWidth="84"
-                HorizontalAlignment="Right"
-                ToolTip.Tip="Accept edited AI metadata suggestions"
-                AutomationProperties.Name="Accept AI metadata suggestions" />
-
-        <TextBox x:Name="SuggestedPeopleInput" Grid.Row="3" Grid.Column="0" Classes="metadataInput" PlaceholderText="@person suggestions" />
-        <TextBox x:Name="SuggestedTopicsInput" Grid.Row="3" Grid.Column="1" Classes="metadataInput" PlaceholderText="#topic suggestions" />
-        <TextBox x:Name="SuggestedProjectsInput" Grid.Row="3" Grid.Column="2" Classes="metadataInput" PlaceholderText="[[Project]] suggestions" />
-        <TextBox x:Name="SuggestedTagsInput" Grid.Row="3" Grid.Column="3" Classes="metadataInput" PlaceholderText="#tag suggestions" />
-      </Grid>
-    </Border>
-
-    <Grid Grid.Row="3">
+    <Grid Grid.Row="2">
       <Border BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
               BorderThickness="0,0,0,1"
               Background="{DynamicResource Notey.SurfaceBrush}">
@@ -155,28 +89,28 @@
                        VerticalScrollBarVisibility="Auto" />
       </Border>
 
-      <Border x:Name="PersonAutocompletePanel"
+      <Border x:Name="CompletionPanel"
               Classes="autocompletePanel"
               IsVisible="False"
-              Width="340"
-              MaxHeight="260"
+              Width="360"
+              MaxHeight="280"
               HorizontalAlignment="Left"
               VerticalAlignment="Top"
               Margin="96,72,0,0">
-        <ListBox x:Name="PersonAutocompleteList"
+        <ListBox x:Name="CompletionList"
                  Classes="autocompleteList"
-                 MaxHeight="246" />
+                 MaxHeight="266" />
       </Border>
     </Grid>
 
-    <Border Grid.Row="4"
+    <Border Grid.Row="3"
             BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
             BorderThickness="0,1,0,0"
             Background="{DynamicResource Notey.SurfaceLowestBrush}"
             Padding="14,0">
       <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto"
             ColumnSpacing="16">
-        <TextBlock Grid.Column="0" Classes="label" Text="MARKDOWN EDITOR" VerticalAlignment="Center" Foreground="{DynamicResource Notey.SecondaryTextBrush}" />
+        <TextBlock Grid.Column="0" Classes="label" Text="CAPTURE DRAFT" VerticalAlignment="Center" Foreground="{DynamicResource Notey.SecondaryTextBrush}" />
         <TextBlock x:Name="AutosaveStatusText" Grid.Column="1" Classes="label" Text="CREATING DRAFT" VerticalAlignment="Center" />
         <TextBlock x:Name="WordCountText" Grid.Column="2" Classes="label" Text="WORDS 0" VerticalAlignment="Center" />
         <TextBlock Grid.Column="4" Classes="label" Text="UTF-8" VerticalAlignment="Center" />

@@ -9,29 +9,22 @@ Notey writes standard markdown files with Obsidian-compatible wiki links.
 ## Default folders
 
 ```text
+Images/
 Notes/
+  Draft/
+  Meetings/
 People/
-Topics/
-Projects/
-Attachments/Snips/
 ```
 
-## People, topics, projects, and tags
+First-level folders under `Notes` become dynamic slash commands. For example, `Notes/Customers` enables `/customer`.
 
-Detected metadata is staged in editable fields before persistence. When accepted and saved, people, topics, and projects are resolved into Obsidian wiki links and matching entity documents are created or reused.
+## Slash commands and routing
 
-Tags are stored as markdown tags in frontmatter and the generated Notey context block.
+Inline commands at the start of draft lines control where final notes are written:
 
-## Generated context block
+- `/topic Accounts` writes or appends to a topic note.
+- `/meeting` writes a date-prefixed meeting note.
+- `/task Follow up // tomorrow` appends to `Notes/tasks.md`.
+- Dynamic commands such as `/customer Microsoft` route into matching first-level `Notes` folders.
 
-Notey manages a context block inside the note:
-
-```md
-<!-- notey-context:start -->
-## Context
-- People: [[People/Jane Doe|Jane Doe]]
-- Topics: [[Topics/Planning|Planning]]
-<!-- notey-context:end -->
-```
-
-This block is regenerated from editable metadata and should not be manually edited.
+People links are stored under `People`. Topic/project entity links are stored under `Notes/Topics` and `Notes/Projects`.

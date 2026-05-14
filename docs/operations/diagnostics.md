@@ -17,10 +17,9 @@ If no output path is supplied, Notey writes a markdown report under the local ap
 ## What is included
 
 - App version, OS, architecture, and .NET runtime.
-- Vault folder configuration.
+- Vault root and owned folder summary.
 - Whether AI provider base URLs, models, and API keys are configured.
 - OCR executable and language configuration.
-- Pipeline definition file location and validation results.
 
 ## What is excluded
 

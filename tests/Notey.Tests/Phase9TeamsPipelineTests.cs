@@ -128,24 +128,6 @@ public sealed class TeamsPipelineTests
     }
 
     [Fact]
-    public async Task Default_pipeline_config_includes_valid_teams_pipeline()
-    {
-        var registry = CreatePhase9Registry(
-            new RecordingOcrEngine(new OcrResult("ocr", "eng", 0.9, [])),
-            new RecordingAiProvider("default", """{ "summary": "ok" }""", "model"));
-        var catalog = new PipelineCatalog(
-            new FilePipelineDefinitionSource(Path.Combine(FindRepoRoot(), "src", "Notey.App", "pipelines.json")),
-            new PipelineValidator(registry));
-
-        var snapshot = await catalog.LoadAsync();
-        var compatible = await catalog.GetEnabledCompatibleAsync(PipelineDataType.ImageData);
-
-        Assert.Contains(snapshot.Entries, entry => entry.Definition.Id == "teams-screenshot-ocr-ai-structured" && entry.ValidationResult.IsValid);
-        Assert.Contains(compatible, pipeline => pipeline.Id == "screenshot-ocr-ai-structured");
-        Assert.Contains(compatible, pipeline => pipeline.Id == "teams-screenshot-ocr-ai-structured");
-    }
-
-    [Fact]
     public async Task Teams_pipeline_round_trip_keeps_uncertain_participants_out_of_metadata_people()
     {
         var ocr = new RecordingOcrEngine(new OcrResult("Teams OCR text", "eng", 0.88, []));

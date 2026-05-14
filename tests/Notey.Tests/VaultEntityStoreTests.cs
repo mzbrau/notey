@@ -50,7 +50,7 @@ public sealed class VaultEntityStoreTests : IDisposable
     public async Task EnsureAsync_uses_suffix_when_sanitized_file_name_collides_with_different_entity()
     {
         var rootPath = CreateTempDirectory();
-        var topicsPath = Path.Combine(rootPath, "Topics");
+        var topicsPath = Path.Combine(rootPath, "Notes", "Topics");
         Directory.CreateDirectory(topicsPath);
         await File.WriteAllTextAsync(Path.Combine(topicsPath, "Roadmap- Q2.md"), """
             ---
@@ -65,14 +65,14 @@ public sealed class VaultEntityStoreTests : IDisposable
         var entity = await store.EnsureAsync(VaultEntityKind.Topic, "Roadmap: Q2");
 
         Assert.Equal("Roadmap- Q2-2.md", Path.GetFileName(entity.FilePath));
-        Assert.Equal("Topics/Roadmap- Q2-2", entity.LinkPath);
+        Assert.Equal("Notes/Topics/Roadmap- Q2-2", entity.LinkPath);
     }
 
     [Fact]
     public async Task EnsureAsync_reuses_sanitized_collision_when_existing_title_matches()
     {
         var rootPath = CreateTempDirectory();
-        var topicsPath = Path.Combine(rootPath, "Topics");
+        var topicsPath = Path.Combine(rootPath, "Notes", "Topics");
         Directory.CreateDirectory(topicsPath);
         var existingPath = Path.Combine(topicsPath, "Roadmap- Q2.md");
         await File.WriteAllTextAsync(existingPath, """
@@ -151,12 +151,7 @@ public sealed class VaultEntityStoreTests : IDisposable
         {
             Vault = new VaultOptions
             {
-                RootPath = rootPath,
-                NotesPath = "Notes",
-                PeoplePath = "People",
-                TopicsPath = "Topics",
-                ProjectsPath = "Projects",
-                ScreenshotPath = "Attachments/Snips"
+                RootPath = rootPath
             }
         });
     }

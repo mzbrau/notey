@@ -149,23 +149,6 @@ public sealed class Phase10OrganizationAssistanceTests
         Assert.Contains("Original note text.", provider.LastRequest?.Prompt, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Default_pipeline_config_includes_valid_text_organization_pipeline()
-    {
-        var registry = CreateRegistry(
-            new RecordingOcrEngine(new OcrResult("ocr", "eng", 0.9, [])),
-            new RecordingAiProvider("default", """{ "summary": "ok" }""", "model"));
-        var catalog = new PipelineCatalog(
-            new FilePipelineDefinitionSource(Path.Combine(FindRepoRoot(), "src", "Notey.App", "pipelines.json")),
-            new PipelineValidator(registry));
-
-        var snapshot = await catalog.LoadAsync();
-        var compatible = await catalog.GetEnabledCompatibleAsync(PipelineDataType.TextData);
-
-        Assert.Contains(snapshot.Entries, entry => entry.Definition.Id == "note-organization-ai-structured" && entry.ValidationResult.IsValid);
-        Assert.Contains(compatible, pipeline => pipeline.Id == "note-organization-ai-structured");
-    }
-
     private static PipelineStepRegistry CreateRegistry(ITesseractOcrEngine ocrEngine, IAiProvider aiProvider)
     {
         IPipelineStep[] steps =

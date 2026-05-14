@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Notey.AI.Abstractions;
 using Notey.AI.Providers;
 using Notey.App.Diagnostics;
+using Notey.App.Processing;
 using Notey.App.Platform;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
@@ -12,14 +13,8 @@ using Notey.Core.Configuration;
 using Notey.Core.Notes;
 using Notey.Core.Platform;
 using Notey.Ocr;
-using Notey.PipelineSteps;
-using Notey.Pipelines.Catalog;
-using Notey.Pipelines.Definitions;
-using Notey.Pipelines.Execution;
-using Notey.Pipelines.Registry;
-using Notey.Pipelines.Steps;
-using Notey.Pipelines.Validation;
 using Notey.Vault.Abstractions;
+using Notey.Vault.Documents;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
 
@@ -45,6 +40,7 @@ public static class HostBootstrapper
                 var options = new NoteyOptions();
                 var platformRuntime = new PlatformRuntime();
                 context.Configuration.GetSection(NoteyOptions.SectionName).Bind(options);
+                WarnIfLegacyVaultPathKeysConfigured(context.Configuration);
 
                 services.AddSingleton(options);
                 services.AddSingleton(TimeProvider.System);
@@ -63,21 +59,12 @@ public static class HostBootstrapper
                             () => serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("Notey.OpenAiCompatible")),
                         string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId));
                 services.AddSingleton<ITesseractOcrEngine, TesseractCliOcrEngine>();
-                services.AddSingleton<IPipelineStep, TesseractOcrStep>();
-                services.AddSingleton<IPipelineStep, AiStructuredExtractionStep>();
-                services.AddSingleton<IPipelineStep, TeamsMeetingNormalizerStep>();
-                services.AddSingleton<IPipelineStep, MarkdownAssemblyStep>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
+                services.AddSingleton<IDocumentStoreIndex, FileSystemDocumentStoreIndex>();
                 services.AddSingleton<ObsidianLinkBuilder>();
                 services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
-                services.AddSingleton<IPipelineStepRegistry>(serviceProvider =>
-                    new PipelineStepRegistry(serviceProvider.GetServices<IPipelineStep>()));
-                services.AddSingleton<PipelineValidator>();
-                services.AddSingleton<IPipelineDefinitionSource>(_ =>
-                    new FilePipelineDefinitionSource(ResolvePipelineDefinitionPath(options.Pipelines.DefinitionFilePath)));
-                services.AddSingleton<PipelineCatalog>();
-                services.AddSingleton<PipelineExecutor>();
+                services.AddSingleton<DraftProcessingService>();
 
                 if (platformRuntime.IsWindows)
                 {
@@ -95,12 +82,30 @@ public static class HostBootstrapper
             .Build();
     }
 
-    private static string ResolvePipelineDefinitionPath(string configuredPath)
+    private static void WarnIfLegacyVaultPathKeysConfigured(IConfiguration configuration)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(configuredPath);
+        var vaultSection = configuration.GetSection($"{NoteyOptions.SectionName}:Vault");
+        var legacyKeys = vaultSection
+            .GetChildren()
+            .Select(static child => child.Key)
+            .Where(static key =>
+                key is "NotesPath" or "PeoplePath" or "TopicsPath" or "ProjectsPath" or "ScreenshotPath")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        return Path.IsPathRooted(configuredPath)
-            ? configuredPath
-            : Path.Combine(AppContext.BaseDirectory, configuredPath);
+        if (legacyKeys.Length == 0)
+        {
+            return;
+        }
+
+        using var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.ClearProviders();
+            builder.AddConsole();
+        });
+        var logger = loggerFactory.CreateLogger("Notey.Configuration");
+        logger.LogWarning(
+            "Notey no longer supports Notey:Vault legacy path keys ({Keys}). Use Notey:Vault:RootPath and Notey-owned folders under that root instead.",
+            string.Join(", ", legacyKeys));
     }
 }

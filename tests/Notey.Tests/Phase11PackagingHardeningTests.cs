@@ -4,10 +4,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Notey.App.Diagnostics;
 using Notey.Core.Configuration;
 using Notey.Core.Platform;
-using Notey.Pipelines.Catalog;
-using Notey.Pipelines.Definitions;
-using Notey.Pipelines.Registry;
-using Notey.Pipelines.Validation;
 
 namespace Notey.Tests;
 
@@ -25,23 +21,9 @@ public sealed class Phase11PackagingHardeningTests
     }
 
     [Fact]
-    public async Task Diagnostics_report_redacts_api_keys_and_includes_pipeline_validation()
+    public async Task Diagnostics_report_redacts_api_keys()
     {
         var rootPath = CreateTempDirectory();
-        var pipelinePath = Path.Combine(rootPath, "pipelines.json");
-        await File.WriteAllTextAsync(pipelinePath, """
-            {
-              "pipelines": [
-                {
-                  "id": "invalid-pipeline",
-                  "enabled": true,
-                  "acceptedInputTypes": [ "TextData" ],
-                  "steps": [],
-                  "finalOutputType": "StructuredNoteData"
-                }
-              ]
-            }
-            """);
         var outputPath = Path.Combine(rootPath, "diagnostics.md");
         var options = new NoteyOptions
         {
@@ -56,17 +38,9 @@ public sealed class Phase11PackagingHardeningTests
                 ApiKey = "super-secret-key",
                 ModelName = "model-a",
             },
-            Pipelines = new PipelineOptions
-            {
-                DefinitionFilePath = pipelinePath,
-                DefaultScreenshotPipelineId = "screenshot-ocr-ai-structured",
-            },
         };
         var writer = new DiagnosticsReportWriter(
             options,
-            new PipelineCatalog(
-                new FilePipelineDefinitionSource(pipelinePath),
-                new PipelineValidator(new PipelineStepRegistry([]))),
             new FakePlatformRuntime(),
             TimeProvider.System,
             NullLogger<DiagnosticsReportWriter>.Instance);
@@ -76,8 +50,6 @@ public sealed class Phase11PackagingHardeningTests
 
         Assert.Equal(outputPath, writtenPath);
         Assert.Contains("# Notey diagnostics", report, StringComparison.Ordinal);
-        Assert.Contains("invalid-pipeline", report, StringComparison.Ordinal);
-        Assert.Contains("must declare at least one step", report, StringComparison.Ordinal);
         Assert.Contains("Default API key configured: yes", report, StringComparison.Ordinal);
         Assert.DoesNotContain("super-secret-key", report, StringComparison.Ordinal);
     }
@@ -105,16 +77,9 @@ public sealed class Phase11PackagingHardeningTests
                         },
                     ],
                 },
-                Pipelines = new PipelineOptions
-                {
-                    DefinitionFilePath = Path.Combine(rootPath, "missing-pipelines.json"),
-                },
             };
             var writer = new DiagnosticsReportWriter(
                 options,
-                new PipelineCatalog(
-                    new FilePipelineDefinitionSource(options.Pipelines.DefinitionFilePath),
-                    new PipelineValidator(new PipelineStepRegistry([]))),
                 new FakePlatformRuntime(),
                 TimeProvider.System,
                 NullLogger<DiagnosticsReportWriter>.Instance);
@@ -137,21 +102,9 @@ public sealed class Phase11PackagingHardeningTests
     public async Task Diagnostics_report_default_filename_uses_injected_time_provider()
     {
         var rootPath = CreateTempDirectory();
-        var pipelinePath = Path.Combine(rootPath, "pipelines.json");
-        await File.WriteAllTextAsync(pipelinePath, """{ "pipelines": [] }""");
-
         var generatedAt = new DateTimeOffset(2026, 01, 02, 03, 04, 05, TimeSpan.Zero);
         var writer = new DiagnosticsReportWriter(
-            new NoteyOptions
-            {
-                Pipelines = new PipelineOptions
-                {
-                    DefinitionFilePath = pipelinePath,
-                },
-            },
-            new PipelineCatalog(
-                new FilePipelineDefinitionSource(pipelinePath),
-                new PipelineValidator(new PipelineStepRegistry([]))),
+            new NoteyOptions(),
             new FakePlatformRuntime(),
             new FixedTimeProvider(generatedAt),
             NullLogger<DiagnosticsReportWriter>.Instance);

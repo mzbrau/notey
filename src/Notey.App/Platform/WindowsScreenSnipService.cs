@@ -60,7 +60,7 @@ public sealed class WindowsScreenSnipService(
 
     private string GetUniqueSnipPath(DateTimeOffset capturedAt)
     {
-        var screenshotPath = workspace.GetPaths().ScreenshotPath;
+        var screenshotPath = workspace.GetPaths().ImagesPath;
         Directory.CreateDirectory(screenshotPath);
 
         var fileStem = $"{capturedAt:yyyy-MM-dd-HHmmss-fff}-snip";

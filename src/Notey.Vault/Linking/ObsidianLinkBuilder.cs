@@ -100,8 +100,8 @@ public sealed class ObsidianLinkBuilder(IVaultWorkspace workspace)
         return kind switch
         {
             VaultEntityKind.Person => paths.PeoplePath,
-            VaultEntityKind.Topic => paths.TopicsPath,
-            VaultEntityKind.Project => paths.ProjectsPath,
+            VaultEntityKind.Topic => Path.Combine(paths.NotesPath, "Topics"),
+            VaultEntityKind.Project => Path.Combine(paths.NotesPath, "Projects"),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported vault entity kind.")
         };
     }
