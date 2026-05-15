@@ -20,8 +20,8 @@
                     Spacing="8"
                     VerticalAlignment="Center">
           <Image Source="avares://Notey/Assets/notey.png"
-                 Width="22"
-                 Height="22"
+                 Width="50"
+                 Height="50"
                  Stretch="Uniform"
                  AutomationProperties.Name="Notey icon" />
           <TextBlock Classes="appTitle"
