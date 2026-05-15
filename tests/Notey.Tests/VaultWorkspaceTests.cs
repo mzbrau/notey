@@ -8,7 +8,6 @@ public sealed class VaultWorkspaceTests
     [Fact]
     public void GetPaths_derives_owned_vault_paths()
     {
-        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         var workspace = new FileSystemVaultWorkspace(new NoteyOptions
         {
             Vault = new VaultOptions
@@ -19,11 +18,12 @@ public sealed class VaultWorkspaceTests
 
         var paths = workspace.GetPaths();
 
-        Assert.Equal(Path.Combine(documents, "Vault"), paths.RootPath);
-        Assert.Equal(Path.Combine(documents, "Vault", "Images"), paths.ImagesPath);
-        Assert.Equal(Path.Combine(documents, "Vault", "Notes"), paths.NotesPath);
-        Assert.Equal(Path.Combine(documents, "Vault", "Notes", "Draft"), paths.DraftPath);
-        Assert.Equal(Path.Combine(documents, "Vault", "People"), paths.PeoplePath);
+        Assert.True(Path.IsPathFullyQualified(paths.RootPath));
+        Assert.EndsWith(Path.Combine("Vault"), paths.RootPath);
+        Assert.Equal(Path.Combine(paths.RootPath, "Images"), paths.ImagesPath);
+        Assert.Equal(Path.Combine(paths.RootPath, "Notes"), paths.NotesPath);
+        Assert.Equal(Path.Combine(paths.RootPath, "Notes", "Draft"), paths.DraftPath);
+        Assert.Equal(Path.Combine(paths.RootPath, "People"), paths.PeoplePath);
     }
 
     [Fact]

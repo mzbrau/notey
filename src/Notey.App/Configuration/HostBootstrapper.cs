@@ -65,6 +65,7 @@ public static class HostBootstrapper
                 services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
                 services.AddSingleton<DraftProcessingService>();
+                services.AddSingleton<IRecentNoteChooser, RecentNoteDialogChooser>();
 
                 if (platformRuntime.IsWindows)
                 {
