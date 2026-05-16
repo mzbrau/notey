@@ -1,8 +1,10 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -25,6 +27,7 @@ using Notey.Vault.Abstractions;
 using Notey.Vault.Documents;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
+using Notey.Vault.Tasks;
 
 namespace Notey.App.Views;
 
@@ -34,6 +37,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan IdleProcessingDelay = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan IndexRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RecentFinalNoteLookback = TimeSpan.FromDays(14);
+    private static readonly TimeSpan TaskRefreshInterval = TimeSpan.FromSeconds(5);
 
     private readonly NoteyOptions _options;
     private readonly INoteDraftStore _noteDraftStore;
@@ -43,6 +47,7 @@ public sealed partial class MainWindow : Window
     private readonly IScreenSnipService _screenSnipService;
     private readonly ITesseractOcrEngine _ocrEngine;
     private readonly ObsidianLinkBuilder _linkBuilder;
+    private readonly ITaskStore _taskStore;
     private readonly DraftProcessingService _draftProcessingService;
     private readonly IRecentNoteChooser _recentNoteChooser;
     private readonly TimeProvider _timeProvider;
@@ -50,6 +55,7 @@ public sealed partial class MainWindow : Window
     private readonly NoteySettingsStore _settingsStore;
     private readonly DispatcherTimer _autosaveTimer;
     private readonly DispatcherTimer _idleProcessingTimer;
+    private readonly DispatcherTimer _taskRefreshTimer;
     private readonly CancellationTokenSource _windowClosed = new();
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private readonly ImagePreviewMargin _imagePreviewMargin = new();
@@ -75,8 +81,18 @@ public sealed partial class MainWindow : Window
     private IReadOnlyList<VaultEntity> _peopleIndex = [];
     private IReadOnlyList<VaultFolderCommand> _folderCommands = [];
     private IReadOnlyList<CompletionSuggestion> _completionSuggestions = [];
+    private IReadOnlyList<NoteyTask> _tasks = [];
+    private readonly HashSet<TaskSectionKind> _collapsedTaskSections =
+    [
+        TaskSectionKind.NextWeek,
+        TaskSectionKind.InTwoWeeks,
+        TaskSectionKind.Future,
+        TaskSectionKind.Undated,
+        TaskSectionKind.Completed
+    ];
     private CancellationTokenSource? _idleProcessingCancellation;
     private DateTimeOffset _nextIndexRefreshAt = DateTimeOffset.MinValue;
+    private bool _tasksPanelVisible = true;
 
     public bool HideInsteadOfClose { get; set; }
 
@@ -101,7 +117,8 @@ public sealed partial class MainWindow : Window
             dependencies.LinkBuilder,
             dependencies.DraftProcessingService,
             timeProvider,
-            logger)
+            logger,
+            taskStore: dependencies.TaskStore)
     {
     }
 
@@ -118,7 +135,8 @@ public sealed partial class MainWindow : Window
         TimeProvider timeProvider,
         ILogger<MainWindow> logger,
         IRecentNoteChooser? recentNoteChooser = null,
-        NoteySettingsStore? settingsStore = null)
+        NoteySettingsStore? settingsStore = null,
+        ITaskStore? taskStore = null)
     {
         InitializeComponent();
 
@@ -130,6 +148,7 @@ public sealed partial class MainWindow : Window
         _screenSnipService = screenSnipService;
         _ocrEngine = ocrEngine;
         _linkBuilder = linkBuilder;
+        _taskStore = taskStore ?? new FileSystemTaskStore(vaultWorkspace, linkBuilder, timeProvider);
         _draftProcessingService = draftProcessingService;
         _recentNoteChooser = recentNoteChooser ?? new RecentNoteDialogChooser();
         _timeProvider = timeProvider;
@@ -137,8 +156,10 @@ public sealed partial class MainWindow : Window
         _settingsStore = settingsStore ?? CreateFallbackSettingsStore(options);
         _autosaveTimer = new DispatcherTimer { Interval = AutosaveDelay };
         _idleProcessingTimer = new DispatcherTimer { Interval = IdleProcessingDelay };
+        _taskRefreshTimer = new DispatcherTimer { Interval = TaskRefreshInterval };
         _autosaveTimer.Tick += AutosaveTimerOnTick;
         _idleProcessingTimer.Tick += IdleProcessingTimerOnTick;
+        _taskRefreshTimer.Tick += TaskRefreshTimerOnTick;
         _imagePreviewMargin.PreviewRequested += OnImagePreviewRequested;
 
         Width = options.Ui.DefaultWindowWidth;
@@ -151,7 +172,11 @@ public sealed partial class MainWindow : Window
         UpdateContextChip();
         UpdateCurrentNoteFooter();
 
-        Opened += async (_, _) => await OpenInitialDraftAsync();
+        Opened += async (_, _) =>
+        {
+            await RefreshTasksAsync();
+            await OpenInitialDraftAsync();
+        };
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         Closing += OnClosing;
         Closed += (_, _) =>
@@ -159,6 +184,7 @@ public sealed partial class MainWindow : Window
             _windowClosed.Cancel();
             CancelIdleProcessing();
             DisposeIdleProcessingCancellation();
+            _taskRefreshTimer.Stop();
             _windowClosed.Dispose();
             _saveGate.Dispose();
         };
@@ -174,13 +200,15 @@ public sealed partial class MainWindow : Window
         var linkBuilder = new ObsidianLinkBuilder(workspace);
         var aiRegistry = new AiProviderRegistry([], "default");
         var ocrEngine = new TesseractCliOcrEngine();
+        var taskStore = new FileSystemTaskStore(workspace, linkBuilder, TimeProvider.System);
         var draftProcessingService = new DraftProcessingService(
             options,
             workspace,
             documentStoreIndex,
             aiRegistry,
             ocrEngine,
-            TimeProvider.System);
+            TimeProvider.System,
+            taskStore);
 
         return new DefaultDependencies(
             options,
@@ -191,6 +219,7 @@ public sealed partial class MainWindow : Window
             new UnavailableScreenSnipService(),
             ocrEngine,
             linkBuilder,
+            taskStore,
             draftProcessingService);
     }
 
@@ -264,7 +293,378 @@ public sealed partial class MainWindow : Window
             }
         };
         OpenInObsidianButton.Click += (_, _) => OpenCurrentNoteInObsidian();
+        TasksButton.Click += async (_, _) => await ToggleTasksPanelAsync();
+        AddTaskButton.Click += (_, _) => ToggleAddTaskPanel();
+        SaveNewTaskButton.Click += async (_, _) => await AddTaskFromPanelAsync();
         SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
+    }
+
+    private async Task ToggleTasksPanelAsync()
+    {
+        _tasksPanelVisible = !_tasksPanelVisible;
+        TasksPanel.IsVisible = _tasksPanelVisible;
+        if (_tasksPanelVisible)
+        {
+            _taskRefreshTimer.Start();
+            await RefreshTasksAsync();
+        }
+        else
+        {
+            _taskRefreshTimer.Stop();
+        }
+    }
+
+    private void ToggleAddTaskPanel()
+    {
+        AddTaskPanel.IsVisible = !AddTaskPanel.IsVisible;
+        if (AddTaskPanel.IsVisible)
+        {
+            NewTaskDueTextBox.Text = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            NewTaskTextBox.Focus();
+        }
+    }
+
+    private async Task AddTaskFromPanelAsync()
+    {
+        var text = NewTaskTextBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            AutosaveStatusText.Text = "TASK TEXT REQUIRED";
+            return;
+        }
+
+        if (!TryParseTaskDate(NewTaskDueTextBox.Text, out var dueDate))
+        {
+            AutosaveStatusText.Text = "TASK DATE INVALID";
+            return;
+        }
+
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+        try
+        {
+            await _taskStore.AddAsync([new NewNoteyTask(text, dueDate, SourceFilePath: null)], today, _windowClosed.Token);
+            NewTaskTextBox.Text = string.Empty;
+            AddTaskPanel.IsVisible = false;
+            AutosaveStatusText.Text = "TASK ADDED";
+            await RefreshTasksAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to add task from the task panel.");
+        }
+    }
+
+    private async void TaskRefreshTimerOnTick(object? sender, EventArgs e)
+    {
+        if (_tasksPanelVisible && IsVisible)
+        {
+            await RefreshTasksAsync();
+        }
+    }
+
+    private async Task RefreshTasksAsync()
+    {
+        try
+        {
+            _tasks = await _taskStore.LoadAsync(_windowClosed.Token);
+            RenderTasks();
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Task refresh was cancelled because the window closed.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        {
+            AutosaveStatusText.Text = "TASKS ERROR";
+            _logger.LogError(ex, "Failed to refresh tasks from {TasksPath}.", _taskStore.GetTasksFilePath());
+        }
+    }
+
+    private void RenderTasks()
+    {
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+        var badgeCount = TaskGrouper.CountBadgeTasks(_tasks, today);
+        TasksBadge.IsVisible = badgeCount > 0;
+        TasksBadgeText.Text = badgeCount.ToString(CultureInfo.InvariantCulture);
+
+        TaskSectionsPanel.Children.Clear();
+        foreach (var section in TaskGrouper.Group(_tasks, today))
+        {
+            TaskSectionsPanel.Children.Add(CreateTaskSection(section, today));
+        }
+
+        if (_tasksPanelVisible && !_taskRefreshTimer.IsEnabled)
+        {
+            _taskRefreshTimer.Start();
+        }
+    }
+
+    private Control CreateTaskSection(TaskSection section, DateOnly today)
+    {
+        var container = new StackPanel { Spacing = 6 };
+        var header = new Button
+        {
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0, 8),
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch
+        };
+        var headerGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto")
+        };
+        headerGrid.Children.Add(new TextBlock
+        {
+            Text = $"{(_collapsedTaskSections.Contains(section.Kind) ? ">" : "v")} {section.Title}",
+            Classes = { "label" },
+            FontSize = 13,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        });
+        var count = new Border
+        {
+            Background = section.Kind == TaskSectionKind.Completed ? Brush.Parse("#1F5F35") : Brush.Parse("#384255"),
+            CornerRadius = new CornerRadius(9),
+            MinWidth = 20,
+            Height = 20,
+            Child = new TextBlock
+            {
+                Text = section.Count.ToString(CultureInfo.InvariantCulture),
+                Foreground = Brushes.White,
+                FontSize = 11,
+                FontWeight = FontWeight.Bold,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            }
+        };
+        Grid.SetColumn(count, 1);
+        headerGrid.Children.Add(count);
+        header.Content = headerGrid;
+        header.Click += (_, _) =>
+        {
+            if (!_collapsedTaskSections.Add(section.Kind))
+            {
+                _collapsedTaskSections.Remove(section.Kind);
+            }
+
+            RenderTasks();
+        };
+        container.Children.Add(header);
+
+        if (!_collapsedTaskSections.Contains(section.Kind))
+        {
+            foreach (var task in section.Tasks)
+            {
+                container.Children.Add(CreateTaskRow(task, section.Kind, today));
+            }
+        }
+
+        return container;
+    }
+
+    private Control CreateTaskRow(NoteyTask task, TaskSectionKind sectionKind, DateOnly today)
+    {
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"),
+            ColumnSpacing = 8,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+
+        var checkbox = new CheckBox
+        {
+            IsChecked = task.IsCompleted,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(checkbox, 0);
+        checkbox.Click += async (_, _) => await SetTaskCompletedAsync(task, checkbox.IsChecked == true);
+        row.Children.Add(checkbox);
+
+        var taskText = new TextBlock
+        {
+            Text = task.Text,
+            Foreground = task.IsCompleted ? Brush.Parse("#8C909F") : Brush.Parse("#E1E2EC"),
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(taskText, 1);
+        row.Children.Add(taskText);
+
+        if (sectionKind == TaskSectionKind.Incomplete && !task.IsCompleted)
+        {
+            var moveButton = new Button
+            {
+                Content = "This week",
+                Padding = new Thickness(8, 3),
+                FontSize = 11
+            };
+            Grid.SetColumn(moveButton, 2);
+            moveButton.Click += async (_, _) => await MoveTaskToThisWeekAsync(task, today);
+            row.Children.Add(moveButton);
+        }
+
+        if (task.SourceFilePath is not null)
+        {
+            var sourceButton = new Button
+            {
+                Content = "Open",
+                Padding = new Thickness(8, 3),
+                FontSize = 11
+            };
+            Grid.SetColumn(sourceButton, 3);
+            ToolTip.SetTip(sourceButton, "Open source note in Obsidian");
+            sourceButton.Click += (_, _) => OpenTaskSourceInObsidian(task.SourceFilePath);
+            row.Children.Add(sourceButton);
+        }
+
+        var dateButton = new Button
+        {
+            Content = FormatTaskDate(task.DueDate),
+            Padding = new Thickness(8, 3),
+            FontSize = 11,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right
+        };
+        Grid.SetColumn(dateButton, 4);
+        dateButton.Flyout = CreateTaskDateFlyout(task);
+        row.Children.Add(dateButton);
+
+        return row;
+    }
+
+    private Flyout CreateTaskDateFlyout(NoteyTask task)
+    {
+        var textBox = new TextBox
+        {
+            Text = task.DueDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty,
+            Watermark = "yyyy-MM-dd",
+            Width = 120
+        };
+        var saveButton = new Button
+        {
+            Content = "Save",
+            Padding = new Thickness(10, 5),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right
+        };
+        var panel = new StackPanel
+        {
+            Spacing = 8,
+            Margin = new Thickness(8),
+            Children =
+            {
+                textBox,
+                saveButton
+            }
+        };
+        var flyout = new Flyout { Content = panel };
+        saveButton.Click += async (_, _) =>
+        {
+            if (!TryParseTaskDate(textBox.Text, out var dueDate))
+            {
+                AutosaveStatusText.Text = "TASK DATE INVALID";
+                return;
+            }
+
+            await SetTaskDueDateAsync(task, dueDate);
+            flyout.Hide();
+        };
+
+        return flyout;
+    }
+
+    private async Task SetTaskCompletedAsync(NoteyTask task, bool completed)
+    {
+        try
+        {
+            var completedDate = completed
+                ? DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime)
+                : (DateOnly?)null;
+            await _taskStore.SetCompletedAsync(task.Id, completedDate, _windowClosed.Token);
+            AutosaveStatusText.Text = completed ? "TASK COMPLETED" : "TASK REOPENED";
+            await RefreshTasksAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to update task {TaskId}.", task.Id);
+        }
+    }
+
+    private async Task SetTaskDueDateAsync(NoteyTask task, DateOnly? dueDate)
+    {
+        try
+        {
+            await _taskStore.SetDueDateAsync(task.Id, dueDate, _windowClosed.Token);
+            AutosaveStatusText.Text = "TASK UPDATED";
+            await RefreshTasksAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to change due date for task {TaskId}.", task.Id);
+        }
+    }
+
+    private async Task MoveTaskToThisWeekAsync(NoteyTask task, DateOnly today)
+    {
+        try
+        {
+            await _taskStore.MoveToThisWeekAsync(task.Id, today, _windowClosed.Token);
+            AutosaveStatusText.Text = "TASK MOVED";
+            await RefreshTasksAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to move overdue task {TaskId} to this week.", task.Id);
+        }
+    }
+
+    private void OpenTaskSourceInObsidian(string sourceFilePath)
+    {
+        try
+        {
+            var uri = _linkBuilder.BuildOpenFileUri(sourceFilePath);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = uri.AbsoluteUri,
+                UseShellExecute = true
+            });
+            AutosaveStatusText.Text = "OPENED IN OBSIDIAN";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or Win32Exception or PlatformNotSupportedException)
+        {
+            AutosaveStatusText.Text = "OBSIDIAN ERROR";
+            _logger.LogError(ex, "Failed to open task source note {FilePath} in Obsidian.", sourceFilePath);
+        }
+    }
+
+    private static bool TryParseTaskDate(string? text, out DateOnly? dueDate)
+    {
+        dueDate = null;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return true;
+        }
+
+        if (DateOnly.TryParseExact(
+            text.Trim(),
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var parsed))
+        {
+            dueDate = parsed;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string FormatTaskDate(DateOnly? dueDate)
+    {
+        return dueDate is { } value
+            ? value.ToString("ddd d/M", CultureInfo.InvariantCulture)
+            : "No date";
     }
 
     public async Task ActivateOrResumeAsync()
@@ -2123,6 +2523,7 @@ public sealed partial class MainWindow : Window
         IScreenSnipService ScreenSnipService,
         ITesseractOcrEngine OcrEngine,
         ObsidianLinkBuilder LinkBuilder,
+        ITaskStore TaskStore,
         DraftProcessingService DraftProcessingService);
 
     private sealed record SlashCommandDefinition(string Name, string Description, string InsertionText);

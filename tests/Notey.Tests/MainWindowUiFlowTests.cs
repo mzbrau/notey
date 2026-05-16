@@ -2,6 +2,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Notey.App.Views;
 
 #pragma warning disable xUnit1051 // AvaloniaFact does not provide xUnit test-context cancellation token support.
@@ -76,6 +77,22 @@ public sealed class MainWindowUiFlowTests
         Assert.Equal(filePath, harness.CurrentNotePathText);
         Assert.Equal("Opened recent note", harness.ContextText);
         Assert.Equal(content, harness.Editor.Document.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task Tasks_panel_adds_task_and_updates_badge()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+
+        harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+        harness.Find<TextBox>("NewTaskTextBox").Text = "Team sync";
+        harness.Find<Button>("SaveNewTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        var tasksPath = Path.Combine(harness.RootPath, "Notes", "tasks.md");
+        await harness.WaitForFileContainsAsync(tasksPath, "- [ ] Team sync (due:", TimeSpan.FromSeconds(2));
+
+        Assert.Equal("1", harness.Find<TextBlock>("TasksBadgeText").Text);
     }
 
     [AvaloniaFact]

@@ -50,6 +50,29 @@
           <Button x:Name="SaveNoteButton" Classes="command" ToolTip.Tip="Save draft" AutomationProperties.Name="Save draft">
             <PathIcon Classes="commandIcon" Data="M5,12 L10,17 L19,7" />
           </Button>
+          <Button x:Name="TasksButton" Classes="command" ToolTip.Tip="Show tasks" AutomationProperties.Name="Show tasks">
+            <Grid>
+              <PathIcon Classes="commandIcon" Data="M7,4 L17,4 L17,20 L7,20 Z M9,8 L11,10 L15,6 M9,13 L11,15 L15,11" />
+              <Border x:Name="TasksBadge"
+                      Background="#D64D4D"
+                      CornerRadius="8"
+                      MinWidth="16"
+                      Height="16"
+                      Padding="4,0"
+                      HorizontalAlignment="Right"
+                      VerticalAlignment="Top"
+                      Margin="0,-9,-9,0"
+                      IsVisible="False">
+                <TextBlock x:Name="TasksBadgeText"
+                           Text="0"
+                           Foreground="White"
+                           FontSize="10"
+                           FontWeight="Bold"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+              </Border>
+            </Grid>
+          </Button>
           <Button x:Name="SettingsButton" Classes="command" ToolTip.Tip="Open settings" AutomationProperties.Name="Open settings">
             <PathIcon Classes="commandIcon" Data="M12,8 A4,4 0,1 0,12,16 A4,4 0,1 0,12,8 M12,3 L13,5.2 L15.4,5.7 L17,4.2 L19.8,7 L18.3,8.6 L18.8,11 L21,12 L18.8,13 L18.3,15.4 L19.8,17 L17,19.8 L15.4,18.3 L13,18.8 L12,21 L11,18.8 L8.6,18.3 L7,19.8 L4.2,17 L5.7,15.4 L5.2,13 L3,12 L5.2,11 L5.7,8.6 L4.2,7 L7,4.2 L8.6,5.7 L11,5.2 Z" />
           </Button>
@@ -76,31 +99,91 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="2">
-      <Border BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
-              BorderThickness="0,0,0,1"
-              Background="{DynamicResource Notey.SurfaceBrush}">
-        <ae:TextEditor x:Name="NoteEditor"
-                       Classes="noteEditor"
-                       FontFamily="Cascadia Mono, JetBrains Mono, Menlo, Consolas, Courier New, monospace"
-                       ShowLineNumbers="True"
-                       IsReadOnly="True"
-                       WordWrap="True"
-                       HorizontalScrollBarVisibility="Disabled"
-                       VerticalScrollBarVisibility="Auto" />
-      </Border>
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+      <Grid Grid.Column="0">
+        <Border BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+                BorderThickness="0,0,0,1"
+                Background="{DynamicResource Notey.SurfaceBrush}">
+          <ae:TextEditor x:Name="NoteEditor"
+                         Classes="noteEditor"
+                         FontFamily="Cascadia Mono, JetBrains Mono, Menlo, Consolas, Courier New, monospace"
+                         ShowLineNumbers="True"
+                         IsReadOnly="True"
+                         WordWrap="True"
+                         HorizontalScrollBarVisibility="Disabled"
+                         VerticalScrollBarVisibility="Auto" />
+        </Border>
 
-      <Border x:Name="CompletionPanel"
-              Classes="autocompletePanel"
-              IsVisible="False"
-              Width="360"
-              MaxHeight="280"
-              HorizontalAlignment="Left"
-              VerticalAlignment="Top"
-              Margin="96,72,0,0">
-        <ListBox x:Name="CompletionList"
-                 Classes="autocompleteList"
-                 MaxHeight="266" />
+        <Border x:Name="CompletionPanel"
+                Classes="autocompletePanel"
+                IsVisible="False"
+                Width="360"
+                MaxHeight="280"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                Margin="96,72,0,0">
+          <ListBox x:Name="CompletionList"
+                   Classes="autocompleteList"
+                   MaxHeight="266" />
+        </Border>
+      </Grid>
+
+      <Border x:Name="TasksPanel"
+              Grid.Column="1"
+              Width="390"
+              BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+              BorderThickness="1,0,0,1"
+              Background="{DynamicResource Notey.SurfaceLowBrush}">
+        <DockPanel LastChildFill="True">
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="18,20,18,14">
+            <TextBlock Grid.Column="0"
+                       Classes="label"
+                       Text="TASKS"
+                       FontSize="16"
+                       LetterSpacing="1.8"
+                       VerticalAlignment="Center" />
+            <Button x:Name="AddTaskButton"
+                    Grid.Column="1"
+                    Classes="command"
+                    ToolTip.Tip="Add task"
+                    AutomationProperties.Name="Add task">
+              <PathIcon Classes="commandIcon" Data="M12,6 L12,18 M6,12 L18,12" />
+            </Button>
+          </Grid>
+
+          <Border x:Name="AddTaskPanel"
+                  DockPanel.Dock="Top"
+                  IsVisible="False"
+                  Margin="18,0,18,12"
+                  Padding="12"
+                  CornerRadius="8"
+                  BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+                  BorderThickness="1"
+                  Background="{DynamicResource Notey.SurfaceBrushRaised}">
+            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,92,Auto" RowSpacing="8" ColumnSpacing="8">
+              <TextBox x:Name="NewTaskTextBox"
+                       Grid.Row="0"
+                       Grid.Column="0"
+                       Grid.ColumnSpan="3"
+                       Classes="metadataInput"
+                       Watermark="New task" />
+              <TextBox x:Name="NewTaskDueTextBox"
+                       Grid.Row="1"
+                       Grid.Column="1"
+                       Classes="metadataInput"
+                       Watermark="yyyy-MM-dd" />
+              <Button x:Name="SaveNewTaskButton"
+                      Grid.Row="1"
+                      Grid.Column="2"
+                      Content="Add"
+                      Padding="12,6" />
+            </Grid>
+          </Border>
+
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="TaskSectionsPanel" Margin="18,0,18,20" Spacing="8" />
+          </ScrollViewer>
+        </DockPanel>
       </Border>
     </Grid>
 

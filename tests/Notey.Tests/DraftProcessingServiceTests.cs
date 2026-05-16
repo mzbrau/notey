@@ -108,6 +108,60 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_links_tasks_to_source_note_and_back()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var service = CreateService(rootPath, """{ "body": "Launch body." }""");
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic Roadmap
+            /task Review launch // 2026-05-20
+
+            Raw launch note.
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken);
+
+        var taskContent = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "tasks.md"), cancellationToken);
+        Assert.Contains("- [ ] Review launch (due: 2026-05-20)", taskContent);
+        Assert.Contains("(source: [[Notes/roadmap|roadmap]])", taskContent);
+        var taskId = Assert.Single(taskContent.Split(' '), static part => part.StartsWith("^notey-task-", StringComparison.Ordinal))[1..].Trim();
+        var sourceContent = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "roadmap.md"), cancellationToken);
+        Assert.Contains($"[[Notes/tasks#^{taskId}|Task: Review launch]]", sourceContent);
+    }
+
+    [Fact]
+    public async Task ProcessExistingNoteAsync_preserves_literal_task_lines_in_code_fences()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "roadmap.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        var service = CreateServiceWithoutAi(rootPath);
+        var content = """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            ---
+            ```text
+            /task literal example // 2026-05-20
+            ```
+            """;
+
+        var updated = await service.ProcessExistingNoteAsync(
+            target,
+            content,
+            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+            cancellationToken);
+
+        Assert.Contains("/task literal example // 2026-05-20", updated);
+        Assert.False(File.Exists(Path.Combine(rootPath, "Notes", "tasks.md")));
+    }
+
+    [Fact]
     public async Task ProcessAsync_appends_tasks_under_exact_date_heading()
     {
         var rootPath = CreateTempDirectory();

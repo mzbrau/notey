@@ -9,7 +9,7 @@ The app can save screen snips, process screenshots through configurable typed pi
 - Dark Avalonia desktop UI with a markdown editing experience.
 - Markdown shortcuts for bold/italic text plus paste, format, and row-continuation support for pipe tables.
 - Windows tray/hotkey workflow with cross-platform development fallbacks.
-- Obsidian-compatible markdown notes, wiki links, and vault folders.
+- Obsidian-compatible markdown notes, wiki links, vault folders, and vault-backed tasks.
 - Configurable typed pipelines for screenshots and text organization.
 - OCR-first AI processing using OpenAI-compatible providers.
 - Teams screenshot normalization for meeting title, participants, and action context.

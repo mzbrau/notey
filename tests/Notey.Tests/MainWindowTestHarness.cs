@@ -79,6 +79,12 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     public string CurrentNotePathText => FindRequired<TextBlock>("CurrentNotePathText").Text ?? string.Empty;
 
+    public T Find<T>(string name)
+        where T : Control
+    {
+        return FindRequired<T>(name);
+    }
+
     public static async Task<MainWindowTestHarness> CreateAsync()
     {
         var harness = new MainWindowTestHarness();
@@ -136,6 +142,27 @@ internal sealed class MainWindowTestHarness : IDisposable
 
         await DrainAsync();
         Assert.Equal(expectedText, Editor.Document.Text);
+    }
+
+    public async Task WaitForFileContainsAsync(string filePath, string expectedText, TimeSpan timeout)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            await DrainAsync();
+            if (File.Exists(filePath)
+                && (await File.ReadAllTextAsync(filePath, cancellationToken)).Contains(expectedText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            await Task.Delay(EditorWaitPollInterval, cancellationToken);
+        }
+
+        await DrainAsync();
+        Assert.True(File.Exists(filePath), $"Expected file '{filePath}' to exist.");
+        Assert.Contains(expectedText, await File.ReadAllTextAsync(filePath, cancellationToken));
     }
 
     public string GetExpectedCustomerMeetingPath(string customer, string topic)
