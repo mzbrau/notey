@@ -5,9 +5,11 @@ using System.Text;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using AvaloniaEdit;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
@@ -226,6 +228,10 @@ public sealed partial class MainWindow : Window
             ScheduleIdleProcessing();
         };
         NoteEditor.TextArea.AddHandler(KeyDownEvent, OnEditorKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        NoteEditor.TextArea.CommandBindings.Add(new RoutedCommandBinding(
+            AvaloniaEdit.ApplicationCommands.Paste,
+            OnEditorPasteExecuted,
+            OnEditorPasteCanExecute));
         NoteEditor.KeyUp += (_, _) =>
         {
             UpdateEditorStatus();
@@ -835,6 +841,19 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (IsPasteShortcut(e.Key, e.KeyModifiers))
+        {
+            if (NoteEditor.IsReadOnly)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            e.Handled = true;
+            _ = PasteFromClipboardAsync();
+            return;
+        }
+
         if (IsCommandModifier(e.KeyModifiers) && e.Key == Key.B)
         {
             ApplyEdit(MarkdownEditorCommands.ToggleBold(NoteEditor.Document.Text, NoteEditor.SelectionStart, NoteEditor.SelectionLength));
@@ -847,6 +866,42 @@ public sealed partial class MainWindow : Window
             ApplyEdit(MarkdownEditorCommands.ToggleItalic(NoteEditor.Document.Text, NoteEditor.SelectionStart, NoteEditor.SelectionLength));
             e.Handled = true;
             return;
+        }
+
+        if (IsFormatTablesShortcut(e.Key, e.KeyModifiers))
+        {
+            if (NoteEditor.IsReadOnly)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            var edit = MarkdownTableFormatter.TryFormatTables(NoteEditor.Document.Text, NoteEditor.CaretOffset);
+            if (edit is not null)
+            {
+                ApplyEdit(edit);
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Tab && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift)
+        {
+            var direction = e.KeyModifiers == KeyModifiers.Shift
+                ? MarkdownTableNavigationDirection.Backward
+                : MarkdownTableNavigationDirection.Forward;
+            var tableNavigation = MarkdownTableFormatter.TryNavigateTableCell(
+                NoteEditor.Document.Text,
+                NoteEditor.CaretOffset,
+                NoteEditor.SelectionLength,
+                direction);
+            if (tableNavigation is not null)
+            {
+                ApplyEdit(tableNavigation);
+                e.Handled = true;
+                return;
+            }
         }
 
         if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
@@ -907,6 +962,211 @@ public sealed partial class MainWindow : Window
         }
 
         return false;
+    }
+
+    private void OnEditorPasteCanExecute(object? sender, CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = !NoteEditor.IsReadOnly;
+        e.Handled = true;
+    }
+
+    private async void OnEditorPasteExecuted(object? sender, ExecutedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        await PasteFromClipboardAsync();
+    }
+
+    private async Task PasteFromClipboardAsync()
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+        {
+            _logger.LogWarning("Paste command could not access the system clipboard.");
+            return;
+        }
+
+        IAsyncDataTransfer? data;
+        try
+        {
+            data = await clipboard.TryGetDataAsync();
+
+            if (data is not null)
+            {
+                var html = await TryGetClipboardHtmlAsync(data);
+                var htmlTableDetected = !string.IsNullOrWhiteSpace(html) && MarkdownTableFormatter.ContainsHtmlTable(html);
+                if (htmlTableDetected && MarkdownTableFormatter.TryConvertHtmlTable(html!, out var htmlTable))
+                {
+                    ReplaceSelection(htmlTable);
+                    return;
+                }
+
+                var rtf = await TryGetClipboardRtfAsync(data);
+                if (!htmlTableDetected
+                    && !string.IsNullOrWhiteSpace(rtf)
+                    && MarkdownTableFormatter.TryConvertRtfTable(rtf, out var rtfTable))
+                {
+                    ReplaceSelection(rtfTable);
+                    return;
+                }
+
+                var dataText = await data.TryGetTextAsync();
+                if (!string.IsNullOrEmpty(dataText))
+                {
+                    if (!htmlTableDetected && MarkdownTableFormatter.TryConvertPlainTextTable(dataText, out var textTable))
+                    {
+                        ReplaceSelection(textTable);
+                        return;
+                    }
+
+                    if (htmlTableDetected || !string.IsNullOrWhiteSpace(rtf))
+                    {
+                        var formatSummary = await GetClipboardFormatSummaryAsync(data);
+                        _logger.LogDebug("Clipboard contained table-like rich data that could not be converted. Formats: {ClipboardFormats}", formatSummary);
+                    }
+
+                    ReplaceSelection(dataText);
+                    return;
+                }
+            }
+
+            var text = await clipboard.TryGetTextAsync();
+            if (!string.IsNullOrEmpty(text))
+            {
+                ReplaceSelection(text);
+            }
+            else
+            {
+                _logger.LogDebug("Paste command found no text content on the system clipboard.");
+            }
+        }
+        catch (COMException ex)
+        {
+            _logger.LogWarning(ex, "Paste command failed while reading the system clipboard.");
+            return;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Paste command failed while reading the system clipboard.");
+            return;
+        }
+        catch (NotSupportedException ex)
+        {
+            _logger.LogWarning(ex, "Paste command failed while reading the system clipboard.");
+            return;
+        }
+    }
+
+    private static async Task<string?> TryGetClipboardHtmlAsync(IAsyncDataTransfer data)
+    {
+        return await TryGetClipboardPayloadAsync(data, IsHtmlClipboardFormat);
+    }
+
+    private static async Task<string?> TryGetClipboardRtfAsync(IAsyncDataTransfer data)
+    {
+        return await TryGetClipboardPayloadAsync(data, IsRtfClipboardFormat);
+    }
+
+    private static async Task<string?> TryGetClipboardPayloadAsync(IAsyncDataTransfer data, Func<DataFormat, bool> formatPredicate)
+    {
+        foreach (var item in data.Items)
+        {
+            foreach (var format in item.Formats.Where(formatPredicate))
+            {
+                var value = await item.TryGetRawAsync(format);
+                if (TryGetClipboardString(value) is { Length: > 0 } html)
+                {
+                    return html;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsHtmlClipboardFormat(DataFormat format)
+    {
+        return format.Identifier.Contains("html", StringComparison.OrdinalIgnoreCase)
+            || format.Identifier.Equals("HTML Format", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsRtfClipboardFormat(DataFormat format)
+    {
+        return format.Identifier.Contains("rtf", StringComparison.OrdinalIgnoreCase)
+            || format.Identifier.Contains("rich text", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string> GetClipboardFormatSummaryAsync(IAsyncDataTransfer data)
+    {
+        var summaries = new List<string>();
+        foreach (var item in data.Items)
+        {
+            foreach (var format in item.Formats)
+            {
+                var value = await item.TryGetRawAsync(format);
+                summaries.Add($"{format.Identifier}:{value?.GetType().Name ?? "null"}");
+            }
+        }
+
+        return string.Join(", ", summaries.Distinct(StringComparer.Ordinal));
+    }
+
+    private static string? TryGetClipboardString(object? value)
+    {
+        return value switch
+        {
+            string text => text,
+            byte[] bytes => DecodeClipboardBytes(bytes),
+            _ => null
+        };
+    }
+
+    private static string DecodeClipboardBytes(byte[] bytes)
+    {
+        if (bytes.Length >= 2)
+        {
+            if (bytes[0] == 0xFF && bytes[1] == 0xFE)
+            {
+                return Encoding.Unicode.GetString(bytes);
+            }
+
+            if (bytes[0] == 0xFE && bytes[1] == 0xFF)
+            {
+                return Encoding.BigEndianUnicode.GetString(bytes);
+            }
+        }
+
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        {
+            return Encoding.UTF8.GetString(bytes);
+        }
+
+        var evenNulls = 0;
+        var oddNulls = 0;
+        for (var i = 0; i < bytes.Length; i++)
+        {
+            if (bytes[i] == 0)
+            {
+                if (i % 2 == 0)
+                {
+                    evenNulls++;
+                }
+                else
+                {
+                    oddNulls++;
+                }
+            }
+        }
+
+        return oddNulls > bytes.Length / 4 && evenNulls == 0
+            ? Encoding.Unicode.GetString(bytes)
+            : Encoding.UTF8.GetString(bytes);
+    }
+
+    private void ReplaceSelection(string replacementText)
+    {
+        var selectionStart = NoteEditor.SelectionStart;
+        var caretOffset = selectionStart + replacementText.Length;
+        ApplyEdit(new MarkdownTextEdit(selectionStart, NoteEditor.SelectionLength, replacementText, caretOffset, 0, caretOffset));
     }
 
     private async void UpdateCompletion()
@@ -1425,10 +1685,21 @@ public sealed partial class MainWindow : Window
 
     private void ApplyEdit(MarkdownTextEdit edit)
     {
-        NoteEditor.Document.Replace(edit.ReplacementStart, edit.ReplacementLength, edit.ReplacementText);
-        NoteEditor.SelectionStart = edit.SelectionStart;
-        NoteEditor.SelectionLength = edit.SelectionLength;
-        NoteEditor.CaretOffset = edit.CaretOffset;
+        using (NoteEditor.Document.RunUpdate())
+        {
+            if (edit.ReplacementLength != 0 || edit.ReplacementText.Length != 0)
+            {
+                NoteEditor.Document.Replace(edit.ReplacementStart, edit.ReplacementLength, edit.ReplacementText);
+            }
+
+            var selectionStart = Math.Clamp(edit.SelectionStart, 0, NoteEditor.Document.TextLength);
+            var selectionLength = Math.Clamp(edit.SelectionLength, 0, NoteEditor.Document.TextLength - selectionStart);
+            var caretOffset = Math.Clamp(edit.CaretOffset, 0, NoteEditor.Document.TextLength);
+
+            NoteEditor.Select(selectionStart, selectionLength);
+            NoteEditor.CaretOffset = caretOffset;
+        }
+
         UpdateEditorStatus();
     }
 
@@ -1749,6 +2020,17 @@ public sealed partial class MainWindow : Window
     internal static bool IsOpenRecentDialogShortcut(Key key, KeyModifiers modifiers)
     {
         return key == Key.R && IsCommandModifier(modifiers);
+    }
+
+    internal static bool IsFormatTablesShortcut(Key key, KeyModifiers modifiers)
+    {
+        return key == Key.T && (modifiers == (KeyModifiers.Control | KeyModifiers.Alt)
+            || modifiers == (KeyModifiers.Meta | KeyModifiers.Alt));
+    }
+
+    internal static bool IsPasteShortcut(Key key, KeyModifiers modifiers)
+    {
+        return key == Key.V && IsCommandModifier(modifiers);
     }
 
     internal static bool TryBeginOpenRecentDialog(ref bool isRecentNoteDialogOpen)

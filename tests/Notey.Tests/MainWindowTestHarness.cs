@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using AvaloniaEdit;
@@ -18,6 +19,9 @@ namespace Notey.Tests;
 
 internal sealed class MainWindowTestHarness : IDisposable
 {
+    private static readonly TimeSpan EditorWaitPollInterval = TimeSpan.FromMilliseconds(10);
+    private static readonly int CloseWaitMaxAttempts = 100;
+    private static readonly TimeSpan CloseWaitPollInterval = TimeSpan.FromMilliseconds(10);
     private readonly FixedTimeProvider _timeProvider;
 
     private MainWindowTestHarness()
@@ -116,6 +120,24 @@ internal sealed class MainWindowTestHarness : IDisposable
         return Dispatcher.UIThread.InvokeAsync(() => Dispatcher.UIThread.RunJobs()).GetTask();
     }
 
+    public async Task WaitForEditorTextAsync(string expectedText, TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            await DrainAsync();
+            if (string.Equals(Editor.Document.Text, expectedText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            await Task.Delay(EditorWaitPollInterval);
+        }
+
+        await DrainAsync();
+        Assert.Equal(expectedText, Editor.Document.Text);
+    }
+
     public string GetExpectedCustomerMeetingPath(string customer, string topic)
     {
         return Path.Combine(
@@ -132,14 +154,14 @@ internal sealed class MainWindowTestHarness : IDisposable
         if (Dispatcher.UIThread.CheckAccess())
         {
             Window.Close();
-            Dispatcher.UIThread.RunJobs();
+            WaitForWindowClosed(Window);
         }
         else
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 Window.Close();
-                Dispatcher.UIThread.RunJobs();
+                WaitForWindowClosed(Window);
             }).GetTask().GetAwaiter().GetResult();
         }
 
@@ -187,6 +209,22 @@ internal sealed class MainWindowTestHarness : IDisposable
         {
             throw new IOException($"Failed to delete temporary test directory '{path}' after 5 attempts.", lastException);
         }
+    }
+
+    private static void WaitForWindowClosed(Window window)
+    {
+        for (var attempt = 0; attempt < CloseWaitMaxAttempts; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (!window.IsVisible)
+            {
+                return;
+            }
+
+            Thread.Sleep(CloseWaitPollInterval);
+        }
+
+        Dispatcher.UIThread.RunJobs();
     }
 
     internal sealed class TestRecentNoteChooser : IRecentNoteChooser

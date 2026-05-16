@@ -82,6 +82,7 @@
               Background="{DynamicResource Notey.SurfaceBrush}">
         <ae:TextEditor x:Name="NoteEditor"
                        Classes="noteEditor"
+                       FontFamily="Cascadia Mono, JetBrains Mono, Menlo, Consolas, Courier New, monospace"
                        ShowLineNumbers="True"
                        IsReadOnly="True"
                        WordWrap="True"

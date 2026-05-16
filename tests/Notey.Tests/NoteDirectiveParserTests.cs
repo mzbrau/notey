@@ -72,6 +72,14 @@ public sealed class NoteDirectiveParserTests
     }
 
     [Fact]
+    public void SlashCommandCompletionQuery_ignores_document_start_before_leading_newline()
+    {
+        var query = SlashCommandCompletionQuery.TryCreate("\n/topic", 0);
+
+        Assert.Null(query);
+    }
+
+    [Fact]
     public void SlashCommandParameterQuery_matches_parameter_after_command()
     {
         var query = SlashCommandParameterQuery.TryCreate("/topic Acc", 10);
@@ -81,6 +89,14 @@ public sealed class NoteDirectiveParserTests
         Assert.Equal("Acc", query.SearchText);
         Assert.Equal(7, query.ReplacementStart);
         Assert.Equal(3, query.ReplacementLength);
+    }
+
+    [Fact]
+    public void SlashCommandParameterQuery_ignores_document_start_before_leading_newline()
+    {
+        var query = SlashCommandParameterQuery.TryCreate("\n/topic Acc", 0);
+
+        Assert.Null(query);
     }
 
     [Fact]
