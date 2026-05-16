@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using AvaloniaEdit;
@@ -18,6 +19,9 @@ namespace Notey.Tests;
 
 internal sealed class MainWindowTestHarness : IDisposable
 {
+    private static readonly TimeSpan EditorWaitPollInterval = TimeSpan.FromMilliseconds(10);
+    private static readonly int CloseWaitMaxAttempts = 100;
+    private static readonly TimeSpan CloseWaitPollInterval = TimeSpan.FromMilliseconds(10);
     private readonly FixedTimeProvider _timeProvider;
 
     private MainWindowTestHarness()
@@ -118,8 +122,8 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     public async Task WaitForEditorTextAsync(string expectedText, TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
         {
             await DrainAsync();
             if (string.Equals(Editor.Document.Text, expectedText, StringComparison.Ordinal))
@@ -127,7 +131,7 @@ internal sealed class MainWindowTestHarness : IDisposable
                 return;
             }
 
-            await Task.Delay(10);
+            await Task.Delay(EditorWaitPollInterval);
         }
 
         await DrainAsync();
@@ -209,7 +213,7 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     private static void WaitForWindowClosed(Window window)
     {
-        for (var attempt = 0; attempt < 100; attempt++)
+        for (var attempt = 0; attempt < CloseWaitMaxAttempts; attempt++)
         {
             Dispatcher.UIThread.RunJobs();
             if (!window.IsVisible)
@@ -217,7 +221,7 @@ internal sealed class MainWindowTestHarness : IDisposable
                 return;
             }
 
-            Thread.Sleep(10);
+            Thread.Sleep(CloseWaitPollInterval);
         }
 
         Dispatcher.UIThread.RunJobs();

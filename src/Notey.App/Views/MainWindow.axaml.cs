@@ -845,6 +845,7 @@ public sealed partial class MainWindow : Window
         {
             if (NoteEditor.IsReadOnly)
             {
+                e.Handled = true;
                 return;
             }
 
@@ -871,6 +872,7 @@ public sealed partial class MainWindow : Window
         {
             if (NoteEditor.IsReadOnly)
             {
+                e.Handled = true;
                 return;
             }
 
@@ -976,11 +978,6 @@ public sealed partial class MainWindow : Window
 
     private async Task PasteFromClipboardAsync()
     {
-        if (NoteEditor.IsReadOnly)
-        {
-            return;
-        }
-
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
         {
