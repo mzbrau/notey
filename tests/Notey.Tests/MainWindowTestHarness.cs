@@ -116,6 +116,24 @@ internal sealed class MainWindowTestHarness : IDisposable
         return Dispatcher.UIThread.InvokeAsync(() => Dispatcher.UIThread.RunJobs()).GetTask();
     }
 
+    public async Task WaitForEditorTextAsync(string expectedText, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            await DrainAsync();
+            if (string.Equals(Editor.Document.Text, expectedText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        await DrainAsync();
+        Assert.Equal(expectedText, Editor.Document.Text);
+    }
+
     public string GetExpectedCustomerMeetingPath(string customer, string topic)
     {
         return Path.Combine(
@@ -132,14 +150,14 @@ internal sealed class MainWindowTestHarness : IDisposable
         if (Dispatcher.UIThread.CheckAccess())
         {
             Window.Close();
-            Dispatcher.UIThread.RunJobs();
+            WaitForWindowClosed(Window);
         }
         else
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 Window.Close();
-                Dispatcher.UIThread.RunJobs();
+                WaitForWindowClosed(Window);
             }).GetTask().GetAwaiter().GetResult();
         }
 
@@ -187,6 +205,22 @@ internal sealed class MainWindowTestHarness : IDisposable
         {
             throw new IOException($"Failed to delete temporary test directory '{path}' after 5 attempts.", lastException);
         }
+    }
+
+    private static void WaitForWindowClosed(Window window)
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (!window.IsVisible)
+            {
+                return;
+            }
+
+            Thread.Sleep(10);
+        }
+
+        Dispatcher.UIThread.RunJobs();
     }
 
     internal sealed class TestRecentNoteChooser : IRecentNoteChooser

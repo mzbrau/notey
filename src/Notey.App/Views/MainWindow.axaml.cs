@@ -34,7 +34,6 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan IdleProcessingDelay = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan IndexRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RecentFinalNoteLookback = TimeSpan.FromDays(14);
-    private static readonly FontFamily MarkdownEditorFontFamily = new("Cascadia Mono, JetBrains Mono, Menlo, Consolas, Courier New, monospace");
 
     private readonly NoteyOptions _options;
     private readonly INoteDraftStore _noteDraftStore;
@@ -210,7 +209,6 @@ public sealed partial class MainWindow : Window
 
     private void ConfigureEditor()
     {
-        NoteEditor.FontFamily = MarkdownEditorFontFamily;
         NoteEditor.TextChanged += (_, _) =>
         {
             if (_isInitializing)
@@ -845,6 +843,11 @@ public sealed partial class MainWindow : Window
 
         if (IsPasteShortcut(e.Key, e.KeyModifiers))
         {
+            if (NoteEditor.IsReadOnly)
+            {
+                return;
+            }
+
             e.Handled = true;
             _ = PasteFromClipboardAsync();
             return;
@@ -866,6 +869,11 @@ public sealed partial class MainWindow : Window
 
         if (IsFormatTablesShortcut(e.Key, e.KeyModifiers))
         {
+            if (NoteEditor.IsReadOnly)
+            {
+                return;
+            }
+
             var edit = MarkdownTableFormatter.TryFormatTables(NoteEditor.Document.Text, NoteEditor.CaretOffset);
             if (edit is not null)
             {
@@ -968,6 +976,11 @@ public sealed partial class MainWindow : Window
 
     private async Task PasteFromClipboardAsync()
     {
+        if (NoteEditor.IsReadOnly)
+        {
+            return;
+        }
+
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
         {

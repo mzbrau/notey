@@ -184,17 +184,67 @@ public sealed class MainWindowUiFlowTests
             KeyModifiers = KeyModifiers.Control,
             Source = harness.Editor.TextArea
         };
-
-        harness.Editor.TextArea.RaiseEvent(args);
-        await Task.Delay(50);
-        await harness.DrainAsync();
-
-        Assert.True(args.Handled);
-        Assert.Equal("""
+        var expected = """
             | Name | Description | Thing | Smell | Taste |
             | ---- | ----------- | ----- | ----- | ----- |
             | John | Big         | Stuff | bad   | bad   |
-            """.ReplaceLineEndings("\n"), harness.Editor.Document.Text);
+            """.ReplaceLineEndings("\n");
+
+        harness.Editor.TextArea.RaiseEvent(args);
+        await harness.WaitForEditorTextAsync(expected, TimeSpan.FromSeconds(2));
+
+        Assert.True(args.Handled);
+        Assert.Equal(expected, harness.Editor.Document.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task Paste_shortcut_does_not_mutate_read_only_editor()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        await harness.SetEditorTextAsync("original");
+        harness.Editor.IsReadOnly = true;
+        var clipboard = TopLevel.GetTopLevel(harness.Window)?.Clipboard
+            ?? throw new InvalidOperationException("Clipboard was not available.");
+        await clipboard.SetTextAsync("replacement");
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.V,
+            KeyModifiers = KeyModifiers.Control,
+            Source = harness.Editor.TextArea
+        };
+
+        harness.Editor.TextArea.RaiseEvent(args);
+        await harness.DrainAsync();
+
+        Assert.Equal("original", harness.Editor.Document.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task Format_tables_shortcut_does_not_mutate_read_only_editor()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var original = """
+            | Name | Value |
+            | --- | --- |
+            | One | Two |
+            """.ReplaceLineEndings("\n");
+        await harness.SetEditorTextAsync(original);
+        harness.Editor.IsReadOnly = true;
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.T,
+            KeyModifiers = KeyModifiers.Control | KeyModifiers.Shift,
+            Source = harness.Editor.TextArea
+        };
+
+        harness.Editor.TextArea.RaiseEvent(args);
+        await harness.DrainAsync();
+
+        Assert.Equal(original, harness.Editor.Document.Text);
     }
 }
 
