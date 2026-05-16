@@ -16,6 +16,17 @@ public sealed class MainWindowShortcutTests
         Assert.Equal(expected, MainWindow.IsOpenRecentDialogShortcut(key, modifiers));
     }
 
+    [Theory]
+    [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Alt, true)]
+    [InlineData(Key.T, KeyModifiers.Meta | KeyModifiers.Alt, true)]
+    [InlineData(Key.T, KeyModifiers.Control, false)]
+    [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Shift, false)]
+    [InlineData(Key.K, KeyModifiers.Control | KeyModifiers.Alt, false)]
+    public void IsFormatTablesShortcut_matches_control_or_command_alt_t(Key key, KeyModifiers modifiers, bool expected)
+    {
+        Assert.Equal(expected, MainWindow.IsFormatTablesShortcut(key, modifiers));
+    }
+
     [Fact]
     public void TryBeginOpenRecentDialog_sets_guard_on_first_entry()
     {

@@ -1,4 +1,7 @@
 using Avalonia.Headless.XUnit;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Notey.App.Views;
 
 #pragma warning disable xUnit1051 // AvaloniaFact does not provide xUnit test-context cancellation token support.
@@ -118,6 +121,80 @@ public sealed class MainWindowUiFlowTests
         Assert.Contains("  - \"#updated\"", updatedContent);
         Assert.Contains("Updated recent note body.", updatedContent);
         Assert.DoesNotContain("Original recent note body.", updatedContent);
+    }
+
+    [AvaloniaFact]
+    public async Task Bold_shortcut_unwraps_selected_text_without_crashing()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        await harness.SetEditorTextAsync("**hello**");
+        harness.Editor.Select(0, harness.Editor.Document.TextLength);
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.B,
+            KeyModifiers = KeyModifiers.Control,
+            Source = harness.Editor.TextArea
+        };
+
+        harness.Editor.TextArea.RaiseEvent(args);
+        await harness.DrainAsync();
+
+        Assert.True(args.Handled);
+        Assert.Equal("hello", harness.Editor.Document.Text);
+        Assert.Equal(0, harness.Editor.SelectionStart);
+        Assert.Equal(5, harness.Editor.SelectionLength);
+    }
+
+    [AvaloniaFact]
+    public async Task Markdown_editor_uses_monospace_font_for_table_alignment()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+
+        var fontFamily = harness.Editor.FontFamily.ToString();
+
+        Assert.Contains("Cascadia Mono", fontFamily, StringComparison.Ordinal);
+        Assert.DoesNotContain("Inter", fontFamily, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Paste_shortcut_converts_google_docs_newline_cell_table()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var clipboard = TopLevel.GetTopLevel(harness.Window)?.Clipboard
+            ?? throw new InvalidOperationException("Clipboard was not available.");
+        await clipboard.SetTextAsync("""
+            Name
+            Description
+            Thing
+            Smell
+            Taste
+            John
+            Big
+            Stuff
+            bad
+            bad
+            """.ReplaceLineEndings("\n"));
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.V,
+            KeyModifiers = KeyModifiers.Control,
+            Source = harness.Editor.TextArea
+        };
+
+        harness.Editor.TextArea.RaiseEvent(args);
+        await Task.Delay(50);
+        await harness.DrainAsync();
+
+        Assert.True(args.Handled);
+        Assert.Equal("""
+            | Name | Description | Thing | Smell | Taste |
+            | ---- | ----------- | ----- | ----- | ----- |
+            | John | Big         | Stuff | bad   | bad   |
+            """.ReplaceLineEndings("\n"), harness.Editor.Document.Text);
     }
 }
 

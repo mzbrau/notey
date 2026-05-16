@@ -30,7 +30,7 @@
     <Style Selector="Window">
       <Setter Property="Background" Value="{DynamicResource Notey.SurfaceBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
-      <Setter Property="FontFamily" Value="Inter, Segoe UI, Arial" />
+      <Setter Property="FontFamily" Value="Cascadia Mono, JetBrains Mono, Menlo, Consolas, Courier New, monospace" />
     </Style>
 
     <Style Selector="TextBlock.label">

@@ -11,8 +11,7 @@ public sealed record SlashCommandCompletionQuery(int ReplacementStart, int Repla
             throw new ArgumentOutOfRangeException(nameof(caretOffset), "Caret offset must be within the text bounds.");
         }
 
-        var lineStart = text.LastIndexOf('\n', Math.Max(0, caretOffset - 1));
-        lineStart = lineStart < 0 ? 0 : lineStart + 1;
+        var lineStart = SlashCommandQueryText.FindLineStart(text, caretOffset);
         var beforeCaret = text[lineStart..caretOffset];
         var leadingWhitespace = beforeCaret.Length - beforeCaret.TrimStart().Length;
         var slashIndex = lineStart + leadingWhitespace;
@@ -52,8 +51,7 @@ public sealed record SlashCommandParameterQuery(
             throw new ArgumentOutOfRangeException(nameof(caretOffset), "Caret offset must be within the text bounds.");
         }
 
-        var lineStart = text.LastIndexOf('\n', Math.Max(0, caretOffset - 1));
-        lineStart = lineStart < 0 ? 0 : lineStart + 1;
+        var lineStart = SlashCommandQueryText.FindLineStart(text, caretOffset);
         var lineUntilCaret = text[lineStart..caretOffset];
         var trimmedStartLength = lineUntilCaret.Length - lineUntilCaret.TrimStart().Length;
         if (trimmedStartLength >= lineUntilCaret.Length || lineUntilCaret[trimmedStartLength] != '/')
@@ -89,5 +87,20 @@ public sealed record SlashCommandParameterQuery(
     private static bool IsCommandNameCharacter(char character)
     {
         return char.IsLetterOrDigit(character) || character is '-' or '_';
+    }
+
+}
+
+internal static class SlashCommandQueryText
+{
+    public static int FindLineStart(string text, int caretOffset)
+    {
+        if (caretOffset == 0)
+        {
+            return 0;
+        }
+
+        var lineStart = text.LastIndexOf('\n', caretOffset - 1);
+        return lineStart < 0 ? 0 : lineStart + 1;
     }
 }

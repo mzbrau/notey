@@ -24,5 +24,6 @@ It is Windows-first for tray and hotkey behavior, but the core note, vault, edit
 - [Configuration](./getting-started/configuration.md)
 - [Obsidian vault conventions](./features/obsidian-vault.md)
 - [Screen snips and AI](./features/screen-snips-and-pipelines.md)
+- [Markdown editor](./features/markdown-editor.md)
 - [Diagnostics](./operations/diagnostics.md)
 - [Windows publishing](./deployment/windows-publishing.md)
