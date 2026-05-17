@@ -440,6 +440,10 @@ public sealed partial class DraftProcessingService(
     private static ProcessedNoteMetadata MergeMetadata(string frontmatter, ProcessedNoteMetadata metadata)
     {
         var existingDynamicDirectives = ReadYamlDynamicDirectives(frontmatter);
+        var existingDateScalar = ReadYamlScalar(frontmatter, "date");
+        var existingMeetingDate = existingDateScalar is not null && DateOnly.TryParse(existingDateScalar, out var parsed)
+            ? parsed
+            : (DateOnly?)null;
 
         return metadata with
         {
@@ -448,7 +452,8 @@ public sealed partial class DraftProcessingService(
             DynamicDirectives = UnionDynamicDirectives(existingDynamicDirectives, metadata.DynamicDirectives),
             People = Union(ReadYamlArray(frontmatter, "people"), metadata.People),
             Tags = Union(ReadYamlArray(frontmatter, "tags").Select(static t => t.TrimStart('#')).ToArray(), metadata.Tags),
-            Links = Union(ReadYamlArray(frontmatter, "links"), metadata.Links)
+            Links = Union(ReadYamlArray(frontmatter, "links"), metadata.Links),
+            MeetingDate = existingMeetingDate ?? metadata.MeetingDate
         };
     }
 
@@ -461,6 +466,12 @@ public sealed partial class DraftProcessingService(
             $"processed: {FormatTimestamp(metadata.ProcessedAt)}",
             $"meeting: {metadata.IsMeeting.ToString().ToLowerInvariant()}",
         };
+
+        if (metadata.IsMeeting)
+        {
+            var meetingDate = metadata.MeetingDate ?? DateOnly.FromDateTime(metadata.ProcessedAt.LocalDateTime);
+            lines.Add($"date: {meetingDate:yyyy-MM-dd}");
+        }
 
         if (!string.IsNullOrWhiteSpace(metadata.Topic))
         {
@@ -849,6 +860,7 @@ public sealed partial class DraftProcessingService(
             "created",
             "processed",
             "meeting",
+            "date",
             "topic",
             "people",
             "tags",
@@ -993,7 +1005,8 @@ public sealed record ProcessedNoteMetadata(
     IReadOnlyList<DynamicNoteDirective> DynamicDirectives,
     IReadOnlyList<string> People,
     IReadOnlyList<string> Tags,
-    IReadOnlyList<string> Links);
+    IReadOnlyList<string> Links,
+    DateOnly? MeetingDate = null);
 
 public sealed record ProcessedNoteAiResult(
     string? Title,
