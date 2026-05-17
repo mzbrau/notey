@@ -99,6 +99,19 @@ public sealed partial class FileSystemTaskStore(
             cancellationToken);
     }
 
+    public Task<NoteyTask?> SetDetailsAsync(
+        string taskId,
+        string text,
+        DateOnly? dueDate,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedText = NormalizeEditableTaskText(text);
+        return UpdateTaskAsync(
+            taskId,
+            task => task with { Text = normalizedText, DueDate = dueDate },
+            cancellationToken);
+    }
+
     public Task<NoteyTask?> MoveToThisWeekAsync(
         string taskId,
         DateOnly today,
@@ -510,6 +523,28 @@ public sealed partial class FileSystemTaskStore(
         return string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
+    private static string NormalizeEditableTaskText(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (text.Contains('\n', StringComparison.Ordinal) || text.Contains('\r', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Task text must fit on one line.", nameof(text));
+        }
+
+        var normalizedText = NormalizeTaskText(text);
+        if (string.IsNullOrWhiteSpace(normalizedText))
+        {
+            throw new ArgumentException("Task text cannot be blank.", nameof(text));
+        }
+
+        if (EditableTaskMetadataRegex().IsMatch(normalizedText))
+        {
+            throw new ArgumentException("Task text cannot include task metadata such as due dates, source links, completion dates, or block IDs.", nameof(text));
+        }
+
+        return normalizedText;
+    }
+
     private static async Task WriteUtf8AtomicallyAsync(string filePath, string content, CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(filePath);
@@ -555,6 +590,9 @@ public sealed partial class FileSystemTaskStore(
 
     [GeneratedRegex(@"\s+\(source:\s*\[\[(?<target>[^\]]+)\]\]\)\s*$")]
     private static partial Regex SourceRegex();
+
+    [GeneratedRegex(@"(?:^|\s)(?:\((?:due|completed|source):[^)]*\)|\^[A-Za-z0-9_-]+)(?:\s|$)", RegexOptions.IgnoreCase)]
+    private static partial Regex EditableTaskMetadataRegex();
 
     private sealed record TaskMarkdownDocument(List<string> Lines, IReadOnlyList<TaskMarkdownLine> Tasks);
 

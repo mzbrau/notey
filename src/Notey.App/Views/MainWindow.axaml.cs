@@ -65,6 +65,7 @@ public sealed partial class MainWindow : Window
     private readonly TranslateTransform _tasksPanelTransform = new();
     private readonly NoteDirectiveParser _directiveParser = new();
     private readonly List<string> _directOcrSnippets = [];
+    private NoteyTask? _currentEditTask;
 
     private NoteDraft? _currentDraft;
     private string? _currentFinalNotePath;
@@ -105,6 +106,8 @@ public sealed partial class MainWindow : Window
     public bool HideInsteadOfClose { get; set; }
 
     public bool IsCaptureInProgress => _isCaptureInProgress;
+
+    internal Control? OpenTaskEditPopupContent => TaskEditCard.IsVisible ? TaskEditCard : null;
 
     public event EventHandler? SettingsSaved;
 
@@ -316,6 +319,55 @@ public sealed partial class MainWindow : Window
         TasksPanelResizeHandle.PointerMoved += OnTasksPanelResizeHandlePointerMoved;
         TasksPanelResizeHandle.PointerReleased += OnTasksPanelResizeHandlePointerReleased;
         SetTasksPanelWidth(TasksPanel.Width);
+
+        TaskEditSaveButton.Click += async (_, _) =>
+        {
+            if (_currentEditTask is null) return;
+            if (await SaveTaskDetailsAsync(_currentEditTask, TaskEditTextBox.Text, FromPickerDate(TaskEditDueDatePicker.SelectedDate)))
+            {
+                HideTaskEditCard();
+            }
+            else
+            {
+                TaskEditErrorText.IsVisible = true;
+            }
+        };
+        TaskEditCancelButton.Click += (_, _) => HideTaskEditCard();
+        TaskEditClearDueDateButton.Click += (_, _) => TaskEditDueDatePicker.SelectedDate = null;
+        TaskEditDeleteButton.Click += async (_, _) =>
+        {
+            if (_currentEditTask is null) return;
+            if (await DeleteTaskAsync(_currentEditTask))
+            {
+                HideTaskEditCard();
+            }
+            else
+            {
+                TaskEditErrorText.IsVisible = true;
+            }
+        };
+        TaskEditCard.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                HideTaskEditCard();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+            {
+                if (_currentEditTask is null) return;
+                if (await SaveTaskDetailsAsync(_currentEditTask, TaskEditTextBox.Text, FromPickerDate(TaskEditDueDatePicker.SelectedDate)))
+                {
+                    HideTaskEditCard();
+                }
+                else
+                {
+                    TaskEditErrorText.IsVisible = true;
+                }
+
+                e.Handled = true;
+            }
+        };
     }
 
     private void OnTasksPanelResizeHandlePointerPressed(object? sender, PointerPressedEventArgs e)
@@ -536,6 +588,11 @@ public sealed partial class MainWindow : Window
         TasksBadge.IsVisible = badgeCount > 0;
         TasksBadgeText.Text = badgeCount.ToString(CultureInfo.InvariantCulture);
 
+        if (_currentEditTask is not null && !_tasks.Any(t => t.Id == _currentEditTask.Id))
+        {
+            HideTaskEditCard();
+        }
+
         TaskSectionsPanel.Children.Clear();
         foreach (var section in TaskGrouper.Group(_tasks, today))
         {
@@ -662,10 +719,20 @@ public sealed partial class MainWindow : Window
         {
             var moveButton = new Button
             {
-                Content = "This week",
-                Padding = new Thickness(8, 3),
-                FontSize = 11
+                Name = "SetDueTodayButton",
+                Width = 24,
+                Height = 24,
+                MinWidth = 24,
+                Padding = new Thickness(0),
+                Content = new PathIcon
+                {
+                    Data = Geometry.Parse("M5,4 H7 V2 H9 V4 H15 V2 H17 V4 H19 C20.1,4 21,4.9 21,6 V8 H3 V6 C3,4.9 3.9,4 5,4 Z M5,10 H19 V20 H5 Z"),
+                    Width = 13,
+                    Height = 13,
+                    Foreground = Brush.Parse("#C2C6D6")
+                }
             };
+            ToolTip.SetTip(moveButton, "Set due today");
             Grid.SetColumn(moveButton, 2);
             moveButton.Click += async (_, _) => await MoveTaskToThisWeekAsync(task, today);
             row.Children.Add(moveButton);
@@ -710,7 +777,7 @@ public sealed partial class MainWindow : Window
         row.Children.Add(dateShiftButtons);
 
         Grid.SetColumn(dateButton, 5);
-        dateButton.Flyout = CreateTaskDateFlyout(task);
+        dateButton.Click += (_, _) => ShowTaskEditPopup(task, dateButton);
         row.Children.Add(dateButton);
 
         return row;
@@ -736,61 +803,26 @@ public sealed partial class MainWindow : Window
         return button;
     }
 
-    private Flyout CreateTaskDateFlyout(NoteyTask task)
+    private void ShowTaskEditPopup(NoteyTask task, Button _)
     {
-        var datePicker = new DatePicker
+        _currentEditTask = task;
+        TaskEditTextBox.Text = task.Text;
+        TaskEditDueDatePicker.SelectedDate = ToPickerDate(task.DueDate);
+        TaskEditErrorText.IsVisible = false;
+        TaskEditBackdrop.IsVisible = true;
+        TaskEditCard.IsVisible = true;
+        Dispatcher.UIThread.Post(() =>
         {
-            SelectedDate = ToPickerDate(task.DueDate),
-            Classes = { "metadataInput" },
-            DayFormat = "dd",
-            MonthFormat = "MM",
-            YearFormat = "yyyy",
-            Width = 150
-        };
-        var saveButton = new Button
-        {
-            Content = "Save",
-            Padding = new Thickness(10, 5)
-        };
-        var clearButton = new Button
-        {
-            Content = "Clear",
-            Padding = new Thickness(10, 5)
-        };
-        var actions = new StackPanel
-        {
-            Orientation = Avalonia.Layout.Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
-            Children =
-            {
-                clearButton,
-                saveButton
-            }
-        };
-        var panel = new StackPanel
-        {
-            Spacing = 8,
-            Margin = new Thickness(8),
-            Children =
-            {
-                datePicker,
-                actions
-            }
-        };
-        var flyout = new Flyout { Content = panel };
-        saveButton.Click += async (_, _) =>
-        {
-            await SetTaskDueDateAsync(task, FromPickerDate(datePicker.SelectedDate));
-            flyout.Hide();
-        };
-        clearButton.Click += async (_, _) =>
-        {
-            await SetTaskDueDateAsync(task, null);
-            flyout.Hide();
-        };
+            TaskEditTextBox.Focus();
+            TaskEditTextBox.CaretIndex = TaskEditTextBox.Text?.Length ?? 0;
+        });
+    }
 
-        return flyout;
+    private void HideTaskEditCard()
+    {
+        _currentEditTask = null;
+        TaskEditBackdrop.IsVisible = false;
+        TaskEditCard.IsVisible = false;
     }
 
     private async Task ShiftTaskDueDateAsync(NoteyTask task, int days)
@@ -800,6 +832,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        HideTaskEditCard();
         await SetTaskDueDateAsync(task, dueDate.AddDays(days));
     }
 
@@ -825,6 +858,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            HideTaskEditCard();
             await _taskStore.SetDueDateAsync(task.Id, dueDate, _windowClosed.Token);
             AutosaveStatusText.Text = "TASK UPDATED";
             await RefreshTasksAsync();
@@ -840,6 +874,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            HideTaskEditCard();
             await _taskStore.MoveToThisWeekAsync(task.Id, today, _windowClosed.Token);
             AutosaveStatusText.Text = "TASK MOVED";
             await RefreshTasksAsync();
@@ -848,6 +883,45 @@ public sealed partial class MainWindow : Window
         {
             AutosaveStatusText.Text = "TASK SAVE ERROR";
             _logger.LogError(ex, "Failed to move overdue task {TaskId} to this week.", task.Id);
+        }
+    }
+
+    private async Task<bool> SaveTaskDetailsAsync(NoteyTask task, string? text, DateOnly? dueDate)
+    {
+        try
+        {
+            var updated = await _taskStore.SetDetailsAsync(task.Id, text ?? string.Empty, dueDate, _windowClosed.Token);
+            if (updated is null)
+            {
+                throw new InvalidOperationException("Task was not found.");
+            }
+
+            AutosaveStatusText.Text = "TASK UPDATED";
+            await RefreshTasksAsync();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to save task {TaskId}.", task.Id);
+            return false;
+        }
+    }
+
+    private async Task<bool> DeleteTaskAsync(NoteyTask task)
+    {
+        try
+        {
+            await _taskStore.RemoveAsync([task.Id], _windowClosed.Token);
+            AutosaveStatusText.Text = "TASK DELETED";
+            await RefreshTasksAsync();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK DELETE ERROR";
+            _logger.LogError(ex, "Failed to delete task {TaskId}.", task.Id);
+            return false;
         }
     }
 

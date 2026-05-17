@@ -21,6 +21,12 @@ public interface ITaskStore
         DateOnly? dueDate,
         CancellationToken cancellationToken = default);
 
+    Task<NoteyTask?> SetDetailsAsync(
+        string taskId,
+        string text,
+        DateOnly? dueDate,
+        CancellationToken cancellationToken = default);
+
     Task<NoteyTask?> MoveToThisWeekAsync(
         string taskId,
         DateOnly today,

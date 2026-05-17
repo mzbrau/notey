@@ -139,6 +139,88 @@ public sealed class MainWindowUiFlowTests
     }
 
     [AvaloniaFact]
+    public async Task Set_due_today_action_is_icon_only_and_moves_task_to_today()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime).AddDays(-1);
+        var today = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        var tasksPath = await AddTaskThroughPanelAsync(harness, "Overdue task", dueDate);
+
+        var setDueTodayButton = FindButtonByToolTip(harness.Window, "Set due today");
+
+        Assert.IsType<PathIcon>(setDueTodayButton.Content);
+        setDueTodayButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Overdue task (due: {today:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+    }
+
+    [AvaloniaFact]
+    public async Task Task_edit_popup_saves_text_and_due_date_changes()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        var updatedDate = dueDate.AddDays(2);
+        var tasksPath = await AddTaskThroughPanelAsync(harness, "Editable task", dueDate);
+
+        await OpenTaskEditPopupAsync(harness, dueDate);
+        FindPopupControl<TextBox>(harness, "TaskEditTextBox").Text = "Updated task";
+        FindPopupControl<DatePicker>(harness, "TaskEditDueDatePicker").SelectedDate = ToPickerDate(updatedDate, harness.LocalNow.Offset);
+        FindPopupControl<Button>(harness, "TaskEditSaveButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Updated task (due: {updatedDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+        var content = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain("Editable task", content);
+    }
+
+    [AvaloniaFact]
+    public async Task Task_edit_popup_cancel_discards_staged_changes()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        var tasksPath = await AddTaskThroughPanelAsync(harness, "Cancelable task", dueDate);
+
+        await OpenTaskEditPopupAsync(harness, dueDate);
+        FindPopupControl<TextBox>(harness, "TaskEditTextBox").Text = "Should not save";
+        FindPopupControl<Button>(harness, "TaskEditClearDueDateButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        FindPopupControl<Button>(harness, "TaskEditCancelButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+
+        var content = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
+        Assert.Contains($"- [ ] Cancelable task (due: {dueDate:yyyy-MM-dd})", content);
+        Assert.DoesNotContain("Should not save", content);
+    }
+
+    [AvaloniaFact]
+    public async Task Task_edit_popup_clear_due_date_is_staged_until_save()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        var tasksPath = await AddTaskThroughPanelAsync(harness, "Clearable task", dueDate);
+
+        await OpenTaskEditPopupAsync(harness, dueDate);
+        FindPopupControl<Button>(harness, "TaskEditClearDueDateButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var beforeSave = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
+        Assert.Contains($"- [ ] Clearable task (due: {dueDate:yyyy-MM-dd})", beforeSave);
+
+        FindPopupControl<Button>(harness, "TaskEditSaveButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.WaitForFileDoesNotContainAsync(tasksPath, $"Clearable task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+        var afterSave = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
+        Assert.Contains("- [ ] Clearable task", afterSave);
+    }
+
+    [AvaloniaFact]
+    public async Task Task_edit_popup_deletes_task()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        var tasksPath = await AddTaskThroughPanelAsync(harness, "Deleteable task", dueDate);
+
+        await OpenTaskEditPopupAsync(harness, dueDate);
+        FindPopupControl<Button>(harness, "TaskEditDeleteButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        await harness.WaitForFileDoesNotContainAsync(tasksPath, "Deleteable task", TimeSpan.FromSeconds(2));
+    }
+
+    [AvaloniaFact]
     public async Task Open_recent_note_edits_are_processed_in_place()
     {
         using var harness = await MainWindowTestHarness.CreateAsync();
@@ -321,6 +403,53 @@ public sealed class MainWindowUiFlowTests
             .Single(button => button.GetVisualDescendants()
                 .OfType<TextBlock>()
                 .Any(textBlock => string.Equals(textBlock.Text, title, StringComparison.Ordinal)));
+    }
+
+    private static Button FindButtonByContent(Control root, string content)
+    {
+        return root.GetVisualDescendants()
+            .OfType<Button>()
+            .Single(button => string.Equals(button.Content?.ToString(), content, StringComparison.Ordinal));
+    }
+
+    private static T FindPopupControl<T>(MainWindowTestHarness harness, string name)
+        where T : Control
+    {
+        var popupContent = harness.Window.OpenTaskEditPopupContent
+            ?? throw new InvalidOperationException("Task edit popup is not open.");
+        return popupContent.GetVisualDescendants()
+            .OfType<T>()
+            .Single(control => string.Equals(control.Name, name, StringComparison.Ordinal));
+    }
+
+    private static async Task<string> AddTaskThroughPanelAsync(MainWindowTestHarness harness, string text, DateOnly? dueDate)
+    {
+        harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+        harness.Find<TextBox>("NewTaskTextBox").Text = text;
+        harness.Find<DatePicker>("NewTaskDueDatePicker").SelectedDate = dueDate is { } value
+            ? ToPickerDate(value, harness.LocalNow.Offset)
+            : null;
+        harness.Find<Button>("SaveNewTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        var tasksPath = Path.Combine(harness.RootPath, "Notes", "tasks.md");
+        var expectedLine = dueDate is { } valueDate
+            ? $"- [ ] {text} (due: {valueDate:yyyy-MM-dd})"
+            : $"- [ ] {text}";
+        await harness.WaitForFileContainsAsync(tasksPath, expectedLine, TimeSpan.FromSeconds(2));
+        return tasksPath;
+    }
+
+    private static async Task OpenTaskEditPopupAsync(MainWindowTestHarness harness, DateOnly dueDate)
+    {
+        FindButtonByContent(harness.Window, FormatTaskDate(dueDate)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+        Assert.NotNull(harness.Window.OpenTaskEditPopupContent);
+    }
+
+    private static string FormatTaskDate(DateOnly dueDate)
+    {
+        return dueDate.ToString("ddd d/M", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static DateTimeOffset ToPickerDate(DateOnly date, TimeSpan offset)

@@ -165,6 +165,29 @@ internal sealed class MainWindowTestHarness : IDisposable
         Assert.Contains(expectedText, await File.ReadAllTextAsync(filePath, cancellationToken));
     }
 
+    public async Task WaitForFileDoesNotContainAsync(string filePath, string unexpectedText, TimeSpan timeout)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            await DrainAsync();
+            if (!File.Exists(filePath)
+                || !(await File.ReadAllTextAsync(filePath, cancellationToken)).Contains(unexpectedText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            await Task.Delay(EditorWaitPollInterval, cancellationToken);
+        }
+
+        await DrainAsync();
+        if (File.Exists(filePath))
+        {
+            Assert.DoesNotContain(unexpectedText, await File.ReadAllTextAsync(filePath, cancellationToken));
+        }
+    }
+
     public string GetExpectedCustomerMeetingPath(string customer, string topic)
     {
         return Path.Combine(

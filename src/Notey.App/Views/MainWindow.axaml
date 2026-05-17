@@ -146,58 +146,132 @@
               BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
               BorderThickness="1,0,0,1"
               Background="{DynamicResource Notey.SurfaceLowBrush}">
-        <DockPanel LastChildFill="True">
-          <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="18,20,18,14">
-            <TextBlock Grid.Column="0"
-                       Classes="label"
-                       Text="TASKS"
-                       FontSize="16"
-                       LetterSpacing="1.8"
-                       VerticalAlignment="Center" />
-            <Button x:Name="AddTaskButton"
-                    Grid.Column="1"
-                    Classes="command"
-                    ToolTip.Tip="Add task"
-                    AutomationProperties.Name="Add task">
-              <PathIcon Classes="commandIcon" Data="M10.5,5 L13.5,5 L13.5,10.5 L19,10.5 L19,13.5 L13.5,13.5 L13.5,19 L10.5,19 L10.5,13.5 L5,13.5 L5,10.5 L10.5,10.5 Z" />
-            </Button>
-          </Grid>
+        <Grid>
+          <DockPanel LastChildFill="True">
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="18,20,18,14">
+              <TextBlock Grid.Column="0"
+                         Classes="label"
+                         Text="TASKS"
+                         FontSize="16"
+                         LetterSpacing="1.8"
+                         VerticalAlignment="Center" />
+              <Button x:Name="AddTaskButton"
+                      Grid.Column="1"
+                      Classes="command"
+                      ToolTip.Tip="Add task"
+                      AutomationProperties.Name="Add task">
+                <PathIcon Classes="commandIcon" Data="M10.5,5 L13.5,5 L13.5,10.5 L19,10.5 L19,13.5 L13.5,13.5 L13.5,19 L10.5,19 L10.5,13.5 L5,13.5 L5,10.5 L10.5,10.5 Z" />
+              </Button>
+            </Grid>
 
-          <Border x:Name="AddTaskPanel"
-                  DockPanel.Dock="Top"
+            <Border x:Name="AddTaskPanel"
+                    DockPanel.Dock="Top"
+                    IsVisible="False"
+                    Margin="18,0,18,12"
+                    Padding="12"
+                    CornerRadius="8"
+                    BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+                    BorderThickness="1"
+                    Background="{DynamicResource Notey.SurfaceBrushRaised}">
+              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,132,Auto" RowSpacing="8" ColumnSpacing="8">
+                <TextBox x:Name="NewTaskTextBox"
+                         Grid.Row="0"
+                         Grid.Column="0"
+                         Grid.ColumnSpan="3"
+                         Classes="metadataInput"
+                         PlaceholderText="New task" />
+                <DatePicker x:Name="NewTaskDueDatePicker"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Classes="metadataInput"
+                            DayFormat="dd"
+                            MonthFormat="MM"
+                            YearFormat="yyyy" />
+                <Button x:Name="SaveNewTaskButton"
+                        Grid.Row="1"
+                        Grid.Column="2"
+                        Content="Add"
+                        Padding="12,6" />
+              </Grid>
+            </Border>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="TaskSectionsPanel" Margin="18,0,18,20" Spacing="8" />
+            </ScrollViewer>
+          </DockPanel>
+
+          <!-- Dim backdrop — blocks clicks on task rows while the edit card is open -->
+          <Border x:Name="TaskEditBackdrop"
                   IsVisible="False"
-                  Margin="18,0,18,12"
-                  Padding="12"
-                  CornerRadius="8"
+                  Background="#A8000000"
+                  ZIndex="10" />
+
+          <!-- Task edit card — in-window overlay, not a Popup, so DatePicker cannot dismiss it -->
+          <Border x:Name="TaskEditCard"
+                  IsVisible="False"
+                  ZIndex="11"
+                  Margin="18"
+                  VerticalAlignment="Center"
+                  CornerRadius="10"
+                  Padding="20,18"
                   BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
                   BorderThickness="1"
-                  Background="{DynamicResource Notey.SurfaceBrushRaised}">
-            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,132,Auto" RowSpacing="8" ColumnSpacing="8">
-              <TextBox x:Name="NewTaskTextBox"
-                       Grid.Row="0"
-                       Grid.Column="0"
-                       Grid.ColumnSpan="3"
-                       Classes="metadataInput"
-                       Watermark="New task" />
-              <DatePicker x:Name="NewTaskDueDatePicker"
-                          Grid.Row="1"
-                          Grid.Column="1"
-                          Classes="metadataInput"
-                          DayFormat="dd"
-                          MonthFormat="MM"
-                          YearFormat="yyyy" />
-              <Button x:Name="SaveNewTaskButton"
-                      Grid.Row="1"
-                      Grid.Column="2"
-                      Content="Add"
-                      Padding="12,6" />
-            </Grid>
-          </Border>
+                  Background="{DynamicResource Notey.SurfaceBrush}"
+                  BoxShadow="0 20 60 0 #D0000000">
+            <StackPanel Spacing="14">
+              <TextBlock Text="Edit task"
+                         FontSize="15"
+                         FontWeight="SemiBold"
+                         Foreground="{DynamicResource Notey.PrimaryTextBrush}" />
 
-          <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel x:Name="TaskSectionsPanel" Margin="18,0,18,20" Spacing="8" />
-          </ScrollViewer>
-        </DockPanel>
+              <StackPanel Spacing="6">
+                <TextBlock Text="TASK" Classes="label" />
+                <TextBox x:Name="TaskEditTextBox"
+                         Classes="metadataInput"
+                         PlaceholderText="Task text" />
+              </StackPanel>
+
+              <StackPanel Spacing="6">
+                <TextBlock Text="DUE DATE" Classes="label" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <DatePicker x:Name="TaskEditDueDatePicker"
+                              Classes="metadataInput"
+                              DayFormat="dd"
+                              MonthFormat="MM"
+                              YearFormat="yyyy" />
+                  <Button x:Name="TaskEditClearDueDateButton"
+                          Grid.Column="1"
+                          Classes="panelAction"
+                          Content="Clear" />
+                </Grid>
+              </StackPanel>
+
+              <TextBlock x:Name="TaskEditErrorText"
+                         Text="Task could not be saved. Remove metadata or invalid text and try again."
+                         Foreground="{DynamicResource Notey.ErrorBrush}"
+                         FontSize="12"
+                         TextWrapping="Wrap"
+                         IsVisible="False" />
+
+              <Rectangle Height="1" Fill="{DynamicResource Notey.OutlineVariantBrush}" />
+
+              <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <Button x:Name="TaskEditDeleteButton"
+                        Grid.Column="0"
+                        Classes="panelDanger"
+                        Content="Delete task" />
+                <Button x:Name="TaskEditCancelButton"
+                        Grid.Column="2"
+                        Classes="panelAction"
+                        Content="Cancel" />
+                <Button x:Name="TaskEditSaveButton"
+                        Grid.Column="3"
+                        Classes="panelPrimary"
+                        Content="Save" />
+              </Grid>
+            </StackPanel>
+          </Border>
+        </Grid>
       </Border>
     </Grid>
 

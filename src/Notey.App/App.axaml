@@ -247,5 +247,72 @@
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
 
+    <!-- Panel action buttons (task edit card: Cancel, Clear) -->
+    <Style Selector="Button.panelAction">
+      <Setter Property="Padding" Value="14,7" />
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceHighBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.SecondaryTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.OutlineVariantBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="Button.panelAction:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceHighestBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+    </Style>
+
+    <Style Selector="Button.panelAction:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+    </Style>
+
+    <!-- Primary panel button (task edit card: Save) -->
+    <Style Selector="Button.panelPrimary">
+      <Setter Property="Padding" Value="14,7" />
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryContainerBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="Button.panelPrimary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+    </Style>
+
+    <Style Selector="Button.panelPrimary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Notey.PrimaryBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.SurfaceBrush}" />
+    </Style>
+
+    <!-- Danger panel button (task edit card: Delete task) -->
+    <Style Selector="Button.panelDanger">
+      <Setter Property="Padding" Value="14,7" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="Button.panelDanger /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Foreground" Value="{DynamicResource Notey.ErrorBrush}" />
+    </Style>
+
+    <Style Selector="Button.panelDanger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#201A1A" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.ErrorBrush}" />
+    </Style>
+
+    <Style Selector="Button.panelDanger:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#301A1A" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.ErrorBrush}" />
+    </Style>
+
   </Application.Styles>
 </Application>

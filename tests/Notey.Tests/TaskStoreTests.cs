@@ -85,6 +85,54 @@ public sealed class TaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Store_updates_task_text_and_due_date_together()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var tasksPath = Path.Combine(rootPath, "Notes", "tasks.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(tasksPath)!);
+        await File.WriteAllTextAsync(tasksPath, """
+            # Tasks
+
+            ## 2026-05-13
+            - [x] Original task (due: 2026-05-20) (completed: 2026-05-21) (source: [[Notes/roadmap|roadmap]]) ^notey-task-edit
+            """, cancellationToken);
+        var store = CreateStore(rootPath);
+        var task = Assert.Single(await store.LoadAsync(cancellationToken));
+
+        var updated = await store.SetDetailsAsync(task.Id, " Updated   task ", new DateOnly(2026, 5, 22), cancellationToken);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Updated task", updated.Text);
+        Assert.Equal(new DateOnly(2026, 5, 22), updated.DueDate);
+        var content = await File.ReadAllTextAsync(tasksPath, cancellationToken);
+        Assert.Contains("- [x] Updated task (due: 2026-05-22) (completed: 2026-05-21) (source: [[Notes/roadmap|roadmap]]) ^notey-task-edit", content);
+    }
+
+    [Fact]
+    public async Task Store_rejects_task_text_that_would_be_reparsed_as_metadata()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var tasksPath = Path.Combine(rootPath, "Notes", "tasks.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(tasksPath)!);
+        await File.WriteAllTextAsync(tasksPath, """
+            # Tasks
+
+            ## 2026-05-13
+            - [ ] Original task ^notey-task-edit
+            """, cancellationToken);
+        var store = CreateStore(rootPath);
+        var task = Assert.Single(await store.LoadAsync(cancellationToken));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            store.SetDetailsAsync(task.Id, "Updated task (due: 2026-05-22)", null, cancellationToken));
+
+        var content = await File.ReadAllTextAsync(tasksPath, cancellationToken);
+        Assert.Contains("- [ ] Original task ^notey-task-edit", content);
+    }
+
+    [Fact]
     public void Grouper_orders_tasks_by_due_date_sections()
     {
         var today = new DateOnly(2026, 5, 13);
