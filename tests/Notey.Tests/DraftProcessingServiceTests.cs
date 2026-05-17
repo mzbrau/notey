@@ -63,8 +63,8 @@ public sealed class DraftProcessingServiceTests : IDisposable
         Assert.Single(FindAll(content, "## 2026-05-13"));
         Assert.Contains("Earlier note.", content);
         Assert.Contains("New note.", content);
-        Assert.Contains("  - \"#old\"", content);
-        Assert.Contains("  - \"#new\"", content);
+        Assert.Contains("  - \"old\"", content);
+        Assert.Contains("  - \"new\"", content);
     }
 
     [Fact]
@@ -366,8 +366,8 @@ public sealed class DraftProcessingServiceTests : IDisposable
         Assert.Equal(updated, await File.ReadAllTextAsync(target));
         Assert.Contains("created: 2026-05-01T00:00+00:00", updated);
         Assert.Matches(@"processed: 2026-05-13T\d{2}:\d{2}[+-]\d{2}:\d{2}", updated);
-        Assert.Contains("  - \"#old\"", updated);
-        Assert.Contains("  - \"#new\"", updated);
+        Assert.Contains("  - \"old\"", updated);
+        Assert.Contains("  - \"new\"", updated);
         Assert.Contains("  - \"https://example.com\"", updated);
         Assert.Contains("Updated body.", updated);
     }
