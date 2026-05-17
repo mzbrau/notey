@@ -232,18 +232,20 @@
               </StackPanel>
 
               <StackPanel Spacing="6">
-                <TextBlock Text="DUE DATE" Classes="label" />
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                  <DatePicker x:Name="TaskEditDueDatePicker"
-                              Classes="metadataInput"
-                              DayFormat="dd"
-                              MonthFormat="MM"
-                              YearFormat="yyyy" />
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="DUE DATE" Classes="label" VerticalAlignment="Center" />
                   <Button x:Name="TaskEditClearDueDateButton"
                           Grid.Column="1"
                           Classes="panelAction"
-                          Content="Clear" />
+                          Content="Clear"
+                          Padding="10,4"
+                          FontSize="11" />
                 </Grid>
+                <DatePicker x:Name="TaskEditDueDatePicker"
+                            Classes="metadataInput"
+                            DayFormat="dd"
+                            MonthFormat="MM"
+                            YearFormat="yyyy" />
               </StackPanel>
 
               <TextBlock x:Name="TaskEditErrorText"
