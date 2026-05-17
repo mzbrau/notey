@@ -94,6 +94,46 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessExistingNoteAsync_uses_created_date_as_meeting_date_fallback_for_legacy_notes()
+    {
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "Customers", "Microsoft", "Meetings", "2026-03-10 - accounts.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        await File.WriteAllTextAsync(target, """
+            ---
+            created: 2026-03-10T09:00:00.0000000+00:00
+            processed: 2026-03-10T09:01:00.0000000+00:00
+            meeting: true
+            topic: "Accounts"
+            people: []
+            tags: []
+            links: []
+            ---
+            Original body.
+            """);
+        var service = CreateService(rootPath, """{ "body": "Updated body." }""");
+
+        var updated = await service.ProcessExistingNoteAsync(
+            target,
+            """
+            ---
+            created: 2026-03-10T09:00:00.0000000+00:00
+            processed: 2026-03-10T09:01:00.0000000+00:00
+            meeting: true
+            topic: "Accounts"
+            people: []
+            tags: []
+            links: []
+            ---
+            Original body.
+            """,
+            new DateTimeOffset(2026, 3, 10, 9, 0, 0, TimeSpan.Zero));
+
+        Assert.Contains("date: 2026-03-10", updated);
+        Assert.DoesNotContain($"date: {DateOnly.FromDateTime(DateTimeOffset.UtcNow.LocalDateTime):yyyy-MM-dd}", updated);
+    }
+
+    [Fact]
     public async Task ProcessAsync_appends_topic_only_note_under_existing_date_heading()
     {
         var rootPath = CreateTempDirectory();

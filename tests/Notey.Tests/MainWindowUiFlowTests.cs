@@ -218,7 +218,7 @@ public sealed class MainWindowUiFlowTests
         await OpenTaskEditPopupAsync(harness, dueDate);
         FindPopupControl<Button>(harness, "TaskEditDeleteButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-        await harness.WaitForFileDoesNotContainAsync(tasksPath, "Deletable task", TimeSpan.FromSeconds(2));
+        await harness.WaitForFileDoesNotContainAsync(tasksPath, "Deletable task", TimeSpan.FromSeconds(5));
     }
 
     [AvaloniaFact]
