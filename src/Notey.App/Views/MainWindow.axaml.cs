@@ -15,6 +15,7 @@ using AvaloniaEdit;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
+using Notey.App.Assistant;
 using Notey.App.Configuration;
 using Notey.App.Editing;
 using Notey.App.Processing;
@@ -52,6 +53,7 @@ public sealed partial class MainWindow : Window
     private readonly ObsidianLinkBuilder _linkBuilder;
     private readonly ITaskStore _taskStore;
     private readonly DraftProcessingService _draftProcessingService;
+    private readonly NoteyAssistantService _assistantService;
     private readonly IRecentNoteChooser _recentNoteChooser;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindow> _logger;
@@ -83,8 +85,13 @@ public sealed partial class MainWindow : Window
     private bool _isRecentNoteDialogOpen;
     private bool _isTasksPanelAnimating;
     private bool _isResizingTasksPanel;
+    private bool _isResizingAssistantPanel;
+    private bool _assistantPanelVisible;
+    private bool _isAssistantBusy;
     private double _tasksPanelResizeStartX;
     private double _tasksPanelResizeStartWidth;
+    private double _assistantPanelResizeStartY;
+    private double _assistantPanelResizeStartHeight;
     private long _revision;
     private long? _suppressedCompletionRevision;
     private HotkeyGesture? _openNoteGesture;
@@ -92,6 +99,8 @@ public sealed partial class MainWindow : Window
     private IReadOnlyList<VaultFolderCommand> _folderCommands = [];
     private IReadOnlyList<CompletionSuggestion> _completionSuggestions = [];
     private IReadOnlyList<NoteyTask> _tasks = [];
+    private NoteyAssistantResult? _pendingAssistantResult;
+    private string? _pendingAssistantNoteIdentity;
     private readonly HashSet<TaskSectionKind> _collapsedTaskSections =
     [
         TaskSectionKind.NextWeek,
@@ -101,6 +110,7 @@ public sealed partial class MainWindow : Window
         TaskSectionKind.Completed
     ];
     private CancellationTokenSource? _idleProcessingCancellation;
+    private CancellationTokenSource? _assistantRequestCancellation;
     private DateTimeOffset _nextIndexRefreshAt = DateTimeOffset.MinValue;
     private bool _tasksPanelVisible = true;
 
@@ -130,7 +140,8 @@ public sealed partial class MainWindow : Window
             dependencies.DraftProcessingService,
             timeProvider,
             logger,
-            taskStore: dependencies.TaskStore)
+            taskStore: dependencies.TaskStore,
+            assistantService: dependencies.AssistantService)
     {
     }
 
@@ -148,7 +159,8 @@ public sealed partial class MainWindow : Window
         ILogger<MainWindow> logger,
         IRecentNoteChooser? recentNoteChooser = null,
         NoteySettingsStore? settingsStore = null,
-        ITaskStore? taskStore = null)
+        ITaskStore? taskStore = null,
+        NoteyAssistantService? assistantService = null)
     {
         InitializeComponent();
 
@@ -162,6 +174,9 @@ public sealed partial class MainWindow : Window
         _linkBuilder = linkBuilder;
         _taskStore = taskStore ?? new FileSystemTaskStore(vaultWorkspace, linkBuilder, timeProvider);
         _draftProcessingService = draftProcessingService;
+        _assistantService = assistantService ?? new NoteyAssistantService(
+            options,
+            new AiProviderRegistry([], string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId));
         _recentNoteChooser = recentNoteChooser ?? new RecentNoteDialogChooser();
         _timeProvider = timeProvider;
         _logger = logger;
@@ -181,6 +196,7 @@ public sealed partial class MainWindow : Window
         ConfigureEditor();
         ConfigureCommands();
         ConfigureTasksPanel();
+        ConfigureAssistantPanel();
         UpdateEditorStatus();
         UpdateContextChip();
         UpdateCurrentNoteFooter();
@@ -196,7 +212,9 @@ public sealed partial class MainWindow : Window
         {
             _windowClosed.Cancel();
             CancelIdleProcessing();
+            CancelAssistantRequest();
             DisposeIdleProcessingCancellation();
+            DisposeAssistantRequestCancellation();
             _taskRefreshTimer.Stop();
             _windowClosed.Dispose();
             _saveGate.Dispose();
@@ -222,6 +240,7 @@ public sealed partial class MainWindow : Window
             ocrEngine,
             TimeProvider.System,
             taskStore);
+        var assistantService = new NoteyAssistantService(options, aiRegistry);
 
         return new DefaultDependencies(
             options,
@@ -233,7 +252,8 @@ public sealed partial class MainWindow : Window
             ocrEngine,
             linkBuilder,
             taskStore,
-            draftProcessingService);
+            draftProcessingService,
+            assistantService);
     }
 
     private static NoteySettingsStore CreateFallbackSettingsStore(NoteyOptions options)
@@ -309,6 +329,10 @@ public sealed partial class MainWindow : Window
         TasksButton.Click += async (_, _) => await ToggleTasksPanelAsync();
         AddTaskButton.Click += (_, _) => ToggleAddTaskPanel();
         SaveNewTaskButton.Click += async (_, _) => await AddTaskFromPanelAsync();
+        AssistantButton.Click += (_, _) => ToggleAssistantPanel();
+        AssistantSendButton.Click += async (_, _) => await SendAssistantPromptAsync();
+        AssistantCancelButton.Click += (_, _) => CancelAssistantRequest();
+        AssistantApplyButton.Click += async (_, _) => await ApplyPendingAssistantChangesAsync();
         SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
     }
 
@@ -369,6 +393,449 @@ public sealed partial class MainWindow : Window
                 e.Handled = true;
             }
         };
+    }
+
+    private void ConfigureAssistantPanel()
+    {
+        AssistantPanelResizeHandle.Cursor = new Cursor(StandardCursorType.SizeNorthSouth);
+        AssistantPanelResizeHandle.PointerPressed += OnAssistantPanelResizeHandlePointerPressed;
+        AssistantPanelResizeHandle.PointerMoved += OnAssistantPanelResizeHandlePointerMoved;
+        AssistantPanelResizeHandle.PointerReleased += OnAssistantPanelResizeHandlePointerReleased;
+        SetAssistantPanelHeight(AssistantPanel.Height);
+        UpdateAssistantButtons();
+        AssistantPromptTextBox.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.Enter && IsCommandModifier(e.KeyModifiers))
+            {
+                await SendAssistantPromptAsync();
+                e.Handled = true;
+            }
+        };
+    }
+
+    private void OnAssistantPanelResizeHandlePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var properties = e.GetCurrentPoint(this).Properties;
+        if (!properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _isResizingAssistantPanel = true;
+        _assistantPanelResizeStartY = e.GetPosition(this).Y;
+        _assistantPanelResizeStartHeight = GetAssistantPanelHeight();
+        e.Pointer.Capture(AssistantPanelResizeHandle);
+        e.Handled = true;
+    }
+
+    private void OnAssistantPanelResizeHandlePointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_isResizingAssistantPanel)
+        {
+            return;
+        }
+
+        var currentY = e.GetPosition(this).Y;
+        SetAssistantPanelHeight(_assistantPanelResizeStartHeight + _assistantPanelResizeStartY - currentY);
+        e.Handled = true;
+    }
+
+    private void OnAssistantPanelResizeHandlePointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_isResizingAssistantPanel)
+        {
+            return;
+        }
+
+        _isResizingAssistantPanel = false;
+        e.Pointer.Capture(null);
+        e.Handled = true;
+    }
+
+    private void ToggleAssistantPanel()
+    {
+        _assistantPanelVisible = !_assistantPanelVisible;
+        AssistantPanel.IsVisible = _assistantPanelVisible;
+        AssistantPanelResizeHandle.IsVisible = _assistantPanelVisible;
+        if (_assistantPanelVisible)
+        {
+            AssistantPromptTextBox.Focus();
+        }
+    }
+
+    private void SetAssistantPanelHeight(double height)
+    {
+        AssistantPanel.Height = ClampAssistantPanelHeight(height);
+    }
+
+    private double GetAssistantPanelHeight()
+    {
+        return double.IsNaN(AssistantPanel.Height)
+            ? ClampAssistantPanelHeight(AssistantPanel.Bounds.Height)
+            : ClampAssistantPanelHeight(AssistantPanel.Height);
+    }
+
+    private double ClampAssistantPanelHeight(double height)
+    {
+        return Math.Clamp(height, AssistantPanel.MinHeight, AssistantPanel.MaxHeight);
+    }
+
+    private async Task SendAssistantPromptAsync()
+    {
+        if (_isAssistantBusy)
+        {
+            return;
+        }
+
+        var prompt = AssistantPromptTextBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            ShowAssistantError("Enter a prompt for Notey Assistant.");
+            return;
+        }
+
+        _isAssistantBusy = true;
+        _pendingAssistantResult = null;
+        AssistantErrorText.IsVisible = false;
+        AssistantStatusText.Text = "Thinking";
+        AssistantResponseText.Text = "Notey Assistant is thinking...";
+        UpdateAssistantButtons();
+
+        _assistantRequestCancellation = CancellationTokenSource.CreateLinkedTokenSource(_windowClosed.Token);
+        var requestCancellation = _assistantRequestCancellation;
+        try
+        {
+            await RefreshTasksAsync();
+            var result = await _assistantService.CompleteAsync(CreateAssistantRequest(prompt), _assistantRequestCancellation.Token);
+            _pendingAssistantResult = result.Warnings.Count == 0 && result.HasChanges ? result : null;
+            _pendingAssistantNoteIdentity = _pendingAssistantResult is null ? null : GetCurrentAssistantNoteIdentity();
+            AssistantResponseText.Text = FormatAssistantResult(result);
+            AssistantStatusText.Text = result.HasChanges
+                ? result.Warnings.Count == 0 ? "Changes proposed" : "Review failed"
+                : "Answered";
+            AssistantPromptTextBox.Text = string.Empty;
+            if (result.Warnings.Count > 0)
+            {
+                ShowAssistantError("Assistant proposed changes that failed validation. Nothing was applied.");
+            }
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested || requestCancellation.IsCancellationRequested)
+        {
+            AssistantStatusText.Text = "Cancelled";
+            AssistantResponseText.Text = "Notey Assistant request cancelled.";
+        }
+        catch (AiProviderException ex)
+        {
+            AssistantStatusText.Text = "AI error";
+            ShowAssistantError(IsAiConfigurationError(ex) ? "AI provider is not configured." : "AI provider returned an error.");
+            _logger.LogError(ex, "Notey Assistant AI request failed.");
+        }
+        catch (HttpRequestException ex)
+        {
+            AssistantStatusText.Text = "AI error";
+            ShowAssistantError("AI request failed.");
+            _logger.LogError(ex, "Notey Assistant HTTP request failed.");
+        }
+        catch (Exception ex) when (ex is FormatException or InvalidOperationException or ArgumentException)
+        {
+            AssistantStatusText.Text = "Invalid response";
+            ShowAssistantError("AI response could not be safely understood.");
+            _logger.LogError(ex, "Notey Assistant returned an invalid response.");
+        }
+        finally
+        {
+            _isAssistantBusy = false;
+            DisposeAssistantRequestCancellation();
+            UpdateAssistantButtons();
+        }
+    }
+
+    private NoteyAssistantRequest CreateAssistantRequest(string prompt)
+    {
+        return new NoteyAssistantRequest(
+            prompt,
+            NoteEditor.Document.Text,
+            NoteEditor.CaretOffset,
+            NoteEditor.SelectionStart,
+            NoteEditor.SelectionLength,
+            _currentFinalNotePath,
+            _currentDraft is not null,
+            _tasks);
+    }
+
+    private string GetCurrentAssistantNoteIdentity()
+    {
+        if (_currentFinalNotePath is not null)
+        {
+            return $"final:{Path.GetFullPath(_currentFinalNotePath)}";
+        }
+
+        if (_currentDraft is not null)
+        {
+            return $"draft:{Path.GetFullPath(_currentDraft.FilePath)}";
+        }
+
+        return "none";
+    }
+
+    private void ClearPendingAssistantResult()
+    {
+        _pendingAssistantResult = null;
+        _pendingAssistantNoteIdentity = null;
+        UpdateAssistantButtons();
+    }
+
+    private async Task ApplyPendingAssistantChangesAsync()
+    {
+        if (_pendingAssistantResult is null || _isAssistantBusy)
+        {
+            return;
+        }
+
+        _isAssistantBusy = true;
+        UpdateAssistantButtons();
+        var pendingResult = _pendingAssistantResult;
+        var pendingNoteIdentity = _pendingAssistantNoteIdentity;
+        _pendingAssistantResult = null;
+        _pendingAssistantNoteIdentity = null;
+        try
+        {
+            if (!string.Equals(pendingNoteIdentity, GetCurrentAssistantNoteIdentity(), StringComparison.Ordinal))
+            {
+                AssistantStatusText.Text = "Review failed";
+                ShowAssistantError("The current note changed since the assistant response. Ask again before applying.");
+                return;
+            }
+
+            await RefreshTasksAsync();
+            var validation = AssistantOperationValidator.Validate(
+                new NoteyAssistantResponse(
+                    pendingResult.Message,
+                    pendingResult.NoteOperations,
+                    pendingResult.TaskOperations),
+                NoteEditor.Document.Text,
+                _tasks);
+            if (validation.Warnings.Count > 0)
+            {
+                AssistantResponseText.Text = FormatAssistantResult(validation);
+                AssistantStatusText.Text = "Review failed";
+                ShowAssistantError("Current note or tasks changed since the assistant response. Ask again before applying.");
+                return;
+            }
+
+            await ApplyAssistantTaskOperationsAsync(validation.TaskOperations);
+            ApplyAssistantNoteOperations(validation.NoteOperations);
+            AssistantStatusText.Text = "Applied";
+            AssistantErrorText.IsVisible = false;
+            AutosaveStatusText.Text = "ASSISTANT APPLIED";
+            UpdateEditorStatus();
+            UpdateAssistantButtons();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AssistantStatusText.Text = "Apply failed";
+            ShowAssistantError("Notey could not apply the assistant changes.");
+            _logger.LogError(ex, "Failed to apply Notey Assistant changes.");
+        }
+        finally
+        {
+            _isAssistantBusy = false;
+            UpdateAssistantButtons();
+        }
+    }
+
+    private void ApplyAssistantNoteOperations(IReadOnlyList<AssistantNoteOperation> operations)
+    {
+        if (operations.Count == 0)
+        {
+            return;
+        }
+
+        if (NoteEditor.IsReadOnly)
+        {
+            throw new InvalidOperationException("The current note is read-only.");
+        }
+
+        using (NoteEditor.Document.RunUpdate())
+        {
+            if (operations.OfType<ReplaceAllNoteTextOperation>().SingleOrDefault() is { } replaceAll)
+            {
+                NoteEditor.Document.Text = replaceAll.Text;
+                NoteEditor.CaretOffset = Math.Min(NoteEditor.CaretOffset, NoteEditor.Document.TextLength);
+                return;
+            }
+
+            foreach (var edit in operations
+                         .Select(ToDocumentEdit)
+                         .OrderByDescending(static edit => edit.Start)
+                         .ThenByDescending(static edit => edit.Order))
+            {
+                NoteEditor.Document.Replace(edit.Start, edit.Length, edit.Text);
+            }
+        }
+    }
+
+    private async Task ApplyAssistantTaskOperationsAsync(IReadOnlyList<AssistantTaskOperation> operations)
+    {
+        if (operations.Count == 0)
+        {
+            return;
+        }
+
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+        foreach (var operation in operations)
+        {
+            switch (operation.Kind)
+            {
+                case AssistantTaskOperationKind.Add:
+                    await _taskStore.AddAsync([new NewNoteyTask(operation.Text ?? string.Empty, operation.DueDate, _currentFinalNotePath)], today, _windowClosed.Token);
+                    break;
+                case AssistantTaskOperationKind.Update:
+                    var task = _tasks.First(task => string.Equals(task.Id, operation.TaskId, StringComparison.OrdinalIgnoreCase));
+                    if (await _taskStore.SetDetailsAsync(operation.TaskId!, operation.Text ?? task.Text, operation.DueDate ?? task.DueDate, _windowClosed.Token) is null)
+                    {
+                        throw new InvalidOperationException($"Task '{operation.TaskId}' no longer exists.");
+                    }
+
+                    break;
+                case AssistantTaskOperationKind.Remove:
+                    await _taskStore.RemoveAsync([operation.TaskId!], _windowClosed.Token);
+                    break;
+                case AssistantTaskOperationKind.Complete:
+                    if (await _taskStore.SetCompletedAsync(operation.TaskId!, today, _windowClosed.Token) is null)
+                    {
+                        throw new InvalidOperationException($"Task '{operation.TaskId}' no longer exists.");
+                    }
+
+                    break;
+                case AssistantTaskOperationKind.Reopen:
+                    if (await _taskStore.SetCompletedAsync(operation.TaskId!, null, _windowClosed.Token) is null)
+                    {
+                        throw new InvalidOperationException($"Task '{operation.TaskId}' no longer exists.");
+                    }
+
+                    break;
+                case AssistantTaskOperationKind.SetDueDate:
+                    if (await _taskStore.SetDueDateAsync(operation.TaskId!, operation.DueDate, _windowClosed.Token) is null)
+                    {
+                        throw new InvalidOperationException($"Task '{operation.TaskId}' no longer exists.");
+                    }
+
+                    break;
+            }
+        }
+
+        await RefreshTasksAsync();
+    }
+
+    private static (int Start, int Length, string Text, int Order) ToDocumentEdit(AssistantNoteOperation operation, int order)
+    {
+        return operation switch
+        {
+            InsertNoteTextOperation insert => (insert.Offset, 0, insert.Text, order),
+            ReplaceNoteRangeOperation replace => (replace.Start, replace.Length, replace.Text, order),
+            DeleteNoteRangeOperation delete => (delete.Start, delete.Length, string.Empty, order),
+            _ => throw new InvalidOperationException("Unsupported assistant note operation.")
+        };
+    }
+
+    private string FormatAssistantResult(NoteyAssistantResult result)
+    {
+        var builder = new StringBuilder(result.Message.Trim());
+        if (result.NoteOperations.Count > 0 || result.TaskOperations.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.AppendLine("Proposed changes:");
+            if (result.NoteOperations.Count > 0)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"- Note edits: {result.NoteOperations.Count}");
+                foreach (var operation in result.NoteOperations)
+                {
+                    builder.AppendLine(CultureInfo.InvariantCulture, $"  - {DescribeNoteOperation(operation)}");
+                }
+            }
+
+            if (result.TaskOperations.Count > 0)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"- Task changes: {result.TaskOperations.Count}");
+                foreach (var operation in result.TaskOperations)
+                {
+                    builder.AppendLine(CultureInfo.InvariantCulture, $"  - {DescribeTaskOperation(operation)}");
+                }
+            }
+        }
+
+        if (result.Warnings.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("Validation warnings:");
+            foreach (var warning in result.Warnings)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"- {warning}");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string DescribeNoteOperation(AssistantNoteOperation operation)
+    {
+        return operation switch
+        {
+            InsertNoteTextOperation insert => $"Insert at {insert.Offset}: \"{PreviewText(insert.Text)}\"",
+            ReplaceNoteRangeOperation replace => $"Replace {replace.Length} character(s) at {replace.Start}: \"{PreviewText(replace.ExpectedText ?? string.Empty)}\" -> \"{PreviewText(replace.Text)}\"",
+            DeleteNoteRangeOperation delete => $"Delete {delete.Length} character(s) at {delete.Start}: \"{PreviewText(delete.ExpectedText ?? string.Empty)}\"",
+            ReplaceAllNoteTextOperation replaceAll => $"Replace entire note with {replaceAll.Text.Length} character(s).",
+            _ => "Unknown note edit"
+        };
+    }
+
+    private string DescribeTaskOperation(AssistantTaskOperation operation)
+    {
+        var task = operation.TaskId is null
+            ? null
+            : _tasks.FirstOrDefault(task => string.Equals(task.Id, operation.TaskId, StringComparison.OrdinalIgnoreCase));
+        return operation.Kind switch
+        {
+            AssistantTaskOperationKind.Add => $"Add task: \"{operation.Text}\"{FormatDueDatePreview(operation.DueDate)}",
+            AssistantTaskOperationKind.Update => $"Update task \"{task?.Text ?? operation.TaskId}\": \"{operation.Text}\"{FormatDueDatePreview(operation.DueDate)}",
+            AssistantTaskOperationKind.Remove => $"Remove task: \"{task?.Text ?? operation.TaskId}\"",
+            AssistantTaskOperationKind.Complete => $"Complete task: \"{task?.Text ?? operation.TaskId}\"",
+            AssistantTaskOperationKind.Reopen => $"Reopen task: \"{task?.Text ?? operation.TaskId}\"",
+            AssistantTaskOperationKind.SetDueDate => $"Set due date for \"{task?.Text ?? operation.TaskId}\"{FormatDueDatePreview(operation.DueDate)}",
+            _ => "Unknown task change"
+        };
+    }
+
+    private static string FormatDueDatePreview(DateOnly? dueDate)
+    {
+        return dueDate is { } value
+            ? $" due {value:yyyy-MM-dd}"
+            : string.Empty;
+    }
+
+    private static string PreviewText(string text)
+    {
+        var normalized = text
+            .Replace("\r\n", "\\n", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal)
+            .Replace("\r", "\\n", StringComparison.Ordinal);
+        return normalized.Length <= 80 ? normalized : $"{normalized[..80]}...";
+    }
+
+    private void ShowAssistantError(string message)
+    {
+        AssistantErrorText.Text = message;
+        AssistantErrorText.IsVisible = true;
+    }
+
+    private void UpdateAssistantButtons()
+    {
+        AssistantSendButton.IsEnabled = !_isAssistantBusy;
+        AssistantCancelButton.IsEnabled = _isAssistantBusy;
+        AssistantApplyButton.IsEnabled = !_isAssistantBusy
+            && _pendingAssistantResult is { HasChanges: true, Warnings.Count: 0 };
     }
 
     private void OnTasksPanelResizeHandlePointerPressed(object? sender, PointerPressedEventArgs e)
@@ -1090,6 +1557,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            ClearPendingAssistantResult();
             _currentDraft = draft;
             _currentFinalNotePath = null;
             _currentRecentNoteCreatedAt = null;
@@ -1225,6 +1693,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            ClearPendingAssistantResult();
             _currentDraft = null;
             _currentFinalNotePath = filePath;
             _currentRecentNoteCreatedAt = ResolveRecentNoteCreatedAt(filePath, content);
@@ -1273,6 +1742,7 @@ public sealed partial class MainWindow : Window
             && !_directOcrSnippets.Any(static snippet => !string.IsNullOrWhiteSpace(snippet)))
         {
             DeleteIfExists(_currentDraft.FilePath);
+            ClearPendingAssistantResult();
             _currentDraft = null;
             _lastSavedText = string.Empty;
             _directOcrSnippets.Clear();
@@ -1303,6 +1773,7 @@ public sealed partial class MainWindow : Window
             {
                 AutosaveStatusText.Text = "PROCESSED";
                 var primaryFinalNotePath = SelectPrimaryWrittenNotePath(result.WrittenPaths);
+                ClearPendingAssistantResult();
                 _currentDraft = null;
                 _lastSavedText = string.Empty;
                 _directOcrSnippets.Clear();
@@ -2105,7 +2576,8 @@ public sealed partial class MainWindow : Window
     {
         return exception.Message.Contains("has no configured base URL", StringComparison.Ordinal)
             || exception.Message.Contains("has no API key", StringComparison.Ordinal)
-            || exception.Message.Contains("has no configured model name", StringComparison.Ordinal);
+            || exception.Message.Contains("has no configured model name", StringComparison.Ordinal)
+            || exception.Message.Contains("is not configured", StringComparison.Ordinal);
     }
 
     private async Task RefreshIndexesAsync(bool force = false)
@@ -2142,6 +2614,17 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void CancelAssistantRequest()
+    {
+        try
+        {
+            _assistantRequestCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
     private void DisposeIdleProcessingCancellation()
     {
         try
@@ -2154,6 +2637,21 @@ public sealed partial class MainWindow : Window
         finally
         {
             _idleProcessingCancellation = null;
+        }
+    }
+
+    private void DisposeAssistantRequestCancellation()
+    {
+        try
+        {
+            _assistantRequestCancellation?.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            _assistantRequestCancellation = null;
         }
     }
 
@@ -2520,6 +3018,7 @@ public sealed partial class MainWindow : Window
             _isInitializing = true;
             try
             {
+                ClearPendingAssistantResult();
                 NoteEditor.Document.Text = updatedContent;
                 NoteEditor.CaretOffset = Math.Min(caretOffset, NoteEditor.Document.TextLength);
                 _lastSavedText = updatedContent;
@@ -2833,7 +3332,8 @@ public sealed partial class MainWindow : Window
         ITesseractOcrEngine OcrEngine,
         ObsidianLinkBuilder LinkBuilder,
         ITaskStore TaskStore,
-        DraftProcessingService DraftProcessingService);
+        DraftProcessingService DraftProcessingService,
+        NoteyAssistantService AssistantService);
 
     private sealed record SlashCommandDefinition(string Name, string Description, string InsertionText);
 

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Notey.AI.Abstractions;
 using Notey.AI.Providers;
+using Notey.App.Assistant;
 using Notey.App.Diagnostics;
 using Notey.App.Processing;
 using Notey.App.Platform;
@@ -67,6 +68,7 @@ public static class HostBootstrapper
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
                 services.AddSingleton<ITaskStore, FileSystemTaskStore>();
                 services.AddSingleton<DraftProcessingService>();
+                services.AddSingleton<NoteyAssistantService>();
                 services.AddSingleton<IRecentNoteChooser, RecentNoteDialogChooser>();
 
                 if (platformRuntime.IsWindows)
