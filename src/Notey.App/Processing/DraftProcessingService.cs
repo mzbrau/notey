@@ -447,7 +447,7 @@ public sealed partial class DraftProcessingService(
             Topic = FirstNonEmpty(metadata.Topic, ReadYamlScalar(frontmatter, "topic")),
             DynamicDirectives = UnionDynamicDirectives(existingDynamicDirectives, metadata.DynamicDirectives),
             People = Union(ReadYamlArray(frontmatter, "people"), metadata.People),
-            Tags = Union(ReadYamlArray(frontmatter, "tags"), metadata.Tags),
+            Tags = Union(ReadYamlArray(frontmatter, "tags").Select(static t => t.TrimStart('#')).ToArray(), metadata.Tags),
             Links = Union(ReadYamlArray(frontmatter, "links"), metadata.Links)
         };
     }
@@ -473,7 +473,7 @@ public sealed partial class DraftProcessingService(
         }
 
         AppendYamlArray(lines, "people", metadata.People);
-        AppendYamlArray(lines, "tags", metadata.Tags.Select(static tag => tag.Trim().TrimStart('#')).Where(static tag => tag.Length > 0).Select(static tag => $"#{tag}").ToArray());
+        AppendYamlArray(lines, "tags", metadata.Tags);
         AppendYamlArray(lines, "links", metadata.Links);
         lines.Add("---");
         return string.Join('\n', lines);

@@ -39,7 +39,7 @@ public sealed class MainWindowUiFlowTests
         Assert.Contains("customer: \"Microsoft\"", expectedContent);
         Assert.Contains("Captured accounts launch context.", expectedContent);
         Assert.Contains("  - \"Jane Doe\"", expectedContent);
-        Assert.Contains("  - \"#accounts\"", expectedContent);
+        Assert.Contains("  - \"accounts\"", expectedContent);
 
         harness.RecentNoteChooser.Choose = notes =>
         {
@@ -261,7 +261,7 @@ public sealed class MainWindowUiFlowTests
         Assert.Equal(filePath, harness.CurrentNotePathText);
         Assert.Equal(updatedContent, harness.Editor.Document.Text);
         Assert.Contains("topic: \"Roadmap\"", updatedContent);
-        Assert.Contains("  - \"#updated\"", updatedContent);
+        Assert.Contains("  - \"updated\"", updatedContent);
         Assert.Contains("Updated recent note body.", updatedContent);
         Assert.DoesNotContain("Original recent note body.", updatedContent);
     }
