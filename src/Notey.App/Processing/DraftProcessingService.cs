@@ -464,11 +464,11 @@ public sealed partial class DraftProcessingService(
             "---",
             $"created: {FormatTimestamp(metadata.CreatedAt)}",
             $"processed: {FormatTimestamp(metadata.ProcessedAt)}",
-            $"meeting: {metadata.IsMeeting.ToString().ToLowerInvariant()}",
         };
 
         if (metadata.IsMeeting)
         {
+            lines.Add("meeting: true");
             var meetingDate = metadata.MeetingDate ?? DateOnly.FromDateTime(metadata.ProcessedAt.LocalDateTime);
             lines.Add($"date: {meetingDate:yyyy-MM-dd}");
         }
