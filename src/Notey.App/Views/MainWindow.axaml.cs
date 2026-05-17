@@ -61,6 +61,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _taskRefreshTimer;
     private readonly CancellationTokenSource _windowClosed = new();
     private readonly SemaphoreSlim _saveGate = new(1, 1);
+    private readonly SemaphoreSlim _taskRefreshGate = new(1, 1);
     private readonly ImagePreviewMargin _imagePreviewMargin = new();
     private readonly TranslateTransform _tasksPanelTransform = new();
     private readonly NoteDirectiveParser _directiveParser = new();
@@ -557,7 +558,7 @@ public sealed partial class MainWindow : Window
 
     private async void TaskRefreshTimerOnTick(object? sender, EventArgs e)
     {
-        if (_tasksPanelVisible && IsVisible)
+        if (_tasksPanelVisible && IsVisible && _taskRefreshGate.CurrentCount > 0)
         {
             await RefreshTasksAsync();
         }
@@ -565,8 +566,11 @@ public sealed partial class MainWindow : Window
 
     private async Task RefreshTasksAsync()
     {
+        var refreshLockTaken = false;
         try
         {
+            await _taskRefreshGate.WaitAsync(_windowClosed.Token);
+            refreshLockTaken = true;
             _tasks = await _taskStore.LoadAsync(_windowClosed.Token);
             RenderTasks();
         }
@@ -578,6 +582,13 @@ public sealed partial class MainWindow : Window
         {
             AutosaveStatusText.Text = "TASKS ERROR";
             _logger.LogError(ex, "Failed to refresh tasks from {TasksPath}.", _taskStore.GetTasksFilePath());
+        }
+        finally
+        {
+            if (refreshLockTaken)
+            {
+                _taskRefreshGate.Release();
+            }
         }
     }
 

@@ -162,6 +162,35 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessExistingNoteAsync_extracts_indented_task_directives()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "roadmap.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        var service = CreateServiceWithoutAi(rootPath);
+        var content = """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            ---
+              /task Review launch // 2026-05-20
+            """;
+
+        var updated = await service.ProcessExistingNoteAsync(
+            target,
+            content,
+            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+            cancellationToken);
+
+        Assert.DoesNotContain("/task Review launch // 2026-05-20", updated);
+        var tasksPath = Path.Combine(rootPath, "Notes", "tasks.md");
+        var taskContent = await File.ReadAllTextAsync(tasksPath, cancellationToken);
+        Assert.Contains("- [ ] Review launch (due: 2026-05-20)", taskContent);
+        var taskId = Assert.Single(taskContent.Split(' '), static part => part.StartsWith("^notey-task-", StringComparison.Ordinal))[1..].Trim();
+        Assert.Contains($"[[Notes/tasks#^{taskId}|Task: Review launch]]", updated);
+    }
+
+    [Fact]
     public async Task ProcessAsync_appends_tasks_under_exact_date_heading()
     {
         var rootPath = CreateTempDirectory();

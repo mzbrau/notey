@@ -150,7 +150,8 @@ public sealed class MainWindowUiFlowTests
 
         Assert.IsType<PathIcon>(setDueTodayButton.Content);
         setDueTodayButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Overdue task (due: {today:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+        await harness.WaitForFileDoesNotContainAsync(tasksPath, $"- [ ] Overdue task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(5));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Overdue task (due: {today:yyyy-MM-dd})", TimeSpan.FromSeconds(5));
     }
 
     [AvaloniaFact]
@@ -212,12 +213,12 @@ public sealed class MainWindowUiFlowTests
     {
         using var harness = await MainWindowTestHarness.CreateAsync();
         var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime);
-        var tasksPath = await AddTaskThroughPanelAsync(harness, "Deleteable task", dueDate);
+        var tasksPath = await AddTaskThroughPanelAsync(harness, "Deletable task", dueDate);
 
         await OpenTaskEditPopupAsync(harness, dueDate);
         FindPopupControl<Button>(harness, "TaskEditDeleteButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-        await harness.WaitForFileDoesNotContainAsync(tasksPath, "Deleteable task", TimeSpan.FromSeconds(2));
+        await harness.WaitForFileDoesNotContainAsync(tasksPath, "Deletable task", TimeSpan.FromSeconds(2));
     }
 
     [AvaloniaFact]

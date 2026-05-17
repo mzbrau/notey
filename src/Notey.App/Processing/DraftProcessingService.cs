@@ -25,6 +25,7 @@ public sealed partial class DraftProcessingService(
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly NoteDirectiveParser _directiveParser = new();
+    private readonly ObsidianLinkBuilder _taskLinkBuilder = new(workspace);
     private readonly ITaskStore _taskStore = taskStore ?? new FileSystemTaskStore(workspace, new ObsidianLinkBuilder(workspace), timeProvider);
 
     public async Task<DraftProcessingResult> ProcessAsync(
@@ -506,7 +507,7 @@ public sealed partial class DraftProcessingService(
                 continue;
             }
 
-            if (!isInFencedCode && line.StartsWith("/task", StringComparison.OrdinalIgnoreCase))
+            if (!isInFencedCode && trimmedStart.StartsWith("/task", StringComparison.OrdinalIgnoreCase))
             {
                 var parsed = _directiveParser.Parse(line, []);
                 if (parsed.Tasks.Count == 1 && string.IsNullOrWhiteSpace(parsed.Body))
@@ -552,8 +553,7 @@ public sealed partial class DraftProcessingService(
 
     private string BuildTaskBacklink(NoteyTask task)
     {
-        var linkBuilder = new ObsidianLinkBuilder(workspace);
-        var tasksLinkPath = linkBuilder.GetLinkPath(workspace.GetPaths(), _taskStore.GetTasksFilePath());
+        var tasksLinkPath = _taskLinkBuilder.GetLinkPath(workspace.GetPaths(), _taskStore.GetTasksFilePath());
         return ObsidianLinkBuilder.FormatWikiLink($"{tasksLinkPath}#^{task.Id}", $"Task: {task.Text}");
     }
 
