@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -227,7 +228,7 @@ public static class AssistantResponseParser
                 return null;
             }
 
-            return DateOnly.TryParseExact(text.Trim(), "yyyy-MM-dd", out var date)
+            return DateOnly.TryParseExact(text.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
                 ? date
                 : throw new FormatException($"Task dueDate '{text}' must use yyyy-MM-dd.");
         }

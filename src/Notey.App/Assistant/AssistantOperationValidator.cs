@@ -56,8 +56,11 @@ public static class AssistantOperationValidator
                         warnings.Add("Assistant replaceRange note operation must include expectedText.");
                     }
 
-                    ValidateRange(currentNoteText, replace.Start, replace.Length, replace.ExpectedText, warnings, "replaceRange");
-                    ranges.Add((replace.Start, replace.Start + replace.Length));
+                    if (TryValidateRange(currentNoteText, replace.Start, replace.Length, replace.ExpectedText, warnings, "replaceRange", out var replaceRange))
+                    {
+                        ranges.Add(replaceRange);
+                    }
+
                     break;
                 case DeleteNoteRangeOperation delete:
                     if (delete.ExpectedText is null)
@@ -65,8 +68,11 @@ public static class AssistantOperationValidator
                         warnings.Add("Assistant deleteRange note operation must include expectedText.");
                     }
 
-                    ValidateRange(currentNoteText, delete.Start, delete.Length, delete.ExpectedText, warnings, "deleteRange");
-                    ranges.Add((delete.Start, delete.Start + delete.Length));
+                    if (TryValidateRange(currentNoteText, delete.Start, delete.Length, delete.ExpectedText, warnings, "deleteRange", out var deleteRange))
+                    {
+                        ranges.Add(deleteRange);
+                    }
+
                     break;
                 case ReplaceAllNoteTextOperation replaceAll:
                     if (replaceAll.ExpectedText is null)
@@ -145,25 +151,37 @@ public static class AssistantOperationValidator
         }
     }
 
-    private static void ValidateRange(
+    private static bool TryValidateRange(
         string currentNoteText,
         int start,
         int length,
         string? expectedText,
         ICollection<string> warnings,
-        string operationName)
+        string operationName,
+        out (int Start, int End) range)
     {
-        if (start < 0 || length < 0 || start + length > currentNoteText.Length)
+        range = default;
+        if (start < 0 || length < 0 || start > currentNoteText.Length)
         {
             warnings.Add($"Assistant returned an out-of-range {operationName} note operation.");
-            return;
+            return false;
         }
 
+        var end = (long)start + length;
+        if (end > currentNoteText.Length)
+        {
+            warnings.Add($"Assistant returned an out-of-range {operationName} note operation.");
+            return false;
+        }
+
+        range = (start, (int)end);
         if (expectedText is not null
             && !string.Equals(currentNoteText.Substring(start, length), expectedText, StringComparison.Ordinal))
         {
             warnings.Add($"Assistant {operationName} expected text did not match the current note.");
         }
+
+        return true;
     }
 
     private static bool IsValidOffset(int offset, int length)

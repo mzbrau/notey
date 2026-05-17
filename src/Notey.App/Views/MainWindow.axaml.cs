@@ -42,8 +42,6 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan TasksPanelAnimationDuration = TimeSpan.FromMilliseconds(140);
     private const double TasksPanelMinWidth = 300;
     private const double TasksPanelMaxWidth = 620;
-    private const double AssistantPanelMinHeight = 140;
-    private const double AssistantPanelMaxHeight = 420;
 
     private readonly NoteyOptions _options;
     private readonly INoteDraftStore _noteDraftStore;
@@ -467,14 +465,19 @@ public sealed partial class MainWindow : Window
 
     private void SetAssistantPanelHeight(double height)
     {
-        AssistantPanel.Height = Math.Clamp(height, AssistantPanelMinHeight, AssistantPanelMaxHeight);
+        AssistantPanel.Height = ClampAssistantPanelHeight(height);
     }
 
     private double GetAssistantPanelHeight()
     {
         return double.IsNaN(AssistantPanel.Height)
-            ? Math.Clamp(AssistantPanel.Bounds.Height, AssistantPanelMinHeight, AssistantPanelMaxHeight)
-            : Math.Clamp(AssistantPanel.Height, AssistantPanelMinHeight, AssistantPanelMaxHeight);
+            ? ClampAssistantPanelHeight(AssistantPanel.Bounds.Height)
+            : ClampAssistantPanelHeight(AssistantPanel.Height);
+    }
+
+    private double ClampAssistantPanelHeight(double height)
+    {
+        return Math.Clamp(height, AssistantPanel.MinHeight, AssistantPanel.MaxHeight);
     }
 
     private async Task SendAssistantPromptAsync()
@@ -2573,7 +2576,8 @@ public sealed partial class MainWindow : Window
     {
         return exception.Message.Contains("has no configured base URL", StringComparison.Ordinal)
             || exception.Message.Contains("has no API key", StringComparison.Ordinal)
-            || exception.Message.Contains("has no configured model name", StringComparison.Ordinal);
+            || exception.Message.Contains("has no configured model name", StringComparison.Ordinal)
+            || exception.Message.Contains("is not configured", StringComparison.Ordinal);
     }
 
     private async Task RefreshIndexesAsync(bool force = false)
