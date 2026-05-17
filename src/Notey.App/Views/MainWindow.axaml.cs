@@ -38,6 +38,9 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan IndexRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RecentFinalNoteLookback = TimeSpan.FromDays(14);
     private static readonly TimeSpan TaskRefreshInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TasksPanelAnimationDuration = TimeSpan.FromMilliseconds(140);
+    private const double TasksPanelMinWidth = 300;
+    private const double TasksPanelMaxWidth = 620;
 
     private readonly NoteyOptions _options;
     private readonly INoteDraftStore _noteDraftStore;
@@ -59,6 +62,7 @@ public sealed partial class MainWindow : Window
     private readonly CancellationTokenSource _windowClosed = new();
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private readonly ImagePreviewMargin _imagePreviewMargin = new();
+    private readonly TranslateTransform _tasksPanelTransform = new();
     private readonly NoteDirectiveParser _directiveParser = new();
     private readonly List<string> _directOcrSnippets = [];
 
@@ -75,6 +79,10 @@ public sealed partial class MainWindow : Window
     private bool _isClosePending;
     private bool _isExitRequested;
     private bool _isRecentNoteDialogOpen;
+    private bool _isTasksPanelAnimating;
+    private bool _isResizingTasksPanel;
+    private double _tasksPanelResizeStartX;
+    private double _tasksPanelResizeStartWidth;
     private long _revision;
     private long? _suppressedCompletionRevision;
     private HotkeyGesture? _openNoteGesture;
@@ -168,6 +176,7 @@ public sealed partial class MainWindow : Window
 
         ConfigureEditor();
         ConfigureCommands();
+        ConfigureTasksPanel();
         UpdateEditorStatus();
         UpdateContextChip();
         UpdateCurrentNoteFooter();
@@ -299,19 +308,162 @@ public sealed partial class MainWindow : Window
         SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
     }
 
+    private void ConfigureTasksPanel()
+    {
+        TasksPanel.RenderTransform = _tasksPanelTransform;
+        TasksPanelResizeHandle.Cursor = new Cursor(StandardCursorType.SizeWestEast);
+        TasksPanelResizeHandle.PointerPressed += OnTasksPanelResizeHandlePointerPressed;
+        TasksPanelResizeHandle.PointerMoved += OnTasksPanelResizeHandlePointerMoved;
+        TasksPanelResizeHandle.PointerReleased += OnTasksPanelResizeHandlePointerReleased;
+        SetTasksPanelWidth(TasksPanel.Width);
+    }
+
+    private void OnTasksPanelResizeHandlePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var properties = e.GetCurrentPoint(this).Properties;
+        if (!properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _isResizingTasksPanel = true;
+        _tasksPanelResizeStartX = e.GetPosition(this).X;
+        _tasksPanelResizeStartWidth = GetTasksPanelWidth();
+        e.Pointer.Capture(TasksPanelResizeHandle);
+        e.Handled = true;
+    }
+
+    private void OnTasksPanelResizeHandlePointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_isResizingTasksPanel)
+        {
+            return;
+        }
+
+        var currentX = e.GetPosition(this).X;
+        SetTasksPanelWidth(_tasksPanelResizeStartWidth + _tasksPanelResizeStartX - currentX);
+        e.Handled = true;
+    }
+
+    private void OnTasksPanelResizeHandlePointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_isResizingTasksPanel)
+        {
+            return;
+        }
+
+        _isResizingTasksPanel = false;
+        e.Pointer.Capture(null);
+        e.Handled = true;
+    }
+
+    private void SetTasksPanelWidth(double width)
+    {
+        TasksPanel.Width = Math.Clamp(width, TasksPanelMinWidth, TasksPanelMaxWidth);
+    }
+
+    private double GetTasksPanelWidth()
+    {
+        return double.IsNaN(TasksPanel.Width)
+            ? Math.Clamp(TasksPanel.Bounds.Width, TasksPanelMinWidth, TasksPanelMaxWidth)
+            : Math.Clamp(TasksPanel.Width, TasksPanelMinWidth, TasksPanelMaxWidth);
+    }
+
     private async Task ToggleTasksPanelAsync()
     {
-        _tasksPanelVisible = !_tasksPanelVisible;
-        TasksPanel.IsVisible = _tasksPanelVisible;
         if (_tasksPanelVisible)
         {
-            _taskRefreshTimer.Start();
-            await RefreshTasksAsync();
+            await HideTasksPanelAsync();
         }
         else
         {
-            _taskRefreshTimer.Stop();
+            await ShowTasksPanelAsync();
         }
+    }
+
+    private async Task ShowTasksPanelAsync()
+    {
+        if (_isTasksPanelAnimating)
+        {
+            return;
+        }
+
+        _isTasksPanelAnimating = true;
+        try
+        {
+            var panelWidth = GetTasksPanelWidth();
+            _tasksPanelVisible = true;
+            _tasksPanelTransform.X = panelWidth;
+            TasksPanel.Opacity = 0;
+            TasksPanel.IsVisible = true;
+            TasksPanelResizeHandle.IsVisible = true;
+            _taskRefreshTimer.Start();
+            await RefreshTasksAsync();
+            await AnimateTasksPanelAsync(panelWidth, 0);
+        }
+        finally
+        {
+            _tasksPanelTransform.X = 0;
+            TasksPanel.Opacity = 1;
+            _isTasksPanelAnimating = false;
+        }
+    }
+
+    private async Task HideTasksPanelAsync()
+    {
+        if (_isTasksPanelAnimating)
+        {
+            return;
+        }
+
+        _isTasksPanelAnimating = true;
+        try
+        {
+            _tasksPanelVisible = false;
+            _taskRefreshTimer.Stop();
+            await AnimateTasksPanelAsync(0, GetTasksPanelWidth());
+            TasksPanel.IsVisible = false;
+            TasksPanelResizeHandle.IsVisible = false;
+        }
+        finally
+        {
+            _tasksPanelTransform.X = 0;
+            TasksPanel.Opacity = 1;
+            _isTasksPanelAnimating = false;
+        }
+    }
+
+    private Task AnimateTasksPanelAsync(double from, double to)
+    {
+        var completion = new TaskCompletionSource();
+        var stopwatch = Stopwatch.StartNew();
+        var opening = to < from;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        timer.Tick += (_, _) =>
+        {
+            var progress = Math.Min(1, stopwatch.Elapsed.TotalMilliseconds / TasksPanelAnimationDuration.TotalMilliseconds);
+            var eased = EaseOutCubic(progress);
+            _tasksPanelTransform.X = from + ((to - from) * eased);
+            TasksPanel.Opacity = opening ? eased : 1 - eased;
+            if (progress < 1)
+            {
+                return;
+            }
+
+            timer.Stop();
+            _tasksPanelTransform.X = to;
+            TasksPanel.Opacity = opening ? 1 : 0;
+            completion.TrySetResult();
+        };
+
+        timer.Start();
+        return completion.Task;
+    }
+
+    private static double EaseOutCubic(double progress)
+    {
+        var inverse = 1 - progress;
+        return 1 - (inverse * inverse * inverse);
     }
 
     private void ToggleAddTaskPanel()
@@ -319,7 +471,7 @@ public sealed partial class MainWindow : Window
         AddTaskPanel.IsVisible = !AddTaskPanel.IsVisible;
         if (AddTaskPanel.IsVisible)
         {
-            NewTaskDueTextBox.Text = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            NewTaskDueDatePicker.SelectedDate = ToPickerDate(DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime));
             NewTaskTextBox.Focus();
         }
     }
@@ -333,11 +485,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (!TryParseTaskDate(NewTaskDueTextBox.Text, out var dueDate))
-        {
-            AutosaveStatusText.Text = "TASK DATE INVALID";
-            return;
-        }
+        var dueDate = FromPickerDate(NewTaskDueDatePicker.SelectedDate);
 
         var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
         try
@@ -408,19 +556,39 @@ public sealed partial class MainWindow : Window
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Padding = new Thickness(0, 8),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch
         };
+        var isCollapsed = _collapsedTaskSections.Contains(section.Kind);
         var headerGrid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto")
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+            ColumnSpacing = 6,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch
         };
-        headerGrid.Children.Add(new TextBlock
+        var triangle = new PathIcon
         {
-            Text = $"{(_collapsedTaskSections.Contains(section.Kind) ? ">" : "v")} {section.Title}",
+            Data = Geometry.Parse("M7,4 L17,12 L7,20 Z"),
+            Width = 10,
+            Height = 10,
+            Foreground = Brush.Parse("#8C909F"),
+            RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+            RenderTransform = new RotateTransform(isCollapsed ? 0 : 90),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(triangle, 0);
+        headerGrid.Children.Add(triangle);
+
+        var title = new TextBlock
+        {
+            Text = section.Title,
             Classes = { "label" },
             FontSize = 13,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
-        });
+        };
+        Grid.SetColumn(title, 1);
+        headerGrid.Children.Add(title);
+
         var count = new Border
         {
             Background = section.Kind == TaskSectionKind.Completed ? Brush.Parse("#1F5F35") : Brush.Parse("#384255"),
@@ -437,7 +605,7 @@ public sealed partial class MainWindow : Window
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             }
         };
-        Grid.SetColumn(count, 1);
+        Grid.SetColumn(count, 2);
         headerGrid.Children.Add(count);
         header.Content = headerGrid;
         header.Click += (_, _) =>
@@ -451,7 +619,7 @@ public sealed partial class MainWindow : Window
         };
         container.Children.Add(header);
 
-        if (!_collapsedTaskSections.Contains(section.Kind))
+        if (!isCollapsed)
         {
             foreach (var task in section.Tasks)
             {
@@ -466,7 +634,7 @@ public sealed partial class MainWindow : Window
     {
         var row = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto,Auto"),
             ColumnSpacing = 8,
             Margin = new Thickness(0, 0, 0, 8)
         };
@@ -524,26 +692,81 @@ public sealed partial class MainWindow : Window
             FontSize = 11,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right
         };
-        Grid.SetColumn(dateButton, 4);
+        var dateShiftButtons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 2,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        var previousDayButton = CreateTaskDateShiftButton("M12,17 L6,9 L18,9 Z", "Move task back one day");
+        previousDayButton.IsEnabled = task.DueDate is not null;
+        previousDayButton.Click += async (_, _) => await ShiftTaskDueDateAsync(task, -1);
+        var nextDayButton = CreateTaskDateShiftButton("M12,7 L18,15 L6,15 Z", "Move task forward one day");
+        nextDayButton.IsEnabled = task.DueDate is not null;
+        nextDayButton.Click += async (_, _) => await ShiftTaskDueDateAsync(task, 1);
+        dateShiftButtons.Children.Add(previousDayButton);
+        dateShiftButtons.Children.Add(nextDayButton);
+        Grid.SetColumn(dateShiftButtons, 4);
+        row.Children.Add(dateShiftButtons);
+
+        Grid.SetColumn(dateButton, 5);
         dateButton.Flyout = CreateTaskDateFlyout(task);
         row.Children.Add(dateButton);
 
         return row;
     }
 
+    private static Button CreateTaskDateShiftButton(string iconData, string tooltip)
+    {
+        var button = new Button
+        {
+            Width = 22,
+            Height = 22,
+            MinWidth = 22,
+            Padding = new Thickness(0),
+            Content = new PathIcon
+            {
+                Data = Geometry.Parse(iconData),
+                Width = 10,
+                Height = 10,
+                Foreground = Brush.Parse("#C2C6D6")
+            }
+        };
+        ToolTip.SetTip(button, tooltip);
+        return button;
+    }
+
     private Flyout CreateTaskDateFlyout(NoteyTask task)
     {
-        var textBox = new TextBox
+        var datePicker = new DatePicker
         {
-            Text = task.DueDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty,
-            Watermark = "yyyy-MM-dd",
-            Width = 120
+            SelectedDate = ToPickerDate(task.DueDate),
+            Classes = { "metadataInput" },
+            DayFormat = "dd",
+            MonthFormat = "MM",
+            YearFormat = "yyyy",
+            Width = 150
         };
         var saveButton = new Button
         {
             Content = "Save",
-            Padding = new Thickness(10, 5),
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right
+            Padding = new Thickness(10, 5)
+        };
+        var clearButton = new Button
+        {
+            Content = "Clear",
+            Padding = new Thickness(10, 5)
+        };
+        var actions = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            Children =
+            {
+                clearButton,
+                saveButton
+            }
         };
         var panel = new StackPanel
         {
@@ -551,24 +774,33 @@ public sealed partial class MainWindow : Window
             Margin = new Thickness(8),
             Children =
             {
-                textBox,
-                saveButton
+                datePicker,
+                actions
             }
         };
         var flyout = new Flyout { Content = panel };
         saveButton.Click += async (_, _) =>
         {
-            if (!TryParseTaskDate(textBox.Text, out var dueDate))
-            {
-                AutosaveStatusText.Text = "TASK DATE INVALID";
-                return;
-            }
-
-            await SetTaskDueDateAsync(task, dueDate);
+            await SetTaskDueDateAsync(task, FromPickerDate(datePicker.SelectedDate));
+            flyout.Hide();
+        };
+        clearButton.Click += async (_, _) =>
+        {
+            await SetTaskDueDateAsync(task, null);
             flyout.Hide();
         };
 
         return flyout;
+    }
+
+    private async Task ShiftTaskDueDateAsync(NoteyTask task, int days)
+    {
+        if (task.DueDate is not { } dueDate)
+        {
+            return;
+        }
+
+        await SetTaskDueDateAsync(task, dueDate.AddDays(days));
     }
 
     private async Task SetTaskCompletedAsync(NoteyTask task, bool completed)
@@ -638,26 +870,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private static bool TryParseTaskDate(string? text, out DateOnly? dueDate)
+    private DateTimeOffset? ToPickerDate(DateOnly? dueDate)
     {
-        dueDate = null;
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return true;
-        }
+        return dueDate is { } value
+            ? new DateTimeOffset(value.ToDateTime(TimeOnly.MinValue), _timeProvider.GetLocalNow().Offset)
+            : null;
+    }
 
-        if (DateOnly.TryParseExact(
-            text.Trim(),
-            "yyyy-MM-dd",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.None,
-            out var parsed))
-        {
-            dueDate = parsed;
-            return true;
-        }
-
-        return false;
+    private static DateOnly? FromPickerDate(DateTimeOffset? selectedDate)
+    {
+        return selectedDate is { } value
+            ? DateOnly.FromDateTime(value.DateTime)
+            : null;
     }
 
     private static string FormatTaskDate(DateOnly? dueDate)

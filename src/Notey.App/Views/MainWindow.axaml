@@ -99,7 +99,9 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+    <Grid x:Name="WorkspaceGrid"
+          Grid.Row="2"
+          ColumnDefinitions="*,6,Auto">
       <Grid Grid.Column="0">
         <Border BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
                 BorderThickness="0,0,0,1"
@@ -128,9 +130,19 @@
         </Border>
       </Grid>
 
-      <Border x:Name="TasksPanel"
+      <Border x:Name="TasksPanelResizeHandle"
               Grid.Column="1"
+              Width="6"
+              Background="Transparent"
+              BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+              BorderThickness="1,0,0,1"
+              ToolTip.Tip="Resize tasks panel" />
+
+      <Border x:Name="TasksPanel"
+              Grid.Column="2"
               Width="390"
+              MinWidth="300"
+              MaxWidth="620"
               BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
               BorderThickness="1,0,0,1"
               Background="{DynamicResource Notey.SurfaceLowBrush}">
@@ -147,7 +159,7 @@
                     Classes="command"
                     ToolTip.Tip="Add task"
                     AutomationProperties.Name="Add task">
-              <PathIcon Classes="commandIcon" Data="M12,6 L12,18 M6,12 L18,12" />
+              <PathIcon Classes="commandIcon" Data="M10.5,5 L13.5,5 L13.5,10.5 L19,10.5 L19,13.5 L13.5,13.5 L13.5,19 L10.5,19 L10.5,13.5 L5,13.5 L5,10.5 L10.5,10.5 Z" />
             </Button>
           </Grid>
 
@@ -160,18 +172,20 @@
                   BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
                   BorderThickness="1"
                   Background="{DynamicResource Notey.SurfaceBrushRaised}">
-            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,92,Auto" RowSpacing="8" ColumnSpacing="8">
+            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,132,Auto" RowSpacing="8" ColumnSpacing="8">
               <TextBox x:Name="NewTaskTextBox"
                        Grid.Row="0"
                        Grid.Column="0"
                        Grid.ColumnSpan="3"
                        Classes="metadataInput"
                        Watermark="New task" />
-              <TextBox x:Name="NewTaskDueTextBox"
-                       Grid.Row="1"
-                       Grid.Column="1"
-                       Classes="metadataInput"
-                       Watermark="yyyy-MM-dd" />
+              <DatePicker x:Name="NewTaskDueDatePicker"
+                          Grid.Row="1"
+                          Grid.Column="1"
+                          Classes="metadataInput"
+                          DayFormat="dd"
+                          MonthFormat="MM"
+                          YearFormat="yyyy" />
               <Button x:Name="SaveNewTaskButton"
                       Grid.Row="1"
                       Grid.Column="2"

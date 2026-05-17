@@ -160,6 +160,16 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />
     </Style>
 
+    <Style Selector="DatePicker.metadataInput">
+      <Setter Property="Background" Value="{DynamicResource Notey.SurfaceBrushRaised}" />
+      <Setter Property="Foreground" Value="{DynamicResource Notey.PrimaryTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Notey.OutlineVariantBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+
     <Style Selector="Border.autocompletePanel">
       <Setter Property="Background" Value="{DynamicResource Notey.SurfaceBrushRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Notey.PrimaryBorderBrush}" />

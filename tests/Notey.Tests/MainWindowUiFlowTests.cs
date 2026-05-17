@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Notey.App.Views;
 
 #pragma warning disable xUnit1051 // AvaloniaFact does not provide xUnit test-context cancellation token support.
@@ -87,12 +88,54 @@ public sealed class MainWindowUiFlowTests
         harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await harness.DrainAsync();
         harness.Find<TextBox>("NewTaskTextBox").Text = "Team sync";
+        var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        harness.Find<DatePicker>("NewTaskDueDatePicker").SelectedDate = ToPickerDate(dueDate, harness.LocalNow.Offset);
         harness.Find<Button>("SaveNewTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
         var tasksPath = Path.Combine(harness.RootPath, "Notes", "tasks.md");
-        await harness.WaitForFileContainsAsync(tasksPath, "- [ ] Team sync (due:", TimeSpan.FromSeconds(2));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Team sync (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
 
         Assert.Equal("1", harness.Find<TextBlock>("TasksBadgeText").Text);
+    }
+
+    [AvaloniaFact]
+    public async Task Task_due_date_arrow_buttons_shift_dated_tasks()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var tasksPath = Path.Combine(harness.RootPath, "Notes", "tasks.md");
+
+        harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+        harness.Find<TextBox>("NewTaskTextBox").Text = "Moveable task";
+        var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        harness.Find<DatePicker>("NewTaskDueDatePicker").SelectedDate = ToPickerDate(dueDate, harness.LocalNow.Offset);
+        harness.Find<Button>("SaveNewTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Moveable task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+
+        FindButtonByToolTip(harness.Window, "Move task back one day").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Moveable task (due: {dueDate.AddDays(-1):yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+
+        FindButtonByToolTip(harness.Window, "Move task forward one day").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Moveable task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+    }
+
+    [AvaloniaFact]
+    public async Task Task_due_date_arrow_buttons_are_disabled_for_undated_tasks()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var tasksPath = Path.Combine(harness.RootPath, "Notes", "tasks.md");
+
+        harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+        harness.Find<TextBox>("NewTaskTextBox").Text = "Undated task";
+        harness.Find<DatePicker>("NewTaskDueDatePicker").SelectedDate = null;
+        harness.Find<Button>("SaveNewTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.WaitForFileContainsAsync(tasksPath, "- [ ] Undated task", TimeSpan.FromSeconds(2));
+        FindSectionButton(harness.Window, "UNDATED").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+
+        Assert.False(FindButtonByToolTip(harness.Window, "Move task forward one day").IsEnabled);
+        Assert.False(FindButtonByToolTip(harness.Window, "Move task back one day").IsEnabled);
     }
 
     [AvaloniaFact]
@@ -262,6 +305,27 @@ public sealed class MainWindowUiFlowTests
         await harness.DrainAsync();
 
         Assert.Equal(original, harness.Editor.Document.Text);
+    }
+
+    private static Button FindButtonByToolTip(Control root, string tooltip)
+    {
+        return root.GetVisualDescendants()
+            .OfType<Button>()
+            .Single(button => string.Equals(ToolTip.GetTip(button)?.ToString(), tooltip, StringComparison.Ordinal));
+    }
+
+    private static Button FindSectionButton(Control root, string title)
+    {
+        return root.GetVisualDescendants()
+            .OfType<Button>()
+            .Single(button => button.GetVisualDescendants()
+                .OfType<TextBlock>()
+                .Any(textBlock => string.Equals(textBlock.Text, title, StringComparison.Ordinal)));
+    }
+
+    private static DateTimeOffset ToPickerDate(DateOnly date, TimeSpan offset)
+    {
+        return new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), offset);
     }
 }
 
