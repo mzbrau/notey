@@ -475,7 +475,7 @@ public sealed partial class DraftProcessingService(
         if (metadata.IsMeeting)
         {
             lines.Add("meeting: true");
-            var meetingDate = metadata.MeetingDate ?? DateOnly.FromDateTime(metadata.ProcessedAt.LocalDateTime);
+            var meetingDate = metadata.MeetingDate ?? DateOnly.FromDateTime(metadata.CreatedAt.LocalDateTime);
             lines.Add($"date: {meetingDate:yyyy-MM-dd}");
         }
 

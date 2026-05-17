@@ -1505,7 +1505,19 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await _noteDraftStore.DeleteEmptyDraftsAsync(_windowClosed.Token);
+        try
+        {
+            await _noteDraftStore.DeleteEmptyDraftsAsync(_windowClosed.Token);
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clean up empty drafts on startup; continuing.");
+        }
+
         await TryCreateAndLoadDraftAsync("opening the initial note");
     }
 
