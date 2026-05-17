@@ -29,10 +29,67 @@ public sealed class DraftProcessingServiceTests : IDisposable
         Assert.True(File.Exists(target));
         var content = await File.ReadAllTextAsync(target);
         Assert.Contains("meeting: true", content);
+        Assert.Contains("date: 2026-05-13", content);
         Assert.Contains("customer: \"Microsoft\"", content);
         Assert.Contains("topic: \"Accounts\"", content);
         Assert.Contains("Keep the accounts safe.", content);
         Assert.False(File.Exists(draft.FilePath));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_does_not_add_date_field_for_non_meeting_note()
+    {
+        var rootPath = CreateTempDirectory();
+        var service = CreateService(rootPath, """{ "body": "Non-meeting content." }""");
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var target = Path.Combine(rootPath, "Notes", "accounts.md");
+        var content = await File.ReadAllTextAsync(target);
+        Assert.DoesNotContain("date:", content);
+    }
+
+    [Fact]
+    public async Task ProcessExistingNoteAsync_preserves_meeting_date_field_when_reprocessing()
+    {
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "Customers", "Microsoft", "Meetings", "2026-05-01 - accounts.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        await File.WriteAllTextAsync(target, """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            processed: 2026-05-01T00:00:00.0000000+00:00
+            meeting: true
+            date: 2026-05-01
+            topic: "Accounts"
+            people: []
+            tags: []
+            links: []
+            ---
+            Original body.
+            """);
+        var service = CreateService(rootPath, """{ "body": "Updated body." }""");
+
+        var updated = await service.ProcessExistingNoteAsync(
+            target,
+            """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            processed: 2026-05-01T00:00:00.0000000+00:00
+            meeting: true
+            date: 2026-05-01
+            topic: "Accounts"
+            people: []
+            tags: []
+            links: []
+            ---
+            Original body.
+            """,
+            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero));
+
+        Assert.Contains("date: 2026-05-01", updated);
     }
 
     [Fact]
