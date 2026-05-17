@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Notey.AI.Providers;
 using Notey.App.Processing;
 using Notey.Core.Configuration;
@@ -129,7 +130,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var taskContent = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "tasks.md"), cancellationToken);
         Assert.Contains("- [ ] Review launch (due: 2026-05-20)", taskContent);
         Assert.Contains("(source: [[Notes/roadmap|roadmap]])", taskContent);
-        var taskId = Assert.Single(taskContent.Split(' '), static part => part.StartsWith("^notey-task-", StringComparison.Ordinal))[1..].Trim();
+        var taskId = ExtractTaskId(taskContent);
         var sourceContent = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "roadmap.md"), cancellationToken);
         Assert.Contains($"[[Notes/tasks#^{taskId}|Task: Review launch]]", sourceContent);
     }
@@ -186,7 +187,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var tasksPath = Path.Combine(rootPath, "Notes", "tasks.md");
         var taskContent = await File.ReadAllTextAsync(tasksPath, cancellationToken);
         Assert.Contains("- [ ] Review launch (due: 2026-05-20)", taskContent);
-        var taskId = Assert.Single(taskContent.Split(' '), static part => part.StartsWith("^notey-task-", StringComparison.Ordinal))[1..].Trim();
+        var taskId = ExtractTaskId(taskContent);
         Assert.Contains($"[[Notes/tasks#^{taskId}|Task: Review launch]]", updated);
     }
 
@@ -448,6 +449,13 @@ public sealed class DraftProcessingServiceTests : IDisposable
             yield return index;
             index += value.Length;
         }
+    }
+
+    private static string ExtractTaskId(string taskContent)
+    {
+        var match = Regex.Match(taskContent, @"\^notey-task-[^\s]+", RegexOptions.CultureInvariant);
+        Assert.True(match.Success, "Expected a persisted task block ID.");
+        return match.Value[1..];
     }
 
     private sealed class RecordingAiProvider(string response) : IAiProvider

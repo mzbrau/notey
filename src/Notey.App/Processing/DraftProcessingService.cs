@@ -509,7 +509,7 @@ public sealed partial class DraftProcessingService(
 
             if (!isInFencedCode && trimmedStart.StartsWith("/task", StringComparison.OrdinalIgnoreCase))
             {
-                var parsed = _directiveParser.Parse(line, []);
+                var parsed = _directiveParser.Parse(trimmedStart, []);
                 if (parsed.Tasks.Count == 1 && string.IsNullOrWhiteSpace(parsed.Body))
                 {
                     tasks.Add(parsed.Tasks[0]);
