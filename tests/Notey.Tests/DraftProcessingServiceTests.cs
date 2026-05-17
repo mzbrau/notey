@@ -49,6 +49,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var target = Path.Combine(rootPath, "Notes", "accounts.md");
         var content = await File.ReadAllTextAsync(target);
         Assert.DoesNotContain("date:", content);
+        Assert.DoesNotContain("meeting:", content);
     }
 
     [Fact]
