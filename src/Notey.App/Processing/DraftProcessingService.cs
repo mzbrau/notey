@@ -10,6 +10,7 @@ using Notey.Vault.Abstractions;
 using Notey.Vault.Documents;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
+using Notey.Vault.Tasks;
 
 namespace Notey.App.Processing;
 
@@ -19,10 +20,13 @@ public sealed partial class DraftProcessingService(
     IDocumentStoreIndex documentStoreIndex,
     IAiProviderRegistry aiProviderRegistry,
     ITesseractOcrEngine ocrEngine,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ITaskStore? taskStore = null)
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly NoteDirectiveParser _directiveParser = new();
+    private readonly ObsidianLinkBuilder _taskLinkBuilder = new(workspace);
+    private readonly ITaskStore _taskStore = taskStore ?? new FileSystemTaskStore(workspace, new ObsidianLinkBuilder(workspace), timeProvider);
 
     public async Task<DraftProcessingResult> ProcessAsync(
         NoteDraft draft,
@@ -54,34 +58,65 @@ public sealed partial class DraftProcessingService(
             : await RunAiAsync(parsed, commands, body, ocrSnippets, cancellationToken);
         var localNow = timeProvider.GetLocalNow();
         var writtenPaths = new List<string>();
-
-        if (hasTasks)
-        {
-            var tasksPath = Path.Combine(paths.NotesPath, "tasks.md");
-            await AppendTasksAsync(tasksPath, parsed.Tasks, localNow, cancellationToken);
-            writtenPaths.Add(tasksPath);
-        }
+        string? sourceFilePath = null;
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!string.IsNullOrWhiteSpace(body) || ocrSnippets.Count > 0)
+        ProcessedNoteRoute? route = null;
+        string? finalBody = null;
+        ProcessedNoteMetadata? metadata = null;
+        var shouldWriteNote = !string.IsNullOrWhiteSpace(body) || ocrSnippets.Count > 0;
+        if (shouldWriteNote)
         {
-            var route = ResolveRoute(paths, commands, parsed, aiResult, localNow);
-            var finalBody = string.IsNullOrWhiteSpace(aiResult.Body)
+            route = ResolveRoute(paths, commands, parsed, aiResult, localNow);
+            finalBody = string.IsNullOrWhiteSpace(aiResult.Body)
                 ? string.IsNullOrWhiteSpace(body) ? string.Join("\n\n", ocrSnippets) : body
                 : aiResult.Body.Trim();
-            var metadata = BuildMetadata(parsed, aiResult, draft.CreatedAt, localNow);
-
-            if (route.AppendIfExists && File.Exists(route.FilePath))
-            {
-                await AppendToExistingNoteAsync(route.FilePath, finalBody, metadata, localNow, cancellationToken);
-            }
-            else
+            metadata = BuildMetadata(parsed, aiResult, draft.CreatedAt, localNow);
+            if (!route.AppendIfExists || !File.Exists(route.FilePath))
             {
                 var filePath = route.AppendIfExists ? route.FilePath : GetUniqueFilePath(route.FilePath);
-                var markdown = RenderNewDocument(finalBody, metadata);
-                await WriteUtf8AtomicallyAsync(filePath, markdown, cancellationToken);
                 route = route with { FilePath = filePath };
+            }
+
+            sourceFilePath = route.FilePath;
+        }
+
+        IReadOnlyList<NoteyTask> createdTasks = [];
+        if (hasTasks)
+        {
+            createdTasks = await _taskStore.AddAsync(
+                parsed.Tasks.Select(task => new NewNoteyTask(task.Text, task.DueDate, sourceFilePath)).ToArray(),
+                DateOnly.FromDateTime(localNow.DateTime),
+                cancellationToken);
+            writtenPaths.Add(_taskStore.GetTasksFilePath());
+        }
+
+        if (route is not null && finalBody is not null && metadata is not null)
+        {
+            try
+            {
+                string markdown;
+                if (route.AppendIfExists && File.Exists(route.FilePath))
+                {
+                    markdown = await BuildExistingNoteUpdateAsync(route.FilePath, finalBody, metadata, localNow, cancellationToken);
+                }
+                else
+                {
+                    markdown = RenderNewDocument(finalBody, metadata);
+                }
+
+                if (createdTasks.Count > 0)
+                {
+                    markdown = AddTaskBacklinksToMarkdown(markdown, createdTasks);
+                }
+
+                await WriteUtf8AtomicallyAsync(route.FilePath, markdown, cancellationToken);
+            }
+            catch
+            {
+                await _taskStore.RemoveAsync(createdTasks.Select(static task => task.Id).ToArray(), cancellationToken);
+                throw;
             }
 
             writtenPaths.Add(route.FilePath);
@@ -115,18 +150,39 @@ public sealed partial class DraftProcessingService(
         var commands = await documentStoreIndex.GetFolderCommandsAsync(cancellationToken);
         var normalizedMarkdown = markdown.Replace("\r\n", "\n", StringComparison.Ordinal);
         var (frontmatter, body) = SplitFrontmatter(normalizedMarkdown);
-        var parsed = ParseExistingNoteDirectives(frontmatter, body);
-        var ocrSnippets = await OcrIncludedImagesAsync(body, paths, cancellationToken);
-        var aiResult = string.IsNullOrWhiteSpace(body) && ocrSnippets.Count == 0
+        var existingTasks = ExtractTaskDirectivesFromExistingBody(body);
+        var parsed = ParseExistingNoteDirectives(frontmatter, existingTasks.Body);
+        var ocrSnippets = await OcrIncludedImagesAsync(existingTasks.Body, paths, cancellationToken);
+        var aiResult = string.IsNullOrWhiteSpace(existingTasks.Body) && ocrSnippets.Count == 0
             ? ProcessedNoteAiResult.Empty
-            : await RunAiAsync(parsed, commands, body, ocrSnippets, cancellationToken);
+            : await RunAiAsync(parsed, commands, existingTasks.Body, ocrSnippets, cancellationToken);
         var finalBody = string.IsNullOrWhiteSpace(aiResult.Body)
-            ? string.IsNullOrWhiteSpace(body) ? string.Join("\n\n", ocrSnippets) : body
+            ? string.IsNullOrWhiteSpace(existingTasks.Body) ? string.Join("\n\n", ocrSnippets) : existingTasks.Body
             : aiResult.Body.Trim();
-        var metadata = BuildMetadata(parsed, aiResult, createdAt, timeProvider.GetLocalNow());
+        var localNow = timeProvider.GetLocalNow();
+        var metadata = BuildMetadata(parsed, aiResult, createdAt, localNow);
         var updatedMarkdown = RenderProcessedDocument(normalizedMarkdown, finalBody, metadata);
 
-        await WriteUtf8AtomicallyAsync(filePath, updatedMarkdown, cancellationToken);
+        IReadOnlyList<NoteyTask> createdTasks = [];
+        if (existingTasks.Tasks.Count > 0)
+        {
+            createdTasks = await _taskStore.AddAsync(
+                existingTasks.Tasks.Select(task => new NewNoteyTask(task.Text, task.DueDate, filePath)).ToArray(),
+                DateOnly.FromDateTime(localNow.DateTime),
+                cancellationToken);
+            updatedMarkdown = AddTaskBacklinksToMarkdown(updatedMarkdown, createdTasks);
+        }
+
+        try
+        {
+            await WriteUtf8AtomicallyAsync(filePath, updatedMarkdown, cancellationToken);
+        }
+        catch
+        {
+            await _taskStore.RemoveAsync(createdTasks.Select(static task => task.Id).ToArray(), cancellationToken);
+            throw;
+        }
+
         return updatedMarkdown;
     }
 
@@ -309,45 +365,7 @@ public sealed partial class DraftProcessingService(
             aiResult.Links);
     }
 
-    private static async Task AppendTasksAsync(
-        string tasksPath,
-        IReadOnlyList<NoteTaskDirective> tasks,
-        DateTimeOffset localNow,
-        CancellationToken cancellationToken)
-    {
-        if (tasks.Count == 0)
-        {
-            return;
-        }
-
-        var content = File.Exists(tasksPath)
-            ? await File.ReadAllTextAsync(tasksPath, cancellationToken)
-            : "# Tasks\n";
-        var builder = new StringBuilder(content);
-        var heading = $"## {localNow:yyyy-MM-dd}";
-        if (!ContainsLine(content, heading))
-        {
-            EnsureEndsWithNewline(builder);
-            builder.AppendLine();
-            builder.AppendLine(heading);
-        }
-
-        foreach (var task in tasks)
-        {
-            EnsureEndsWithNewline(builder);
-            builder.Append("- [ ] ").Append(task.Text);
-            if (task.DueDate is { } dueDate)
-            {
-                builder.Append(" (due: ").Append(dueDate.ToString("yyyy-MM-dd")).Append(')');
-            }
-
-            builder.AppendLine();
-        }
-
-        await WriteUtf8AtomicallyAsync(tasksPath, builder.ToString().TrimEnd() + "\n", cancellationToken);
-    }
-
-    private static async Task AppendToExistingNoteAsync(
+    private static async Task<string> BuildExistingNoteUpdateAsync(
         string filePath,
         string body,
         ProcessedNoteMetadata metadata,
@@ -367,7 +385,7 @@ public sealed partial class DraftProcessingService(
             existing = $"{existing}{separator}\n{body.Trim()}\n";
         }
 
-        await WriteUtf8AtomicallyAsync(filePath, existing, cancellationToken);
+        return existing;
     }
 
     private static string RenderNewDocument(string body, ProcessedNoteMetadata metadata)
@@ -470,6 +488,96 @@ public sealed partial class DraftProcessingService(
             ReadYamlDynamicDirectives(frontmatter),
             [],
             body.Trim());
+    }
+
+    private (string Body, IReadOnlyList<NoteTaskDirective> Tasks) ExtractTaskDirectivesFromExistingBody(string body)
+    {
+        var lines = body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var bodyLines = new List<string>(lines.Length);
+        var tasks = new List<NoteTaskDirective>();
+        var isInFencedCode = false;
+
+        foreach (var line in lines)
+        {
+            var trimmedStart = line.TrimStart();
+            if (trimmedStart.StartsWith("```", StringComparison.Ordinal) || trimmedStart.StartsWith("~~~", StringComparison.Ordinal))
+            {
+                isInFencedCode = !isInFencedCode;
+                bodyLines.Add(line);
+                continue;
+            }
+
+            if (!isInFencedCode && trimmedStart.StartsWith("/task", StringComparison.OrdinalIgnoreCase))
+            {
+                var parsed = _directiveParser.Parse(trimmedStart, []);
+                if (parsed.Tasks.Count == 1 && string.IsNullOrWhiteSpace(parsed.Body))
+                {
+                    tasks.Add(parsed.Tasks[0]);
+                    continue;
+                }
+            }
+
+            bodyLines.Add(line);
+        }
+
+        return (string.Join('\n', bodyLines).Trim(), tasks);
+    }
+
+    private string AddTaskBacklinksToMarkdown(string markdown, IReadOnlyList<NoteyTask> tasks)
+    {
+        if (tasks.Count == 0)
+        {
+            return markdown;
+        }
+
+        var lines = markdown.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
+        if (lines.Count > 0 && lines[^1].Length == 0)
+        {
+            lines.RemoveAt(lines.Count - 1);
+        }
+
+        var insertIndex = FindOrCreateTasksHeading(lines);
+        foreach (var task in tasks)
+        {
+            if (lines.Any(line => line.Contains($"#^{task.Id}", StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            lines.Insert(insertIndex, $"- {BuildTaskBacklink(task)}");
+            insertIndex++;
+        }
+
+        return string.Join('\n', lines).TrimEnd() + "\n";
+    }
+
+    private string BuildTaskBacklink(NoteyTask task)
+    {
+        var tasksLinkPath = _taskLinkBuilder.GetLinkPath(workspace.GetPaths(), _taskStore.GetTasksFilePath());
+        return ObsidianLinkBuilder.FormatWikiLink($"{tasksLinkPath}#^{task.Id}", $"Task: {task.Text}");
+    }
+
+    private static int FindOrCreateTasksHeading(List<string> lines)
+    {
+        var headingIndex = lines.FindIndex(static line => string.Equals(line.Trim(), "## Tasks", StringComparison.OrdinalIgnoreCase));
+        if (headingIndex < 0)
+        {
+            if (lines.Count > 0 && !string.IsNullOrWhiteSpace(lines[^1]))
+            {
+                lines.Add(string.Empty);
+            }
+
+            lines.Add("## Tasks");
+            return lines.Count;
+        }
+
+        var insertIndex = headingIndex + 1;
+        while (insertIndex < lines.Count && !lines[insertIndex].StartsWith("## ", StringComparison.Ordinal))
+        {
+            insertIndex++;
+        }
+
+        return insertIndex;
     }
 
     private static IReadOnlyList<string> ReadYamlArray(string frontmatter, string key)

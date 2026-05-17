@@ -28,3 +28,26 @@ Inline commands at the start of draft lines control where final notes are writte
 - Dynamic commands such as `/customer Microsoft` route into matching first-level `Notes` folders.
 
 People links are stored under `People`. Topic/project entity links are stored under `Notes/Topics` and `Notes/Projects`.
+
+## Tasks
+
+Notey uses `Notes/tasks.md` as the source of truth for the task panel. Existing readable task lines remain supported:
+
+```markdown
+- [ ] Send recap (due: 2026-05-20)
+```
+
+When Notey creates or edits a task, it adds a stable Obsidian block id and explicit metadata:
+
+```markdown
+- [ ] Send recap (due: 2026-05-20) ^notey-task-abc123
+- [x] Send recap (due: 2026-05-20) (completed: 2026-05-21) ^notey-task-def456
+```
+
+Tasks captured from a note include a link back to that note, and Notey adds a reciprocal backlink in the source note:
+
+```markdown
+- [ ] Review launch (due: 2026-05-20) (source: [[Notes/roadmap|roadmap]]) ^notey-task-abc123
+```
+
+Completed tasks stay in their original date section for two calendar days based on the date-only `completed` metadata, then move to the Completed section in the Notey panel.

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Notey.AI.Providers;
 using Notey.App.Processing;
 using Notey.Core.Configuration;
@@ -105,6 +106,89 @@ public sealed class DraftProcessingServiceTests : IDisposable
 
         var tasks = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "tasks.md"));
         Assert.Contains("- [ ] Send recap (due: 2026-05-20)", tasks);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_links_tasks_to_source_note_and_back()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var service = CreateService(rootPath, """{ "body": "Launch body." }""");
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic Roadmap
+            /task Review launch // 2026-05-20
+
+            Raw launch note.
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken);
+
+        var taskContent = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "tasks.md"), cancellationToken);
+        Assert.Contains("- [ ] Review launch (due: 2026-05-20)", taskContent);
+        Assert.Contains("(source: [[Notes/roadmap|roadmap]])", taskContent);
+        var taskId = ExtractTaskId(taskContent);
+        var sourceContent = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "roadmap.md"), cancellationToken);
+        Assert.Contains($"[[Notes/tasks#^{taskId}|Task: Review launch]]", sourceContent);
+    }
+
+    [Fact]
+    public async Task ProcessExistingNoteAsync_preserves_literal_task_lines_in_code_fences()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "roadmap.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        var service = CreateServiceWithoutAi(rootPath);
+        var content = """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            ---
+            ```text
+            /task literal example // 2026-05-20
+            ```
+            """;
+
+        var updated = await service.ProcessExistingNoteAsync(
+            target,
+            content,
+            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+            cancellationToken);
+
+        Assert.Contains("/task literal example // 2026-05-20", updated);
+        Assert.False(File.Exists(Path.Combine(rootPath, "Notes", "tasks.md")));
+    }
+
+    [Fact]
+    public async Task ProcessExistingNoteAsync_extracts_indented_task_directives()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "roadmap.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        var service = CreateServiceWithoutAi(rootPath);
+        var content = """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            ---
+              /task Review launch // 2026-05-20
+            """;
+
+        var updated = await service.ProcessExistingNoteAsync(
+            target,
+            content,
+            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+            cancellationToken);
+
+        Assert.DoesNotContain("/task Review launch // 2026-05-20", updated);
+        var tasksPath = Path.Combine(rootPath, "Notes", "tasks.md");
+        var taskContent = await File.ReadAllTextAsync(tasksPath, cancellationToken);
+        Assert.Contains("- [ ] Review launch (due: 2026-05-20)", taskContent);
+        var taskId = ExtractTaskId(taskContent);
+        Assert.Contains($"[[Notes/tasks#^{taskId}|Task: Review launch]]", updated);
     }
 
     [Fact]
@@ -365,6 +449,13 @@ public sealed class DraftProcessingServiceTests : IDisposable
             yield return index;
             index += value.Length;
         }
+    }
+
+    private static string ExtractTaskId(string taskContent)
+    {
+        var match = Regex.Match(taskContent, @"\^notey-task-[^\s]+", RegexOptions.CultureInvariant);
+        Assert.True(match.Success, "Expected a persisted task block ID.");
+        return match.Value[1..];
     }
 
     private sealed class RecordingAiProvider(string response) : IAiProvider

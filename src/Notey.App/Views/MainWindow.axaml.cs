@@ -1,8 +1,10 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -25,6 +27,7 @@ using Notey.Vault.Abstractions;
 using Notey.Vault.Documents;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
+using Notey.Vault.Tasks;
 
 namespace Notey.App.Views;
 
@@ -34,6 +37,10 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan IdleProcessingDelay = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan IndexRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RecentFinalNoteLookback = TimeSpan.FromDays(14);
+    private static readonly TimeSpan TaskRefreshInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TasksPanelAnimationDuration = TimeSpan.FromMilliseconds(140);
+    private const double TasksPanelMinWidth = 300;
+    private const double TasksPanelMaxWidth = 620;
 
     private readonly NoteyOptions _options;
     private readonly INoteDraftStore _noteDraftStore;
@@ -43,6 +50,7 @@ public sealed partial class MainWindow : Window
     private readonly IScreenSnipService _screenSnipService;
     private readonly ITesseractOcrEngine _ocrEngine;
     private readonly ObsidianLinkBuilder _linkBuilder;
+    private readonly ITaskStore _taskStore;
     private readonly DraftProcessingService _draftProcessingService;
     private readonly IRecentNoteChooser _recentNoteChooser;
     private readonly TimeProvider _timeProvider;
@@ -50,11 +58,15 @@ public sealed partial class MainWindow : Window
     private readonly NoteySettingsStore _settingsStore;
     private readonly DispatcherTimer _autosaveTimer;
     private readonly DispatcherTimer _idleProcessingTimer;
+    private readonly DispatcherTimer _taskRefreshTimer;
     private readonly CancellationTokenSource _windowClosed = new();
     private readonly SemaphoreSlim _saveGate = new(1, 1);
+    private readonly SemaphoreSlim _taskRefreshGate = new(1, 1);
     private readonly ImagePreviewMargin _imagePreviewMargin = new();
+    private readonly TranslateTransform _tasksPanelTransform = new();
     private readonly NoteDirectiveParser _directiveParser = new();
     private readonly List<string> _directOcrSnippets = [];
+    private NoteyTask? _currentEditTask;
 
     private NoteDraft? _currentDraft;
     private string? _currentFinalNotePath;
@@ -69,18 +81,34 @@ public sealed partial class MainWindow : Window
     private bool _isClosePending;
     private bool _isExitRequested;
     private bool _isRecentNoteDialogOpen;
+    private bool _isTasksPanelAnimating;
+    private bool _isResizingTasksPanel;
+    private double _tasksPanelResizeStartX;
+    private double _tasksPanelResizeStartWidth;
     private long _revision;
     private long? _suppressedCompletionRevision;
     private HotkeyGesture? _openNoteGesture;
     private IReadOnlyList<VaultEntity> _peopleIndex = [];
     private IReadOnlyList<VaultFolderCommand> _folderCommands = [];
     private IReadOnlyList<CompletionSuggestion> _completionSuggestions = [];
+    private IReadOnlyList<NoteyTask> _tasks = [];
+    private readonly HashSet<TaskSectionKind> _collapsedTaskSections =
+    [
+        TaskSectionKind.NextWeek,
+        TaskSectionKind.InTwoWeeks,
+        TaskSectionKind.Future,
+        TaskSectionKind.Undated,
+        TaskSectionKind.Completed
+    ];
     private CancellationTokenSource? _idleProcessingCancellation;
     private DateTimeOffset _nextIndexRefreshAt = DateTimeOffset.MinValue;
+    private bool _tasksPanelVisible = true;
 
     public bool HideInsteadOfClose { get; set; }
 
     public bool IsCaptureInProgress => _isCaptureInProgress;
+
+    internal Control? OpenTaskEditPopupContent => TaskEditCard.IsVisible ? TaskEditCard : null;
 
     public event EventHandler? SettingsSaved;
 
@@ -101,7 +129,8 @@ public sealed partial class MainWindow : Window
             dependencies.LinkBuilder,
             dependencies.DraftProcessingService,
             timeProvider,
-            logger)
+            logger,
+            taskStore: dependencies.TaskStore)
     {
     }
 
@@ -118,7 +147,8 @@ public sealed partial class MainWindow : Window
         TimeProvider timeProvider,
         ILogger<MainWindow> logger,
         IRecentNoteChooser? recentNoteChooser = null,
-        NoteySettingsStore? settingsStore = null)
+        NoteySettingsStore? settingsStore = null,
+        ITaskStore? taskStore = null)
     {
         InitializeComponent();
 
@@ -130,6 +160,7 @@ public sealed partial class MainWindow : Window
         _screenSnipService = screenSnipService;
         _ocrEngine = ocrEngine;
         _linkBuilder = linkBuilder;
+        _taskStore = taskStore ?? new FileSystemTaskStore(vaultWorkspace, linkBuilder, timeProvider);
         _draftProcessingService = draftProcessingService;
         _recentNoteChooser = recentNoteChooser ?? new RecentNoteDialogChooser();
         _timeProvider = timeProvider;
@@ -137,8 +168,10 @@ public sealed partial class MainWindow : Window
         _settingsStore = settingsStore ?? CreateFallbackSettingsStore(options);
         _autosaveTimer = new DispatcherTimer { Interval = AutosaveDelay };
         _idleProcessingTimer = new DispatcherTimer { Interval = IdleProcessingDelay };
+        _taskRefreshTimer = new DispatcherTimer { Interval = TaskRefreshInterval };
         _autosaveTimer.Tick += AutosaveTimerOnTick;
         _idleProcessingTimer.Tick += IdleProcessingTimerOnTick;
+        _taskRefreshTimer.Tick += TaskRefreshTimerOnTick;
         _imagePreviewMargin.PreviewRequested += OnImagePreviewRequested;
 
         Width = options.Ui.DefaultWindowWidth;
@@ -147,11 +180,16 @@ public sealed partial class MainWindow : Window
 
         ConfigureEditor();
         ConfigureCommands();
+        ConfigureTasksPanel();
         UpdateEditorStatus();
         UpdateContextChip();
         UpdateCurrentNoteFooter();
 
-        Opened += async (_, _) => await OpenInitialDraftAsync();
+        Opened += async (_, _) =>
+        {
+            await RefreshTasksAsync();
+            await OpenInitialDraftAsync();
+        };
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         Closing += OnClosing;
         Closed += (_, _) =>
@@ -159,6 +197,7 @@ public sealed partial class MainWindow : Window
             _windowClosed.Cancel();
             CancelIdleProcessing();
             DisposeIdleProcessingCancellation();
+            _taskRefreshTimer.Stop();
             _windowClosed.Dispose();
             _saveGate.Dispose();
         };
@@ -174,13 +213,15 @@ public sealed partial class MainWindow : Window
         var linkBuilder = new ObsidianLinkBuilder(workspace);
         var aiRegistry = new AiProviderRegistry([], "default");
         var ocrEngine = new TesseractCliOcrEngine();
+        var taskStore = new FileSystemTaskStore(workspace, linkBuilder, TimeProvider.System);
         var draftProcessingService = new DraftProcessingService(
             options,
             workspace,
             documentStoreIndex,
             aiRegistry,
             ocrEngine,
-            TimeProvider.System);
+            TimeProvider.System,
+            taskStore);
 
         return new DefaultDependencies(
             options,
@@ -191,6 +232,7 @@ public sealed partial class MainWindow : Window
             new UnavailableScreenSnipService(),
             ocrEngine,
             linkBuilder,
+            taskStore,
             draftProcessingService);
     }
 
@@ -264,7 +306,674 @@ public sealed partial class MainWindow : Window
             }
         };
         OpenInObsidianButton.Click += (_, _) => OpenCurrentNoteInObsidian();
+        TasksButton.Click += async (_, _) => await ToggleTasksPanelAsync();
+        AddTaskButton.Click += (_, _) => ToggleAddTaskPanel();
+        SaveNewTaskButton.Click += async (_, _) => await AddTaskFromPanelAsync();
         SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
+    }
+
+    private void ConfigureTasksPanel()
+    {
+        TasksPanel.RenderTransform = _tasksPanelTransform;
+        TasksPanelResizeHandle.Cursor = new Cursor(StandardCursorType.SizeWestEast);
+        TasksPanelResizeHandle.PointerPressed += OnTasksPanelResizeHandlePointerPressed;
+        TasksPanelResizeHandle.PointerMoved += OnTasksPanelResizeHandlePointerMoved;
+        TasksPanelResizeHandle.PointerReleased += OnTasksPanelResizeHandlePointerReleased;
+        SetTasksPanelWidth(TasksPanel.Width);
+
+        TaskEditSaveButton.Click += async (_, _) =>
+        {
+            if (_currentEditTask is null) return;
+            if (await SaveTaskDetailsAsync(_currentEditTask, TaskEditTextBox.Text, FromPickerDate(TaskEditDueDatePicker.SelectedDate)))
+            {
+                HideTaskEditCard();
+            }
+            else
+            {
+                TaskEditErrorText.IsVisible = true;
+            }
+        };
+        TaskEditCancelButton.Click += (_, _) => HideTaskEditCard();
+        TaskEditClearDueDateButton.Click += (_, _) => TaskEditDueDatePicker.SelectedDate = null;
+        TaskEditDeleteButton.Click += async (_, _) =>
+        {
+            if (_currentEditTask is null) return;
+            if (await DeleteTaskAsync(_currentEditTask))
+            {
+                HideTaskEditCard();
+            }
+            else
+            {
+                TaskEditErrorText.IsVisible = true;
+            }
+        };
+        TaskEditCard.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                HideTaskEditCard();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+            {
+                if (_currentEditTask is null) return;
+                if (await SaveTaskDetailsAsync(_currentEditTask, TaskEditTextBox.Text, FromPickerDate(TaskEditDueDatePicker.SelectedDate)))
+                {
+                    HideTaskEditCard();
+                }
+                else
+                {
+                    TaskEditErrorText.IsVisible = true;
+                }
+
+                e.Handled = true;
+            }
+        };
+    }
+
+    private void OnTasksPanelResizeHandlePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var properties = e.GetCurrentPoint(this).Properties;
+        if (!properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _isResizingTasksPanel = true;
+        _tasksPanelResizeStartX = e.GetPosition(this).X;
+        _tasksPanelResizeStartWidth = GetTasksPanelWidth();
+        e.Pointer.Capture(TasksPanelResizeHandle);
+        e.Handled = true;
+    }
+
+    private void OnTasksPanelResizeHandlePointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_isResizingTasksPanel)
+        {
+            return;
+        }
+
+        var currentX = e.GetPosition(this).X;
+        SetTasksPanelWidth(_tasksPanelResizeStartWidth + _tasksPanelResizeStartX - currentX);
+        e.Handled = true;
+    }
+
+    private void OnTasksPanelResizeHandlePointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_isResizingTasksPanel)
+        {
+            return;
+        }
+
+        _isResizingTasksPanel = false;
+        e.Pointer.Capture(null);
+        e.Handled = true;
+    }
+
+    private void SetTasksPanelWidth(double width)
+    {
+        TasksPanel.Width = Math.Clamp(width, TasksPanelMinWidth, TasksPanelMaxWidth);
+    }
+
+    private double GetTasksPanelWidth()
+    {
+        return double.IsNaN(TasksPanel.Width)
+            ? Math.Clamp(TasksPanel.Bounds.Width, TasksPanelMinWidth, TasksPanelMaxWidth)
+            : Math.Clamp(TasksPanel.Width, TasksPanelMinWidth, TasksPanelMaxWidth);
+    }
+
+    private async Task ToggleTasksPanelAsync()
+    {
+        if (_tasksPanelVisible)
+        {
+            await HideTasksPanelAsync();
+        }
+        else
+        {
+            await ShowTasksPanelAsync();
+        }
+    }
+
+    private async Task ShowTasksPanelAsync()
+    {
+        if (_isTasksPanelAnimating)
+        {
+            return;
+        }
+
+        _isTasksPanelAnimating = true;
+        try
+        {
+            var panelWidth = GetTasksPanelWidth();
+            _tasksPanelVisible = true;
+            _tasksPanelTransform.X = panelWidth;
+            TasksPanel.Opacity = 0;
+            TasksPanel.IsVisible = true;
+            TasksPanelResizeHandle.IsVisible = true;
+            _taskRefreshTimer.Start();
+            await RefreshTasksAsync();
+            await AnimateTasksPanelAsync(panelWidth, 0);
+        }
+        finally
+        {
+            _tasksPanelTransform.X = 0;
+            TasksPanel.Opacity = 1;
+            _isTasksPanelAnimating = false;
+        }
+    }
+
+    private async Task HideTasksPanelAsync()
+    {
+        if (_isTasksPanelAnimating)
+        {
+            return;
+        }
+
+        _isTasksPanelAnimating = true;
+        try
+        {
+            _tasksPanelVisible = false;
+            _taskRefreshTimer.Stop();
+            await AnimateTasksPanelAsync(0, GetTasksPanelWidth());
+            TasksPanel.IsVisible = false;
+            TasksPanelResizeHandle.IsVisible = false;
+        }
+        finally
+        {
+            _tasksPanelTransform.X = 0;
+            TasksPanel.Opacity = 1;
+            _isTasksPanelAnimating = false;
+        }
+    }
+
+    private Task AnimateTasksPanelAsync(double from, double to)
+    {
+        var completion = new TaskCompletionSource();
+        var stopwatch = Stopwatch.StartNew();
+        var opening = to < from;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        timer.Tick += (_, _) =>
+        {
+            var progress = Math.Min(1, stopwatch.Elapsed.TotalMilliseconds / TasksPanelAnimationDuration.TotalMilliseconds);
+            var eased = EaseOutCubic(progress);
+            _tasksPanelTransform.X = from + ((to - from) * eased);
+            TasksPanel.Opacity = opening ? eased : 1 - eased;
+            if (progress < 1)
+            {
+                return;
+            }
+
+            timer.Stop();
+            _tasksPanelTransform.X = to;
+            TasksPanel.Opacity = opening ? 1 : 0;
+            completion.TrySetResult();
+        };
+
+        timer.Start();
+        return completion.Task;
+    }
+
+    private static double EaseOutCubic(double progress)
+    {
+        var inverse = 1 - progress;
+        return 1 - (inverse * inverse * inverse);
+    }
+
+    private void ToggleAddTaskPanel()
+    {
+        AddTaskPanel.IsVisible = !AddTaskPanel.IsVisible;
+        if (AddTaskPanel.IsVisible)
+        {
+            NewTaskDueDatePicker.SelectedDate = ToPickerDate(DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime));
+            NewTaskTextBox.Focus();
+        }
+    }
+
+    private async Task AddTaskFromPanelAsync()
+    {
+        var text = NewTaskTextBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            AutosaveStatusText.Text = "TASK TEXT REQUIRED";
+            return;
+        }
+
+        var dueDate = FromPickerDate(NewTaskDueDatePicker.SelectedDate);
+
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+        try
+        {
+            await _taskStore.AddAsync([new NewNoteyTask(text, dueDate, SourceFilePath: null)], today, _windowClosed.Token);
+            NewTaskTextBox.Text = string.Empty;
+            AddTaskPanel.IsVisible = false;
+            AutosaveStatusText.Text = "TASK ADDED";
+            await RefreshTasksAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to add task from the task panel.");
+        }
+    }
+
+    private async void TaskRefreshTimerOnTick(object? sender, EventArgs e)
+    {
+        if (_tasksPanelVisible && IsVisible && _taskRefreshGate.CurrentCount > 0)
+        {
+            await RefreshTasksAsync();
+        }
+    }
+
+    private async Task RefreshTasksAsync()
+    {
+        var refreshLockTaken = false;
+        try
+        {
+            await _taskRefreshGate.WaitAsync(_windowClosed.Token);
+            refreshLockTaken = true;
+            _tasks = await _taskStore.LoadAsync(_windowClosed.Token);
+            RenderTasks();
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Task refresh was cancelled because the window closed.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        {
+            AutosaveStatusText.Text = "TASKS ERROR";
+            _logger.LogError(ex, "Failed to refresh tasks from {TasksPath}.", _taskStore.GetTasksFilePath());
+        }
+        finally
+        {
+            if (refreshLockTaken)
+            {
+                _taskRefreshGate.Release();
+            }
+        }
+    }
+
+    private void RenderTasks()
+    {
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+        var badgeCount = TaskGrouper.CountBadgeTasks(_tasks, today);
+        TasksBadge.IsVisible = badgeCount > 0;
+        TasksBadgeText.Text = badgeCount.ToString(CultureInfo.InvariantCulture);
+
+        if (_currentEditTask is not null && !_tasks.Any(t => t.Id == _currentEditTask.Id))
+        {
+            HideTaskEditCard();
+        }
+
+        TaskSectionsPanel.Children.Clear();
+        foreach (var section in TaskGrouper.Group(_tasks, today))
+        {
+            TaskSectionsPanel.Children.Add(CreateTaskSection(section, today));
+        }
+
+        if (_tasksPanelVisible && !_taskRefreshTimer.IsEnabled)
+        {
+            _taskRefreshTimer.Start();
+        }
+    }
+
+    private Control CreateTaskSection(TaskSection section, DateOnly today)
+    {
+        var container = new StackPanel { Spacing = 6 };
+        var header = new Button
+        {
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0, 8),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch
+        };
+        var isCollapsed = _collapsedTaskSections.Contains(section.Kind);
+        var headerGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+            ColumnSpacing = 6,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch
+        };
+        var triangle = new PathIcon
+        {
+            Data = Geometry.Parse("M7,4 L17,12 L7,20 Z"),
+            Width = 10,
+            Height = 10,
+            Foreground = Brush.Parse("#8C909F"),
+            RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+            RenderTransform = new RotateTransform(isCollapsed ? 0 : 90),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(triangle, 0);
+        headerGrid.Children.Add(triangle);
+
+        var title = new TextBlock
+        {
+            Text = section.Title,
+            Classes = { "label" },
+            FontSize = 13,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(title, 1);
+        headerGrid.Children.Add(title);
+
+        var count = new Border
+        {
+            Background = section.Kind == TaskSectionKind.Completed ? Brush.Parse("#1F5F35") : Brush.Parse("#384255"),
+            CornerRadius = new CornerRadius(9),
+            MinWidth = 20,
+            Height = 20,
+            Child = new TextBlock
+            {
+                Text = section.Count.ToString(CultureInfo.InvariantCulture),
+                Foreground = Brushes.White,
+                FontSize = 11,
+                FontWeight = FontWeight.Bold,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            }
+        };
+        Grid.SetColumn(count, 2);
+        headerGrid.Children.Add(count);
+        header.Content = headerGrid;
+        header.Click += (_, _) =>
+        {
+            if (!_collapsedTaskSections.Add(section.Kind))
+            {
+                _collapsedTaskSections.Remove(section.Kind);
+            }
+
+            RenderTasks();
+        };
+        container.Children.Add(header);
+
+        if (!isCollapsed)
+        {
+            foreach (var task in section.Tasks)
+            {
+                container.Children.Add(CreateTaskRow(task, section.Kind, today));
+            }
+        }
+
+        return container;
+    }
+
+    private Control CreateTaskRow(NoteyTask task, TaskSectionKind sectionKind, DateOnly today)
+    {
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto,Auto"),
+            ColumnSpacing = 8,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+
+        var checkbox = new CheckBox
+        {
+            IsChecked = task.IsCompleted,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(checkbox, 0);
+        checkbox.Click += async (_, _) => await SetTaskCompletedAsync(task, checkbox.IsChecked == true);
+        row.Children.Add(checkbox);
+
+        var taskText = new TextBlock
+        {
+            Text = task.Text,
+            Foreground = task.IsCompleted ? Brush.Parse("#8C909F") : Brush.Parse("#E1E2EC"),
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(taskText, 1);
+        row.Children.Add(taskText);
+
+        if (sectionKind == TaskSectionKind.Incomplete && !task.IsCompleted)
+        {
+            var moveButton = new Button
+            {
+                Name = "SetDueTodayButton",
+                Width = 24,
+                Height = 24,
+                MinWidth = 24,
+                Padding = new Thickness(0),
+                Content = new PathIcon
+                {
+                    Data = Geometry.Parse("M5,4 H7 V2 H9 V4 H15 V2 H17 V4 H19 C20.1,4 21,4.9 21,6 V8 H3 V6 C3,4.9 3.9,4 5,4 Z M5,10 H19 V20 H5 Z"),
+                    Width = 13,
+                    Height = 13,
+                    Foreground = Brush.Parse("#C2C6D6")
+                }
+            };
+            ToolTip.SetTip(moveButton, "Set due today");
+            Grid.SetColumn(moveButton, 2);
+            moveButton.Click += async (_, _) => await MoveTaskToThisWeekAsync(task, today);
+            row.Children.Add(moveButton);
+        }
+
+        if (task.SourceFilePath is not null)
+        {
+            var sourceButton = new Button
+            {
+                Content = "Open",
+                Padding = new Thickness(8, 3),
+                FontSize = 11
+            };
+            Grid.SetColumn(sourceButton, 3);
+            ToolTip.SetTip(sourceButton, "Open source note in Obsidian");
+            sourceButton.Click += (_, _) => OpenTaskSourceInObsidian(task.SourceFilePath);
+            row.Children.Add(sourceButton);
+        }
+
+        var dateButton = new Button
+        {
+            Content = FormatTaskDate(task.DueDate),
+            Padding = new Thickness(8, 3),
+            FontSize = 11,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right
+        };
+        var dateShiftButtons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 2,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        var previousDayButton = CreateTaskDateShiftButton("M12,17 L6,9 L18,9 Z", "Move task back one day");
+        previousDayButton.IsEnabled = task.DueDate is not null;
+        previousDayButton.Click += async (_, _) => await ShiftTaskDueDateAsync(task, -1);
+        var nextDayButton = CreateTaskDateShiftButton("M12,7 L18,15 L6,15 Z", "Move task forward one day");
+        nextDayButton.IsEnabled = task.DueDate is not null;
+        nextDayButton.Click += async (_, _) => await ShiftTaskDueDateAsync(task, 1);
+        dateShiftButtons.Children.Add(previousDayButton);
+        dateShiftButtons.Children.Add(nextDayButton);
+        Grid.SetColumn(dateShiftButtons, 4);
+        row.Children.Add(dateShiftButtons);
+
+        Grid.SetColumn(dateButton, 5);
+        dateButton.Click += (_, _) => ShowTaskEditPopup(task, dateButton);
+        row.Children.Add(dateButton);
+
+        return row;
+    }
+
+    private static Button CreateTaskDateShiftButton(string iconData, string tooltip)
+    {
+        var button = new Button
+        {
+            Width = 22,
+            Height = 22,
+            MinWidth = 22,
+            Padding = new Thickness(0),
+            Content = new PathIcon
+            {
+                Data = Geometry.Parse(iconData),
+                Width = 10,
+                Height = 10,
+                Foreground = Brush.Parse("#C2C6D6")
+            }
+        };
+        ToolTip.SetTip(button, tooltip);
+        return button;
+    }
+
+    private void ShowTaskEditPopup(NoteyTask task, Button _)
+    {
+        _currentEditTask = task;
+        TaskEditTextBox.Text = task.Text;
+        TaskEditDueDatePicker.SelectedDate = ToPickerDate(task.DueDate);
+        TaskEditErrorText.IsVisible = false;
+        TaskEditBackdrop.IsVisible = true;
+        TaskEditCard.IsVisible = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            TaskEditTextBox.Focus();
+            TaskEditTextBox.CaretIndex = TaskEditTextBox.Text?.Length ?? 0;
+        });
+    }
+
+    private void HideTaskEditCard()
+    {
+        _currentEditTask = null;
+        TaskEditBackdrop.IsVisible = false;
+        TaskEditCard.IsVisible = false;
+    }
+
+    private async Task ShiftTaskDueDateAsync(NoteyTask task, int days)
+    {
+        if (task.DueDate is not { } dueDate)
+        {
+            return;
+        }
+
+        HideTaskEditCard();
+        await SetTaskDueDateAsync(task, dueDate.AddDays(days));
+    }
+
+    private async Task SetTaskCompletedAsync(NoteyTask task, bool completed)
+    {
+        try
+        {
+            var completedDate = completed
+                ? DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime)
+                : (DateOnly?)null;
+            await _taskStore.SetCompletedAsync(task.Id, completedDate, _windowClosed.Token);
+            AutosaveStatusText.Text = completed ? "TASK COMPLETED" : "TASK REOPENED";
+            await RefreshTasksAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to update task {TaskId}.", task.Id);
+        }
+    }
+
+    private async Task SetTaskDueDateAsync(NoteyTask task, DateOnly? dueDate)
+    {
+        try
+        {
+            HideTaskEditCard();
+            await _taskStore.SetDueDateAsync(task.Id, dueDate, _windowClosed.Token);
+            AutosaveStatusText.Text = "TASK UPDATED";
+            await RefreshTasksAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to change due date for task {TaskId}.", task.Id);
+        }
+    }
+
+    private async Task MoveTaskToThisWeekAsync(NoteyTask task, DateOnly today)
+    {
+        try
+        {
+            HideTaskEditCard();
+            await _taskStore.MoveToThisWeekAsync(task.Id, today, _windowClosed.Token);
+            AutosaveStatusText.Text = "TASK MOVED";
+            await RefreshTasksAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to move overdue task {TaskId} to this week.", task.Id);
+        }
+    }
+
+    private async Task<bool> SaveTaskDetailsAsync(NoteyTask task, string? text, DateOnly? dueDate)
+    {
+        try
+        {
+            var updated = await _taskStore.SetDetailsAsync(task.Id, text ?? string.Empty, dueDate, _windowClosed.Token);
+            if (updated is null)
+            {
+                throw new InvalidOperationException("Task was not found.");
+            }
+
+            AutosaveStatusText.Text = "TASK UPDATED";
+            await RefreshTasksAsync();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK SAVE ERROR";
+            _logger.LogError(ex, "Failed to save task {TaskId}.", task.Id);
+            return false;
+        }
+    }
+
+    private async Task<bool> DeleteTaskAsync(NoteyTask task)
+    {
+        try
+        {
+            await _taskStore.RemoveAsync([task.Id], _windowClosed.Token);
+            AutosaveStatusText.Text = "TASK DELETED";
+            await RefreshTasksAsync();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            AutosaveStatusText.Text = "TASK DELETE ERROR";
+            _logger.LogError(ex, "Failed to delete task {TaskId}.", task.Id);
+            return false;
+        }
+    }
+
+    private void OpenTaskSourceInObsidian(string sourceFilePath)
+    {
+        try
+        {
+            var uri = _linkBuilder.BuildOpenFileUri(sourceFilePath);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = uri.AbsoluteUri,
+                UseShellExecute = true
+            });
+            AutosaveStatusText.Text = "OPENED IN OBSIDIAN";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or Win32Exception or PlatformNotSupportedException)
+        {
+            AutosaveStatusText.Text = "OBSIDIAN ERROR";
+            _logger.LogError(ex, "Failed to open task source note {FilePath} in Obsidian.", sourceFilePath);
+        }
+    }
+
+    private DateTimeOffset? ToPickerDate(DateOnly? dueDate)
+    {
+        return dueDate is { } value
+            ? new DateTimeOffset(value.ToDateTime(TimeOnly.MinValue), _timeProvider.GetLocalNow().Offset)
+            : null;
+    }
+
+    private static DateOnly? FromPickerDate(DateTimeOffset? selectedDate)
+    {
+        return selectedDate is { } value
+            ? DateOnly.FromDateTime(value.DateTime)
+            : null;
+    }
+
+    private static string FormatTaskDate(DateOnly? dueDate)
+    {
+        return dueDate is { } value
+            ? value.ToString("ddd d/M", CultureInfo.InvariantCulture)
+            : "No date";
     }
 
     public async Task ActivateOrResumeAsync()
@@ -2123,6 +2832,7 @@ public sealed partial class MainWindow : Window
         IScreenSnipService ScreenSnipService,
         ITesseractOcrEngine OcrEngine,
         ObsidianLinkBuilder LinkBuilder,
+        ITaskStore TaskStore,
         DraftProcessingService DraftProcessingService);
 
     private sealed record SlashCommandDefinition(string Name, string Description, string InsertionText);

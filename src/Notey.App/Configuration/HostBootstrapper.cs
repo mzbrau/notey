@@ -17,6 +17,7 @@ using Notey.Vault.Abstractions;
 using Notey.Vault.Documents;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
+using Notey.Vault.Tasks;
 
 namespace Notey.App.Configuration;
 
@@ -64,6 +65,7 @@ public static class HostBootstrapper
                 services.AddSingleton<ObsidianLinkBuilder>();
                 services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
+                services.AddSingleton<ITaskStore, FileSystemTaskStore>();
                 services.AddSingleton<DraftProcessingService>();
                 services.AddSingleton<IRecentNoteChooser, RecentNoteDialogChooser>();
 
