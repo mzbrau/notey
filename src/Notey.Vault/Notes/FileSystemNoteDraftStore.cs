@@ -96,6 +96,26 @@ public sealed partial class FileSystemNoteDraftStore(
         await WriteUtf8AtomicallyAsync(draft.FilePath, content, cancellationToken);
     }
 
+    public async Task DeleteEmptyDraftsAsync(CancellationToken cancellationToken = default)
+    {
+        var notesPath = workspace.GetPaths().DraftPath;
+        if (!Directory.Exists(notesPath))
+        {
+            return;
+        }
+
+        foreach (var filePath in Directory.EnumerateFiles(notesPath, "*.md", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var content = await File.ReadAllTextAsync(filePath, cancellationToken);
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                DeleteIfExists(filePath);
+            }
+        }
+    }
+
     private static string GetCandidateFilePath(string directory, string fileName, int index)
     {
         if (index == 1)

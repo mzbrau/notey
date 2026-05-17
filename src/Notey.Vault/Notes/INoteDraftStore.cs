@@ -11,4 +11,6 @@ public interface INoteDraftStore
     Task<IReadOnlyList<RecentNoteSummary>> ListRecentAsync(DateTimeOffset createdAfter, CancellationToken cancellationToken = default);
 
     Task SaveAsync(NoteDraft draft, string content, CancellationToken cancellationToken = default);
+
+    Task DeleteEmptyDraftsAsync(CancellationToken cancellationToken = default);
 }
