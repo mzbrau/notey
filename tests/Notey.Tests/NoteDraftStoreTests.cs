@@ -233,6 +233,53 @@ public sealed class NoteDraftStoreTests : IDisposable
             new NoteFileNameGenerator());
     }
 
+    [Fact]
+    public async Task DeleteEmptyDraftsAsync_removes_whitespace_only_draft_files()
+    {
+        var rootPath = CreateTempDirectory();
+        var notesPath = Path.Combine(rootPath, "Notes", "Draft");
+        Directory.CreateDirectory(notesPath);
+        var emptyFile = Path.Combine(notesPath, "2026-05-13-2200-note.md");
+        var whitespaceFile = Path.Combine(notesPath, "2026-05-13-2201-note.md");
+        await File.WriteAllTextAsync(emptyFile, string.Empty);
+        await File.WriteAllTextAsync(whitespaceFile, "   \n   \n");
+        var store = CreateStore(rootPath);
+
+        await store.DeleteEmptyDraftsAsync();
+
+        Assert.False(File.Exists(emptyFile));
+        Assert.False(File.Exists(whitespaceFile));
+    }
+
+    [Fact]
+    public async Task DeleteEmptyDraftsAsync_preserves_draft_files_with_content()
+    {
+        var rootPath = CreateTempDirectory();
+        var notesPath = Path.Combine(rootPath, "Notes", "Draft");
+        Directory.CreateDirectory(notesPath);
+        var emptyFile = Path.Combine(notesPath, "2026-05-13-2200-note.md");
+        var contentFile = Path.Combine(notesPath, "2026-05-13-2201-note.md");
+        await File.WriteAllTextAsync(emptyFile, string.Empty);
+        await File.WriteAllTextAsync(contentFile, "# My note\n\nSome content.");
+        var store = CreateStore(rootPath);
+
+        await store.DeleteEmptyDraftsAsync();
+
+        Assert.False(File.Exists(emptyFile));
+        Assert.True(File.Exists(contentFile));
+    }
+
+    [Fact]
+    public async Task DeleteEmptyDraftsAsync_does_nothing_when_draft_folder_does_not_exist()
+    {
+        var rootPath = CreateTempDirectory();
+        var store = CreateStore(rootPath);
+
+        var exception = await Record.ExceptionAsync(() => store.DeleteEmptyDraftsAsync());
+
+        Assert.Null(exception);
+    }
+
     public void Dispose()
     {
         foreach (var directory in _tempDirectories)

@@ -1505,6 +1505,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        await _noteDraftStore.DeleteEmptyDraftsAsync(_windowClosed.Token);
         await TryCreateAndLoadDraftAsync("opening the initial note");
     }
 
