@@ -237,6 +237,12 @@ public sealed partial class DraftProcessingService(
               "links": ["Obsidian link target or URL"]
             }
 
+            Guidelines:
+            - "filename" should describe the subject or agenda of the note (e.g. "budget-review", "onboarding-plan").
+            - For meeting notes, base "filename" on the meeting topic or agenda, not on attendee names. If no clear topic is available, use "meeting" as the fallback stem.
+            - Omit "filename" when a /topic directive is already provided.
+            - "tags" must not include a leading '#' character.
+
             Routing metadata:
             - meeting: {{parsed.IsMeeting}}
             - topic: {{parsed.Topic ?? "none"}}
