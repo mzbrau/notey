@@ -8,7 +8,7 @@
         Height="760"
         MinWidth="840"
         MinHeight="520">
-  <Grid RowDefinitions="52,Auto,*,34"
+  <Grid RowDefinitions="52,Auto,*,Auto,Auto,34"
         Background="{DynamicResource Notey.SurfaceBrush}">
     <Border Grid.Row="0"
             BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
@@ -72,6 +72,9 @@
                            VerticalAlignment="Center" />
               </Border>
             </Grid>
+          </Button>
+          <Button x:Name="AssistantButton" Classes="command" ToolTip.Tip="Show Notey Assistant" AutomationProperties.Name="Show Notey Assistant">
+            <PathIcon Classes="commandIcon" Data="M5,5 L19,5 C20.1,5 21,5.9 21,7 L21,15 C21,16.1 20.1,17 19,17 L10,17 L6,21 L6,17 L5,17 C3.9,17 3,16.1 3,15 L3,7 C3,5.9 3.9,5 5,5 Z M8,9 L16,9 M8,12 L13,12 M17,10 L18,12 L17,14 L16,12 Z" />
           </Button>
           <Button x:Name="SettingsButton" Classes="command" ToolTip.Tip="Open settings" AutomationProperties.Name="Open settings">
             <PathIcon Classes="commandIcon" Data="M12,8 A4,4 0,1 0,12,16 A4,4 0,1 0,12,8 M12,3 L13,5.2 L15.4,5.7 L17,4.2 L19.8,7 L18.3,8.6 L18.8,11 L21,12 L18.8,13 L18.3,15.4 L19.8,17 L17,19.8 L15.4,18.3 L13,18.8 L12,21 L11,18.8 L8.6,18.3 L7,19.8 L4.2,17 L5.7,15.4 L5.2,13 L3,12 L5.2,11 L5.7,8.6 L4.2,7 L7,4.2 L8.6,5.7 L11,5.2 Z" />
@@ -277,7 +280,94 @@
       </Border>
     </Grid>
 
-    <Border Grid.Row="3"
+    <Border x:Name="AssistantPanelResizeHandle"
+            Grid.Row="3"
+            Height="6"
+            IsVisible="False"
+            Background="Transparent"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,1,0,0"
+            ToolTip.Tip="Resize Notey Assistant panel" />
+
+    <Border x:Name="AssistantPanel"
+            Grid.Row="4"
+            Height="220"
+            MinHeight="140"
+            MaxHeight="420"
+            IsVisible="False"
+            BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+            BorderThickness="0,1,0,0"
+            Background="{DynamicResource Notey.SurfaceLowBrush}">
+      <Grid RowDefinitions="Auto,*,Auto,Auto"
+            RowSpacing="10"
+            Margin="20,14">
+        <Grid Grid.Row="0"
+              ColumnDefinitions="*,Auto"
+              ColumnSpacing="10">
+          <TextBlock Grid.Column="0"
+                     Classes="label"
+                     Text="NOTEY ASSISTANT"
+                     FontSize="16"
+                     LetterSpacing="1.8"
+                     VerticalAlignment="Center" />
+          <TextBlock x:Name="AssistantStatusText"
+                     Grid.Column="1"
+                     Classes="label"
+                     Text="Ready"
+                     VerticalAlignment="Center" />
+        </Grid>
+
+        <Border Grid.Row="1"
+                CornerRadius="8"
+                BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
+                BorderThickness="1"
+                Background="{DynamicResource Notey.SurfaceBrush}">
+          <ScrollViewer VerticalScrollBarVisibility="Auto"
+                        Padding="12">
+            <TextBlock x:Name="AssistantResponseText"
+                       Text="Ask Notey Assistant to propose changes to the current note or tasks."
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource Notey.SecondaryTextBrush}" />
+          </ScrollViewer>
+        </Border>
+
+        <TextBox x:Name="AssistantPromptTextBox"
+                 Grid.Row="2"
+                 Classes="metadataInput"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 MinHeight="58"
+                 MaxHeight="110"
+                 PlaceholderText="Ask Notey Assistant..." />
+
+        <Grid Grid.Row="3"
+              ColumnDefinitions="*,Auto,Auto,Auto"
+              ColumnSpacing="8">
+          <TextBlock x:Name="AssistantErrorText"
+                     Grid.Column="0"
+                     Foreground="{DynamicResource Notey.ErrorBrush}"
+                     TextWrapping="Wrap"
+                     VerticalAlignment="Center"
+                     IsVisible="False" />
+          <Button x:Name="AssistantCancelButton"
+                  Grid.Column="1"
+                  Classes="panelAction"
+                  Content="Cancel"
+                  IsEnabled="False" />
+          <Button x:Name="AssistantApplyButton"
+                  Grid.Column="2"
+                  Classes="panelPrimary"
+                  Content="Apply changes"
+                  IsEnabled="False" />
+          <Button x:Name="AssistantSendButton"
+                  Grid.Column="3"
+                  Classes="panelPrimary"
+                  Content="Send" />
+        </Grid>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="5"
             BorderBrush="{DynamicResource Notey.OutlineVariantBrush}"
             BorderThickness="0,1,0,0"
             Background="{DynamicResource Notey.SurfaceLowestBrush}"
@@ -306,7 +396,7 @@
     </Border>
 
     <Border x:Name="RecentDialogOverlay"
-            Grid.RowSpan="4"
+            Grid.RowSpan="6"
             Background="#01000000"
             IsVisible="False"
             ZIndex="100" />

@@ -267,6 +267,25 @@ public sealed class MainWindowUiFlowTests
     }
 
     [AvaloniaFact]
+    public async Task Assistant_panel_toggles_and_accepts_multiline_prompt()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+
+        harness.Find<Button>("AssistantButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+        var panel = harness.Find<Border>("AssistantPanel");
+        var handle = harness.Find<Border>("AssistantPanelResizeHandle");
+        var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
+
+        prompt.Text = "Add a greeting\nand create a follow-up task.";
+
+        Assert.True(panel.IsVisible);
+        Assert.True(handle.IsVisible);
+        Assert.True(prompt.AcceptsReturn);
+        Assert.Contains("follow-up", prompt.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
     public async Task Bold_shortcut_unwraps_selected_text_without_crashing()
     {
         using var harness = await MainWindowTestHarness.CreateAsync();

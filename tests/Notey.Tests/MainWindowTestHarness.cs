@@ -4,6 +4,7 @@ using Avalonia.Threading;
 using AvaloniaEdit;
 using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
+using Notey.App.Assistant;
 using Notey.App.Processing;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
@@ -23,6 +24,7 @@ internal sealed class MainWindowTestHarness : IDisposable
     private static readonly int CloseWaitMaxAttempts = 100;
     private static readonly TimeSpan CloseWaitPollInterval = TimeSpan.FromMilliseconds(10);
     private readonly FixedTimeProvider _timeProvider;
+    private readonly RecordingAiProvider _aiProvider;
 
     private MainWindowTestHarness()
     {
@@ -39,7 +41,8 @@ internal sealed class MainWindowTestHarness : IDisposable
         var workspace = new FileSystemVaultWorkspace(options);
         var documentStoreIndex = new FileSystemDocumentStoreIndex(workspace);
         var linkBuilder = new ObsidianLinkBuilder(workspace);
-        var aiProviderRegistry = new AiProviderRegistry([new RecordingAiProvider()], "default");
+        _aiProvider = new RecordingAiProvider();
+        var aiProviderRegistry = new AiProviderRegistry([_aiProvider], "default");
         var ocrEngine = new RecordingOcrEngine();
         var draftProcessingService = new DraftProcessingService(
             options,
@@ -62,7 +65,8 @@ internal sealed class MainWindowTestHarness : IDisposable
             draftProcessingService,
             _timeProvider,
             NullLogger<MainWindow>.Instance,
-            RecentNoteChooser);
+            RecentNoteChooser,
+            assistantService: new NoteyAssistantService(options, aiProviderRegistry));
     }
 
     public string RootPath { get; }
@@ -72,6 +76,14 @@ internal sealed class MainWindowTestHarness : IDisposable
     public TestRecentNoteChooser RecentNoteChooser { get; }
 
     public DateTimeOffset LocalNow => _timeProvider.GetLocalNow();
+
+    public string AssistantAiResponse
+    {
+        get => _aiProvider.AssistantResponse;
+        set => _aiProvider.AssistantResponse = value;
+    }
+
+    public AiTextRequest? LastAiRequest => _aiProvider.LastRequest;
 
     public TextEditor Editor => FindRequired<TextEditor>("NoteEditor");
 
@@ -295,8 +307,24 @@ internal sealed class MainWindowTestHarness : IDisposable
     {
         public string Id => "default";
 
+        public string AssistantResponse { get; set; } = """
+            {
+              "message": "No changes proposed.",
+              "noteOperations": [],
+              "taskOperations": []
+            }
+            """;
+
+        public AiTextRequest? LastRequest { get; private set; }
+
         public ValueTask<AiTextResponse> CompleteTextAsync(AiTextRequest request, CancellationToken cancellationToken = default)
         {
+            LastRequest = request;
+            if (request.Prompt.Contains("\"noteOperations\"", StringComparison.Ordinal))
+            {
+                return ValueTask.FromResult(new AiTextResponse(AssistantResponse, Id, "test"));
+            }
+
             if (request.Prompt.Contains("Updated recent note body.", StringComparison.Ordinal))
             {
                 const string updatedResponse = """
