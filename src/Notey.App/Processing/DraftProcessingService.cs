@@ -300,12 +300,27 @@ public sealed partial class DraftProcessingService(
                 continue;
             }
 
-            var result = await ocrEngine.RecognizeAsync(
-                new TesseractOcrRequest(
-                    imagePath,
-                    options.Ocr.DefaultLanguage,
-                    string.IsNullOrWhiteSpace(options.Ocr.TesseractDataPath) ? null : options.Ocr.TesseractDataPath),
-                cancellationToken);
+            OcrResult result;
+            try
+            {
+                result = await ocrEngine.RecognizeAsync(
+                    new TesseractOcrRequest(
+                        imagePath,
+                        options.Ocr.DefaultLanguage,
+                        string.IsNullOrWhiteSpace(options.Ocr.TesseractDataPath) ? null : options.Ocr.TesseractDataPath),
+                    cancellationToken);
+            }
+            catch (OcrDependencyUnavailableException ex)
+            {
+                logger.LogWarning(ex, "Skipping OCR for image {ImagePath} because OCR native dependencies are unavailable.", imagePath);
+                continue;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException)
+            {
+                logger.LogWarning(ex, "Skipping OCR for image {ImagePath} because OCR failed.", imagePath);
+                continue;
+            }
+
             if (!string.IsNullOrWhiteSpace(result.Text))
             {
                 snippets.Add($"Image {match.Groups["path"].Value}: {result.Text.Trim()}");

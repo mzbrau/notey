@@ -1,3 +1,4 @@
+using System.Reflection;
 using TesseractOCR;
 using TesseractOCR.Enums;
 
@@ -36,7 +37,16 @@ public sealed class TesseractNativeOcrEngine : ITesseractOcrEngine
 
         var dataPath = await ResolveDataPathAsync(request.DataPath, request.Language, cancellationToken);
 
-        return await Task.Run(() => RunOcr(request, dataPath), cancellationToken);
+        try
+        {
+            return await Task.Run(() => RunOcr(request, dataPath), cancellationToken);
+        }
+        catch (Exception ex) when (IsNativeDependencyLoadFailure(ex))
+        {
+            throw new OcrDependencyUnavailableException(
+                "Tesseract OCR native libraries are not available for this platform. Install the required Tesseract and Leptonica native dependencies to enable OCR.",
+                ex);
+        }
     }
 
     private static OcrResult RunOcr(TesseractOcrRequest request, string dataPath)
@@ -55,6 +65,19 @@ public sealed class TesseractNativeOcrEngine : ITesseractOcrEngine
         }
 
         return new OcrResult(text.Trim(), request.Language, confidence, warnings);
+    }
+
+    private static bool IsNativeDependencyLoadFailure(Exception exception)
+    {
+        return exception switch
+        {
+            DllNotFoundException => true,
+            EntryPointNotFoundException => true,
+            BadImageFormatException => true,
+            TargetInvocationException { InnerException: { } innerException } => IsNativeDependencyLoadFailure(innerException),
+            TypeInitializationException { InnerException: { } innerException } => IsNativeDependencyLoadFailure(innerException),
+            _ => false
+        };
     }
 
     private static async ValueTask<string> ResolveDataPathAsync(

@@ -565,12 +565,72 @@ public sealed class DraftProcessingServiceTests : IDisposable
         Assert.True(File.Exists(draft.FilePath));
     }
 
+    [Fact]
+    public async Task ProcessAsync_skips_included_image_ocr_when_ocr_is_unavailable()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var imagePath = Path.Combine(rootPath, "Images", "photo.png");
+        await WriteFileAsync(imagePath, "not real image data");
+        var service = CreateService(
+            rootPath,
+            new RecordingAiProvider("""{ "body": "Processed without OCR." }"""),
+            new ThrowingOcrEngine(new OcrDependencyUnavailableException("Native OCR library missing.")));
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic OCR
+
+            Image note: ![[Images/photo.png]]
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        var result = await service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken);
+
+        Assert.True(result.Processed);
+        Assert.False(File.Exists(draft.FilePath));
+        var target = Path.Combine(rootPath, "Notes", "ocr.md");
+        var content = await File.ReadAllTextAsync(target, cancellationToken);
+        Assert.Contains("Processed without OCR.", content);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_surfaces_non_dependency_ocr_configuration_errors()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var imagePath = Path.Combine(rootPath, "Images", "photo.png");
+        await WriteFileAsync(imagePath, "not real image data");
+        var service = CreateService(
+            rootPath,
+            new RecordingAiProvider("""{ "body": "Should not be written." }"""),
+            new ThrowingOcrEngine(new InvalidOperationException("Bundled tessdata for language 'fra' not found.")));
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic OCR
+
+            Image note: ![[Images/photo.png]]
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken));
+
+        Assert.True(File.Exists(draft.FilePath));
+        Assert.False(File.Exists(Path.Combine(rootPath, "Notes", "ocr.md")));
+    }
+
     private DraftProcessingService CreateService(string rootPath, string aiResponse)
     {
         return CreateService(rootPath, new RecordingAiProvider(aiResponse));
     }
 
-    private DraftProcessingService CreateService(string rootPath, IAiProvider aiProvider)
+    private DraftProcessingService CreateService(
+        string rootPath,
+        IAiProvider aiProvider,
+        ITesseractOcrEngine? ocrEngine = null)
     {
         var options = new NoteyOptions
         {
@@ -583,7 +643,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
             workspace,
             new FileSystemDocumentStoreIndex(workspace),
             new AiProviderRegistry([aiProvider], "default"),
-            new RecordingOcrEngine(),
+            ocrEngine ?? new RecordingOcrEngine(),
             new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)),
             NullLogger<DraftProcessingService>.Instance);
     }
@@ -668,6 +728,14 @@ public sealed class DraftProcessingServiceTests : IDisposable
         public ValueTask<OcrResult> RecognizeAsync(TesseractOcrRequest request, CancellationToken cancellationToken = default)
         {
             return ValueTask.FromResult(new OcrResult("ocr text", "eng", 1.0, []));
+        }
+    }
+
+    private sealed class ThrowingOcrEngine(Exception exception) : ITesseractOcrEngine
+    {
+        public ValueTask<OcrResult> RecognizeAsync(TesseractOcrRequest request, CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromException<OcrResult>(exception);
         }
     }
 
