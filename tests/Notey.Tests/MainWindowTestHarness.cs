@@ -50,7 +50,8 @@ internal sealed class MainWindowTestHarness : IDisposable
             documentStoreIndex,
             aiProviderRegistry,
             ocrEngine,
-            _timeProvider);
+            _timeProvider,
+            NullLogger<DraftProcessingService>.Instance);
 
         RecentNoteChooser = new TestRecentNoteChooser();
         Window = new MainWindow(
@@ -66,7 +67,7 @@ internal sealed class MainWindowTestHarness : IDisposable
             _timeProvider,
             NullLogger<MainWindow>.Instance,
             RecentNoteChooser,
-            assistantService: new NoteyAssistantService(options, aiProviderRegistry));
+            assistantService: new NoteyAssistantService(options, aiProviderRegistry, NullLogger<NoteyAssistantService>.Instance));
     }
 
     public string RootPath { get; }

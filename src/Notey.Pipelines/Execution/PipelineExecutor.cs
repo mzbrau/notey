@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Notey.Pipelines.Context;
 using Notey.Pipelines.Data;
 using Notey.Pipelines.Definitions;
@@ -11,7 +12,8 @@ namespace Notey.Pipelines.Execution;
 public sealed class PipelineExecutor(
     IPipelineStepRegistry registry,
     PipelineValidator validator,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<PipelineExecutor> logger)
 {
     public async ValueTask<PipelineExecutionResult> ExecuteAsync(
         PipelineDefinition pipeline,
@@ -35,6 +37,7 @@ public sealed class PipelineExecutor(
 
         if (!pipeline.Enabled)
         {
+            logger.LogWarning("Pipeline '{PipelineId}' is disabled and cannot be executed.", pipeline.Id);
             throw new PipelineExecutionException($"Pipeline '{pipeline.Id}' is disabled.", context);
         }
 
@@ -50,6 +53,10 @@ public sealed class PipelineExecutor(
             PipelineProgressStatus.Started,
             0,
             pipeline.Steps.Count));
+
+        logger.LogInformation(
+            "Pipeline '{PipelineId}' started with {StepCount} step(s), input type {InputType}.",
+            pipeline.Id, pipeline.Steps.Count, input.Type);
 
         PipelineData current = input;
 
@@ -76,6 +83,7 @@ public sealed class PipelineExecutor(
 
             try
             {
+                logger.LogDebug("Pipeline '{PipelineId}' executing step '{StepId}' ({StepIndex}/{StepCount}).", pipeline.Id, stepDefinition.Id, index + 1, pipeline.Steps.Count);
                 var stepContext = new PipelineStepExecutionContext(pipeline, stepDefinition, context, progress);
                 var result = await step.ExecuteAsync(current, stepContext, cancellationToken);
 
@@ -87,6 +95,7 @@ public sealed class PipelineExecutor(
                 }
 
                 current = result.Output;
+                logger.LogDebug("Pipeline '{PipelineId}' step '{StepId}' completed.", pipeline.Id, stepDefinition.Id);
 
                 progress?.Report(new PipelineProgressUpdate(
                     pipeline.Id,
@@ -98,6 +107,7 @@ public sealed class PipelineExecutor(
             }
             catch (OperationCanceledException)
             {
+                logger.LogWarning("Pipeline '{PipelineId}' step '{StepId}' was cancelled.", pipeline.Id, stepDefinition.Id);
                 progress?.Report(new PipelineProgressUpdate(
                     pipeline.Id,
                     PipelineProgressStatus.Cancelled,
@@ -108,6 +118,7 @@ public sealed class PipelineExecutor(
             }
             catch (PipelineExecutionException exception)
             {
+                logger.LogError(exception, "Pipeline '{PipelineId}' step '{StepId}' failed with a pipeline error.", pipeline.Id, stepDefinition.Id);
                 progress?.Report(new PipelineProgressUpdate(
                     pipeline.Id,
                     PipelineProgressStatus.Failed,
@@ -119,6 +130,7 @@ public sealed class PipelineExecutor(
             }
             catch (Exception exception)
             {
+                logger.LogError(exception, "Pipeline '{PipelineId}' step '{StepId}' threw an unexpected exception.", pipeline.Id, stepDefinition.Id);
                 progress?.Report(new PipelineProgressUpdate(
                     pipeline.Id,
                     PipelineProgressStatus.Failed,
@@ -146,6 +158,7 @@ public sealed class PipelineExecutor(
             pipeline.Steps.Count,
             pipeline.Steps.Count));
 
+        logger.LogInformation("Pipeline '{PipelineId}' completed successfully.", pipeline.Id);
         return new PipelineExecutionResult(pipeline, current, context);
     }
 

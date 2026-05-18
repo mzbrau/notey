@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -19,11 +20,17 @@ using Notey.Vault.Documents;
 using Notey.Vault.Linking;
 using Notey.Vault.Notes;
 using Notey.Vault.Tasks;
+using Serilog;
+using Serilog.Events;
+using Serilog.Sinks.OpenTelemetry;
 
 namespace Notey.App.Configuration;
 
 public static class HostBootstrapper
 {
+    private const string LogOutputTemplate =
+        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}";
+
     public static IHost Create(string[] args)
     {
         return Host
@@ -32,10 +39,41 @@ public static class HostBootstrapper
             {
                 configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
             })
-            .ConfigureLogging(logging =>
+            .UseSerilog((context, _, loggerConfiguration) =>
             {
-                logging.ClearProviders();
-                logging.AddConsole();
+                var logFilePath = ResolveLogFilePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
+
+                loggerConfiguration
+                    .ReadFrom.Configuration(context.Configuration)
+                    .Enrich.FromLogContext()
+                    .Enrich.WithMachineName()
+                    .Enrich.WithThreadId()
+                    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                    .MinimumLevel.Override("System", LogEventLevel.Warning)
+                    .WriteTo.Console(outputTemplate: LogOutputTemplate)
+                    .WriteTo.File(
+                        path: logFilePath,
+                        outputTemplate: LogOutputTemplate,
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 31,
+                        fileSizeLimitBytes: 100 * 1024 * 1024,
+                        rollOnFileSizeLimit: true,
+                        shared: false);
+
+                var otlpEndpoint = context.Configuration["Logging:OpenTelemetry:Endpoint"];
+                if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+                {
+                    loggerConfiguration.WriteTo.OpenTelemetry(options =>
+                    {
+                        options.Endpoint = otlpEndpoint;
+                        options.Protocol = OtlpProtocol.Grpc;
+                        options.ResourceAttributes = new Dictionary<string, object>
+                        {
+                            ["service.name"] = "Notey",
+                        };
+                    });
+                }
             })
             .ConfigureServices((context, services) =>
             {
@@ -58,7 +96,8 @@ public static class HostBootstrapper
                     new AiProviderRegistry(
                         OpenAiCompatibleAiProviderFactory.CreateProviders(
                             options.Ai,
-                            () => serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("Notey.OpenAiCompatible")),
+                            () => serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("Notey.OpenAiCompatible"),
+                            serviceProvider.GetRequiredService<ILoggerFactory>()),
                         string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId));
                 services.AddSingleton<ITesseractOcrEngine, TesseractCliOcrEngine>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
@@ -87,6 +126,19 @@ public static class HostBootstrapper
             .Build();
     }
 
+    private static string ResolveLogFilePath()
+    {
+        var logsFolder = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Notey", "Logs")
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".local", "share", "Notey", "Logs");
+
+        return Path.Combine(logsFolder, "notey.log");
+    }
+
     private static void WarnIfLegacyVaultPathKeysConfigured(IConfiguration configuration)
     {
         var vaultSection = configuration.GetSection($"{NoteyOptions.SectionName}:Vault");
@@ -103,13 +155,7 @@ public static class HostBootstrapper
             return;
         }
 
-        using var loggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.ClearProviders();
-            builder.AddConsole();
-        });
-        var logger = loggerFactory.CreateLogger("Notey.Configuration");
-        logger.LogWarning(
+        Log.Warning(
             "Notey no longer supports Notey:Vault legacy path keys ({Keys}). Use Notey:Vault:RootPath and Notey-owned folders under that root instead.",
             string.Join(", ", legacyKeys));
     }

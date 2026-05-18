@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
 using Notey.App.Processing;
 using Notey.Core.Configuration;
@@ -489,7 +490,8 @@ public sealed class DraftProcessingServiceTests : IDisposable
             new FileSystemDocumentStoreIndex(workspace),
             new AiProviderRegistry([aiProvider], "default"),
             new RecordingOcrEngine(),
-            new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)));
+            new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)),
+            NullLogger<DraftProcessingService>.Instance);
     }
 
     private DraftProcessingService CreateServiceWithoutAi(string rootPath)
@@ -506,7 +508,8 @@ public sealed class DraftProcessingServiceTests : IDisposable
             new FileSystemDocumentStoreIndex(workspace),
             new AiProviderRegistry([], "default"),
             new RecordingOcrEngine(),
-            new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)));
+            new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)),
+            NullLogger<DraftProcessingService>.Instance);
     }
 
     private string CreateTempDirectory()

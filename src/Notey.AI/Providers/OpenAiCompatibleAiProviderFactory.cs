@@ -1,17 +1,19 @@
+using Microsoft.Extensions.Logging;
 using Notey.Core.Configuration;
 
 namespace Notey.AI.Providers;
 
 public static class OpenAiCompatibleAiProviderFactory
 {
-    public static IReadOnlyList<IAiProvider> CreateProviders(AiOptions options, Func<HttpClient> httpClientFactory)
+    public static IReadOnlyList<IAiProvider> CreateProviders(AiOptions options, Func<HttpClient> httpClientFactory, ILoggerFactory loggerFactory)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(httpClientFactory);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
 
         var providers = new List<IAiProvider>();
         var defaultConfiguration = CreateDefaultConfiguration(options);
-        providers.Add(CreateProvider(defaultConfiguration, options.RequestTimeoutSeconds, httpClientFactory));
+        providers.Add(CreateProvider(defaultConfiguration, options.RequestTimeoutSeconds, httpClientFactory, loggerFactory));
 
         foreach (var provider in options.Providers)
         {
@@ -25,7 +27,8 @@ public static class OpenAiCompatibleAiProviderFactory
             providers.Add(CreateProvider(
                 configuration,
                 provider.RequestTimeoutSeconds ?? options.RequestTimeoutSeconds,
-                httpClientFactory));
+                httpClientFactory,
+                loggerFactory));
         }
 
         return providers
@@ -37,11 +40,12 @@ public static class OpenAiCompatibleAiProviderFactory
     private static IAiProvider CreateProvider(
         OpenAiCompatibleAiProviderConfiguration configuration,
         int requestTimeoutSeconds,
-        Func<HttpClient> httpClientFactory)
+        Func<HttpClient> httpClientFactory,
+        ILoggerFactory loggerFactory)
     {
         var httpClient = httpClientFactory();
         httpClient.Timeout = TimeSpan.FromSeconds(Math.Max(1, requestTimeoutSeconds));
-        return new OpenAiCompatibleAiProvider(configuration, httpClient);
+        return new OpenAiCompatibleAiProvider(configuration, httpClient, loggerFactory.CreateLogger<OpenAiCompatibleAiProvider>());
     }
 
     private static OpenAiCompatibleAiProviderConfiguration CreateDefaultConfiguration(AiOptions options)

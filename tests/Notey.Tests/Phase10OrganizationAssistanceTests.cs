@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
 using Notey.Core.Configuration;
 using Notey.Ocr;
@@ -137,7 +138,7 @@ public sealed class Phase10OrganizationAssistanceTests
             ],
         };
 
-        var result = await new PipelineExecutor(registry, new PipelineValidator(registry), TimeProvider.System)
+        var result = await new PipelineExecutor(registry, new PipelineValidator(registry), TimeProvider.System, NullLogger<PipelineExecutor>.Instance)
             .ExecuteAsync(pipeline, new TextData("Original note text."));
 
         var output = Assert.IsType<StructuredNoteData>(result.Output);

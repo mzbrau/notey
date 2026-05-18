@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
 using Notey.Core.Configuration;
 using Notey.Ocr;
@@ -119,7 +120,8 @@ public sealed class Phase8PipelineStepTests
 
             var provider = Assert.Single(OpenAiCompatibleAiProviderFactory.CreateProviders(
                 options,
-                () => new HttpClient(handler)));
+                () => new HttpClient(handler),
+                NullLoggerFactory.Instance));
             var response = await provider.CompleteTextAsync(new AiTextRequest("Summarize", JsonOutput: true));
 
             Assert.Equal("{\"summary\":\"ok\"}", response.Text);
@@ -158,7 +160,7 @@ public sealed class Phase8PipelineStepTests
             ],
         };
 
-        var providers = OpenAiCompatibleAiProviderFactory.CreateProviders(options, () => new HttpClient(handler));
+        var providers = OpenAiCompatibleAiProviderFactory.CreateProviders(options, () => new HttpClient(handler), NullLoggerFactory.Instance);
         var provider = Assert.Single(providers, static candidate => candidate.Id == "custom");
         await provider.CompleteTextAsync(new AiTextRequest("Summarize", JsonOutput: true));
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
 using Notey.Core.Configuration;
 using Notey.Core.Platform;
@@ -185,7 +186,8 @@ public sealed class NoteySettingsStore(
         aiProviderRegistry.ReplaceProviders(
             OpenAiCompatibleAiProviderFactory.CreateProviders(
                 currentOptions.Ai,
-                () => httpClientFactory.CreateClient("Notey.OpenAiCompatible")),
+                () => httpClientFactory.CreateClient("Notey.OpenAiCompatible"),
+                NullLoggerFactory.Instance),
             string.IsNullOrWhiteSpace(currentOptions.Ai.DefaultProviderId) ? "default" : currentOptions.Ai.DefaultProviderId);
     }
 

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Notey.Pipelines.Catalog;
 using Notey.Pipelines.Context;
 using Notey.Pipelines.Data;
@@ -410,7 +411,7 @@ public sealed class PipelineFoundationTests : IDisposable
 
     private static PipelineExecutor CreateExecutor(IPipelineStepRegistry registry)
     {
-        return new PipelineExecutor(registry, new PipelineValidator(registry), TimeProvider.System);
+        return new PipelineExecutor(registry, new PipelineValidator(registry), TimeProvider.System, NullLogger<PipelineExecutor>.Instance);
     }
 
     private static PipelineStepRegistry CreateRegistry(params IPipelineStep[] steps)
