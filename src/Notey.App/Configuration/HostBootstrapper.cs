@@ -130,13 +130,45 @@ public static class HostBootstrapper
     {
         var logsFolder = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
             ? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                ResolveWritableBasePath(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)),
                 "Notey", "Logs")
-            : Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".local", "share", "Notey", "Logs");
+            : ResolveNonWindowsLogFolder();
 
         return Path.Combine(logsFolder, "notey.log");
+    }
+
+    private static string ResolveNonWindowsLogFolder()
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (Path.IsPathFullyQualified(userProfile))
+        {
+            return Path.Combine(userProfile, ".local", "share", "Notey", "Logs");
+        }
+
+        return Path.Combine(
+            ResolveWritableBasePath(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)),
+            "Notey",
+            "Logs");
+    }
+
+    private static string ResolveWritableBasePath(params string?[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate) && Path.IsPathFullyQualified(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        if (Path.IsPathFullyQualified(AppContext.BaseDirectory))
+        {
+            return AppContext.BaseDirectory;
+        }
+
+        return Path.GetTempPath();
     }
 
     private static void WarnIfLegacyVaultPathKeysConfigured(IConfiguration configuration)

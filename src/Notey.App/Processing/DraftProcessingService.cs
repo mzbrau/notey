@@ -125,7 +125,7 @@ public sealed partial class DraftProcessingService(
                 throw;
             }
 
-            logger.LogInformation("Draft {DraftFile} written to {DestinationFile}.", Path.GetFileName(draft.FilePath), route.FilePath);
+            logger.LogInformation("Draft {DraftFile} written to note {DestinationFileName}.", Path.GetFileName(draft.FilePath), Path.GetFileName(route.FilePath));
             writtenPaths.Add(route.FilePath);
         }
 

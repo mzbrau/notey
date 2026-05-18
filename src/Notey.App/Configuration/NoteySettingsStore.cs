@@ -14,12 +14,14 @@ public sealed class NoteySettingsStore(
     IAiProviderRegistry aiProviderRegistry,
     IHttpClientFactory httpClientFactory,
     ILogger<NoteySettingsStore> logger,
-    string? localSettingsPath = null)
+    string? localSettingsPath = null,
+    ILoggerFactory? loggerFactory = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         WriteIndented = true
     };
+    private readonly ILoggerFactory aiProviderLoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
 
     public string LocalSettingsPath { get; } = localSettingsPath ?? Path.Combine(AppContext.BaseDirectory, "appsettings.Local.json");
 
@@ -187,7 +189,7 @@ public sealed class NoteySettingsStore(
             OpenAiCompatibleAiProviderFactory.CreateProviders(
                 currentOptions.Ai,
                 () => httpClientFactory.CreateClient("Notey.OpenAiCompatible"),
-                NullLoggerFactory.Instance),
+                aiProviderLoggerFactory),
             string.IsNullOrWhiteSpace(currentOptions.Ai.DefaultProviderId) ? "default" : currentOptions.Ai.DefaultProviderId);
     }
 
