@@ -72,8 +72,6 @@ public sealed class AiProviderOptions
 
 public sealed class OcrOptions
 {
-    public string TesseractExecutablePath { get; set; } = "tesseract";
-
     public string TesseractDataPath { get; set; } = string.Empty;
 
     public string DefaultLanguage { get; set; } = "eng";

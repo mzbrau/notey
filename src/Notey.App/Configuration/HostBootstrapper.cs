@@ -99,7 +99,7 @@ public static class HostBootstrapper
                             () => serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("Notey.OpenAiCompatible"),
                             serviceProvider.GetRequiredService<ILoggerFactory>()),
                         string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId));
-                services.AddSingleton<ITesseractOcrEngine, TesseractCliOcrEngine>();
+                services.AddSingleton<ITesseractOcrEngine, TesseractNativeOcrEngine>();
                 services.AddSingleton<IVaultWorkspace, FileSystemVaultWorkspace>();
                 services.AddSingleton<IDocumentStoreIndex, FileSystemDocumentStoreIndex>();
                 services.AddSingleton<ObsidianLinkBuilder>();

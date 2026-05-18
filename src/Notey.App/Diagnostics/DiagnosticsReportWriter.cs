@@ -61,7 +61,6 @@ public sealed class DiagnosticsReportWriter(
             string.Empty,
             "## OCR",
             string.Empty,
-            $"- Tesseract executable: {FormatConfigured(options.Ocr.TesseractExecutablePath)}",
             $"- Tesseract data path configured: {IsConfigured(options.Ocr.TesseractDataPath)}",
             $"- Default language: {FormatConfigured(options.Ocr.DefaultLanguage)}",
         ]);

@@ -288,7 +288,6 @@ public sealed partial class DraftProcessingService(
             var result = await ocrEngine.RecognizeAsync(
                 new TesseractOcrRequest(
                     imagePath,
-                    options.Ocr.TesseractExecutablePath,
                     options.Ocr.DefaultLanguage,
                     string.IsNullOrWhiteSpace(options.Ocr.TesseractDataPath) ? null : options.Ocr.TesseractDataPath),
                 cancellationToken);

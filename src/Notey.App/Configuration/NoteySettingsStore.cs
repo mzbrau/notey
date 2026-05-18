@@ -67,7 +67,6 @@ public sealed class NoteySettingsStore(
             },
             Ocr = new OcrOptions
             {
-                TesseractExecutablePath = options.Ocr.TesseractExecutablePath,
                 TesseractDataPath = options.Ocr.TesseractDataPath,
                 DefaultLanguage = options.Ocr.DefaultLanguage
             }
@@ -117,7 +116,6 @@ public sealed class NoteySettingsStore(
             errors.Add("Enable plaintext API-key storage before saving an API key value.");
         }
 
-        ValidateRequired(errors, options.Ocr.TesseractExecutablePath, "Tesseract executable path is required.");
         ValidateRequired(errors, options.Ocr.DefaultLanguage, "OCR default language is required.");
 
         return errors;
@@ -222,8 +220,7 @@ public sealed class NoteySettingsStore(
 
     private static bool RequiresRestart(NoteyOptions current, NoteyOptions updated)
     {
-        return !string.Equals(current.Ocr.TesseractExecutablePath, updated.Ocr.TesseractExecutablePath, StringComparison.Ordinal)
-            || !string.Equals(current.Ocr.TesseractDataPath, updated.Ocr.TesseractDataPath, StringComparison.Ordinal)
+        return !string.Equals(current.Ocr.TesseractDataPath, updated.Ocr.TesseractDataPath, StringComparison.Ordinal)
             || !string.Equals(current.Ocr.DefaultLanguage, updated.Ocr.DefaultLanguage, StringComparison.Ordinal);
     }
 

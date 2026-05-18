@@ -20,16 +20,16 @@ public sealed class TesseractOcrStep(
     {
         var errors = new List<string>();
         var language = GetLanguage(definition);
-        var executablePath = GetExecutablePath(definition);
 
         if (string.IsNullOrWhiteSpace(language))
         {
             errors.Add("language must be configured either on the step or in Notey:Ocr:DefaultLanguage.");
         }
-
-        if (string.IsNullOrWhiteSpace(executablePath))
+        else if (GetDataPath(definition) is null && !TesseractNativeOcrEngine.BundledLanguages.Contains(language))
         {
-            errors.Add("Tesseract executable path must be configured either on the step or in Notey:Ocr:TesseractExecutablePath.");
+            errors.Add(
+                $"Language '{language}' has no bundled tessdata. " +
+                $"Set Notey:Ocr:TesseractDataPath to a directory containing '{language}.traineddata'.");
         }
 
         return errors;
@@ -44,7 +44,6 @@ public sealed class TesseractOcrStep(
         var result = await ocrEngine.RecognizeAsync(
             new TesseractOcrRequest(
                 input.FilePath,
-                GetExecutablePath(context.Step),
                 language,
                 GetDataPath(context.Step)),
             cancellationToken);
@@ -66,12 +65,6 @@ public sealed class TesseractOcrStep(
         return new PipelineStepResult<OcrTextData>(
             new OcrTextData(result.Text, input.FilePath, result.Language, result.Confidence),
             string.IsNullOrWhiteSpace(result.Text) ? "No OCR text detected." : "OCR text extracted.");
-    }
-
-    private string GetExecutablePath(PipelineStepDefinition definition)
-    {
-        return StepConfigurationReader.GetString(definition.Configuration, "executablePath")
-            ?? options.Ocr.TesseractExecutablePath;
     }
 
     private string GetLanguage(PipelineStepDefinition definition)

@@ -7,7 +7,6 @@ public interface ITesseractOcrEngine
 
 public sealed record TesseractOcrRequest(
     string ImagePath,
-    string ExecutablePath,
     string Language,
     string? DataPath = null);
 
