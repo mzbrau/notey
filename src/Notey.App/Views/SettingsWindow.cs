@@ -22,7 +22,6 @@ public sealed class SettingsWindow : Window
     private readonly TextBox _aiApiKeyInput = CreateTextBox();
     private readonly CheckBox _storeApiKeyInput = new() { Content = "Store API key in plaintext local settings" };
     private readonly TextBox _aiTimeoutInput = CreateTextBox();
-    private readonly TextBox _tesseractExecutableInput = CreateTextBox();
     private readonly TextBox _tesseractDataInput = CreateTextBox();
     private readonly TextBox _ocrLanguageInput = CreateTextBox();
 
@@ -125,7 +124,6 @@ public sealed class SettingsWindow : Window
                                     CreateField("Request timeout seconds", _aiTimeoutInput),
                                 ]),
                                 CreateSection("OCR", [
-                                    CreateField("Tesseract executable", _tesseractExecutableInput),
                                     CreateField("Tesseract data path", _tesseractDataInput),
                                     CreateField("OCR language", _ocrLanguageInput),
                                     CreateWarning("OCR path changes are saved immediately but may require restart before running existing services."),
@@ -239,7 +237,6 @@ public sealed class SettingsWindow : Window
         _aiApiKeyInput.Text = options.Ai.StoreApiKeyInPlaintext ? options.Ai.ApiKey : string.Empty;
         _storeApiKeyInput.IsChecked = options.Ai.StoreApiKeyInPlaintext;
         _aiTimeoutInput.Text = options.Ai.RequestTimeoutSeconds.ToString();
-        _tesseractExecutableInput.Text = options.Ocr.TesseractExecutablePath;
         _tesseractDataInput.Text = options.Ocr.TesseractDataPath;
         _ocrLanguageInput.Text = options.Ocr.DefaultLanguage;
     }
@@ -286,7 +283,6 @@ public sealed class SettingsWindow : Window
             options.Ai.RequestTimeoutSeconds = timeout;
         }
 
-        options.Ocr.TesseractExecutablePath = Trim(_tesseractExecutableInput.Text);
         options.Ocr.TesseractDataPath = Trim(_tesseractDataInput.Text);
         options.Ocr.DefaultLanguage = Trim(_ocrLanguageInput.Text);
 

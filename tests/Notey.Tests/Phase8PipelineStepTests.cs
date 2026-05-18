@@ -177,7 +177,6 @@ public sealed class Phase8PipelineStepTests
         {
             Ocr = new OcrOptions
             {
-                TesseractExecutablePath = "configured-tesseract",
                 TesseractDataPath = "/configured/tessdata",
                 DefaultLanguage = "eng",
             }
@@ -204,7 +203,6 @@ public sealed class Phase8PipelineStepTests
         var output = Assert.IsType<OcrTextData>(result.Output);
         Assert.Equal("hello world", output.Text);
         Assert.Equal("deu", engine.LastRequest?.Language);
-        Assert.Equal("configured-tesseract", engine.LastRequest?.ExecutablePath);
         Assert.Equal("/configured/tessdata", engine.LastRequest?.DataPath);
         Assert.True(context.TryGetValue<double?>(PipelineStepContextKeys.OcrConfidence, out var confidence));
         Assert.Equal(0.73, confidence);
@@ -221,7 +219,6 @@ public sealed class Phase8PipelineStepTests
         {
             Ocr = new OcrOptions
             {
-                TesseractExecutablePath = "tesseract",
                 DefaultLanguage = "eng",
             }
         });

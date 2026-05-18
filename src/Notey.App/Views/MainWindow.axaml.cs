@@ -231,7 +231,7 @@ public sealed partial class MainWindow : Window
         var documentStoreIndex = new FileSystemDocumentStoreIndex(workspace);
         var linkBuilder = new ObsidianLinkBuilder(workspace);
         var aiRegistry = new AiProviderRegistry([], "default");
-        var ocrEngine = new TesseractCliOcrEngine();
+        var ocrEngine = new TesseractNativeOcrEngine();
         var taskStore = new FileSystemTaskStore(workspace, linkBuilder, TimeProvider.System);
         var draftProcessingService = new DraftProcessingService(
             options,
@@ -2724,7 +2724,6 @@ public sealed partial class MainWindow : Window
             var result = await _ocrEngine.RecognizeAsync(
                 new TesseractOcrRequest(
                     snip.FilePath,
-                    _options.Ocr.TesseractExecutablePath,
                     _options.Ocr.DefaultLanguage,
                     string.IsNullOrWhiteSpace(_options.Ocr.TesseractDataPath) ? null : _options.Ocr.TesseractDataPath),
                 _windowClosed.Token);

@@ -16,7 +16,6 @@ public sealed class NoteyOptionsTests
         Assert.Equal("NOTEY_AI_API_KEY", options.Ai.ApiKeyEnvironmentVariable);
         Assert.Equal(60, options.Ai.RequestTimeoutSeconds);
         Assert.False(options.Ai.StoreApiKeyInPlaintext);
-        Assert.Equal("tesseract", options.Ocr.TesseractExecutablePath);
         Assert.Equal("eng", options.Ocr.DefaultLanguage);
     }
 }
