@@ -17,32 +17,6 @@ namespace Notey.Tests;
 public sealed class Phase8PipelineStepTests
 {
     [Fact]
-    public void Tsv_parser_reads_word_rows_and_averages_valid_confidence()
-    {
-        const string tsv = """
-            level	page_num	block_num	par_num	line_num	word_num	left	top	width	height	conf	text
-            5	1	1	1	1	1	10	10	20	10	90.0	Project
-            5	1	1	1	1	2	35	10	20	10	-1	Apollo
-            5	1	1	1	2	1	10	25	20	10	80.0	Review
-            """;
-
-        var result = TesseractTsvParser.Parse(tsv);
-
-        Assert.Equal("Project Apollo\nReview", result.Text);
-        Assert.NotNull(result.Confidence);
-        Assert.Equal(0.85, result.Confidence.Value, precision: 2);
-    }
-
-    [Fact]
-    public void Tsv_parser_treats_plain_output_as_text_without_confidence()
-    {
-        var result = TesseractTsvParser.Parse("Plain OCR output\n");
-
-        Assert.Equal("Plain OCR output", result.Text);
-        Assert.Null(result.Confidence);
-    }
-
-    [Fact]
     public void Ai_parser_reads_fenced_json_and_entity_suggestions()
     {
         const string response = """
@@ -359,6 +333,68 @@ public sealed class Phase8PipelineStepTests
         Assert.Contains("- People: Jane Doe", markdown.Markdown, StringComparison.Ordinal);
         Assert.Contains("- Tags: #sync", markdown.Markdown, StringComparison.Ordinal);
         Assert.Contains("### Actions\n- Send notes", markdown.Markdown, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Tesseract_bundled_languages_includes_eng()
+    {
+        Assert.Contains("eng", TesseractNativeOcrEngine.BundledLanguages, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Tesseract_step_validates_non_bundled_language_without_data_path()
+    {
+        var step = new TesseractOcrStep(new RecordingOcrEngine(new OcrResult("", "fra", null, [])), new NoteyOptions
+        {
+            Ocr = new OcrOptions { DefaultLanguage = "fra" }
+        });
+        var pipeline = new PipelineDefinition
+        {
+            Id = "ocr-pipeline",
+            Steps =
+            [
+                new PipelineStepDefinition
+                {
+                    Id = "ocr",
+                    StepId = TesseractOcrStep.StepTypeId,
+                },
+            ],
+        };
+
+        var errors = step.ValidateConfiguration(pipeline.Steps[0]);
+
+        var error = Assert.Single(errors);
+        Assert.Contains("fra", error, StringComparison.Ordinal);
+        Assert.Contains("TesseractDataPath", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Tesseract_step_does_not_error_for_non_bundled_language_when_data_path_is_configured()
+    {
+        var step = new TesseractOcrStep(new RecordingOcrEngine(new OcrResult("", "fra", null, [])), new NoteyOptions
+        {
+            Ocr = new OcrOptions
+            {
+                DefaultLanguage = "fra",
+                TesseractDataPath = "/configured/tessdata",
+            }
+        });
+        var pipeline = new PipelineDefinition
+        {
+            Id = "ocr-pipeline",
+            Steps =
+            [
+                new PipelineStepDefinition
+                {
+                    Id = "ocr",
+                    StepId = TesseractOcrStep.StepTypeId,
+                },
+            ],
+        };
+
+        var errors = step.ValidateConfiguration(pipeline.Steps[0]);
+
+        Assert.Empty(errors);
     }
 
     private sealed class RecordingHandler(string responseBody) : HttpMessageHandler

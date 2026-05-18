@@ -7,6 +7,20 @@ public sealed class TesseractNativeOcrEngine : ITesseractOcrEngine
 {
     private static readonly SemaphoreSlim _extractLock = new(1, 1);
 
+    /// <summary>
+    /// Language codes whose <c>.traineddata</c> files are embedded in this assembly.
+    /// If a user configures <c>Notey:Ocr:DefaultLanguage</c> to a language that is not
+    /// in this set and does not also supply a <c>Notey:Ocr:TesseractDataPath</c>, OCR will
+    /// fail at runtime.
+    /// </summary>
+    public static IReadOnlySet<string> BundledLanguages { get; } =
+        typeof(TesseractNativeOcrEngine).Assembly
+            .GetManifestResourceNames()
+            .Where(static n => n.StartsWith("Notey.Ocr.tessdata.", StringComparison.Ordinal)
+                            && n.EndsWith(".traineddata", StringComparison.Ordinal))
+            .Select(static n => n["Notey.Ocr.tessdata.".Length..^".traineddata".Length])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     public async ValueTask<OcrResult> RecognizeAsync(
         TesseractOcrRequest request,
         CancellationToken cancellationToken = default)
@@ -20,9 +34,7 @@ public sealed class TesseractNativeOcrEngine : ITesseractOcrEngine
             throw new FileNotFoundException("OCR input image was not found.", request.ImagePath);
         }
 
-        var dataPath = !string.IsNullOrWhiteSpace(request.DataPath)
-            ? request.DataPath
-            : await EnsureTessdataExtractedAsync(request.Language, cancellationToken);
+        var dataPath = await ResolveDataPathAsync(request.DataPath, request.Language, cancellationToken);
 
         return await Task.Run(() => RunOcr(request, dataPath), cancellationToken);
     }
@@ -43,6 +55,25 @@ public sealed class TesseractNativeOcrEngine : ITesseractOcrEngine
         }
 
         return new OcrResult(text.Trim(), request.Language, confidence, warnings);
+    }
+
+    private static async ValueTask<string> ResolveDataPathAsync(
+        string? configuredDataPath,
+        string language,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredDataPath))
+        {
+            var expectedFile = Path.Combine(configuredDataPath, $"{language}.traineddata");
+            if (File.Exists(expectedFile))
+            {
+                return configuredDataPath;
+            }
+
+            // Configured path does not contain the language file — fall back to bundled tessdata.
+        }
+
+        return await EnsureTessdataExtractedAsync(language, cancellationToken);
     }
 
     private static async ValueTask<string> EnsureTessdataExtractedAsync(

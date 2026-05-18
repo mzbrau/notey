@@ -25,6 +25,12 @@ public sealed class TesseractOcrStep(
         {
             errors.Add("language must be configured either on the step or in Notey:Ocr:DefaultLanguage.");
         }
+        else if (GetDataPath(definition) is null && !TesseractNativeOcrEngine.BundledLanguages.Contains(language))
+        {
+            errors.Add(
+                $"Language '{language}' has no bundled tessdata. " +
+                $"Set Notey:Ocr:TesseractDataPath to a directory containing '{language}.traineddata'.");
+        }
 
         return errors;
     }
