@@ -18,6 +18,8 @@ People/
 
 First-level folders under `Notes` become dynamic slash commands. For example, `Notes/Customers` enables `/customer`.
 
+Imported non-image files are stored in assets folders. Draft imports are staged under `Notes/Draft/<draft-stem>.assets/`; when a draft is processed they are copied beside the final note under `<note-stem>.assets/` and note links are rewritten to the final vault-relative paths.
+
 ## Slash commands and routing
 
 Inline commands at the start of draft lines control where final notes are written:

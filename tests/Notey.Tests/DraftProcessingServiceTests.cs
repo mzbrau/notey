@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
+using Notey.App.Imports;
 using Notey.App.Processing;
 using Notey.Core.Configuration;
 using Notey.Ocr;
@@ -471,12 +472,191 @@ public sealed class DraftProcessingServiceTests : IDisposable
         Assert.Contains("Updated body.", updated);
     }
 
+    [Fact]
+    public async Task ProcessAsync_promotes_staged_draft_attachments_and_rewrites_links()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var service = CreateServiceWithoutAi(rootPath);
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic Roadmap
+
+            See [[Notes/Draft/draft.assets/spec.pdf|spec.pdf]].
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        var draftAssets = AttachmentImportPaths.GetDraftAssetsDirectory(draft.FilePath);
+        var stagedAttachment = Path.Combine(draftAssets, "spec.pdf");
+        await WriteFileAsync(draft.FilePath, draft.Content);
+        await WriteFileAsync(stagedAttachment, "draft attachment");
+
+        var result = await service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken);
+
+        var finalAttachment = Path.Combine(rootPath, "Notes", "roadmap.assets", "spec.pdf");
+        Assert.True(File.Exists(finalAttachment));
+        Assert.False(Directory.Exists(draftAssets));
+        Assert.Contains(finalAttachment, result.WrittenPaths);
+        var finalContent = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "roadmap.md"), cancellationToken);
+        Assert.Contains("[[Notes/roadmap.assets/spec.pdf|spec.pdf]]", finalContent);
+        Assert.DoesNotContain("Notes/Draft/draft.assets", finalContent);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_promotes_staged_attachments_when_appending_to_existing_topic_note()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "roadmap.md");
+        await WriteFileAsync(target, """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            ---
+            Existing roadmap.
+            """);
+        await WriteFileAsync(Path.Combine(rootPath, "Notes", "roadmap.assets", "spec.pdf"), "existing attachment");
+        var service = CreateServiceWithoutAi(rootPath);
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic Roadmap
+
+            Updated spec: [[Notes/Draft/draft.assets/spec.pdf|spec.pdf]]
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        var draftAssets = AttachmentImportPaths.GetDraftAssetsDirectory(draft.FilePath);
+        await WriteFileAsync(draft.FilePath, draft.Content);
+        await WriteFileAsync(Path.Combine(draftAssets, "spec.pdf"), "new attachment");
+
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken);
+
+        var finalAttachment = Path.Combine(rootPath, "Notes", "roadmap.assets", "spec-2.pdf");
+        Assert.True(File.Exists(finalAttachment));
+        var finalContent = await File.ReadAllTextAsync(target, cancellationToken);
+        Assert.Contains("Existing roadmap.", finalContent);
+        Assert.Contains("[[Notes/roadmap.assets/spec-2.pdf|spec.pdf]]", finalContent);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_rejects_draft_attachment_links_that_traverse_outside_staging_folder()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var service = CreateServiceWithoutAi(rootPath);
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic Roadmap
+
+            Do not import [[Notes/Draft/draft.assets/../secret.txt|secret.txt]].
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        var draftAssets = AttachmentImportPaths.GetDraftAssetsDirectory(draft.FilePath);
+        await WriteFileAsync(draft.FilePath, draft.Content);
+        await WriteFileAsync(Path.Combine(draftAssets, "spec.pdf"), "draft attachment");
+        await WriteFileAsync(Path.Combine(rootPath, "Notes", "Draft", "secret.txt"), "should never be promoted");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken));
+
+        Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Draft", "secret.txt")));
+        Assert.False(Directory.Exists(Path.Combine(rootPath, "Notes", "roadmap.assets")));
+        Assert.True(File.Exists(draft.FilePath));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_rolls_back_promoted_attachments_when_final_note_write_fails()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "blocked.md"));
+        var service = CreateServiceWithoutAi(rootPath);
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic Blocked
+
+            Attachment: [[Notes/Draft/draft.assets/spec.pdf|spec.pdf]]
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        var draftAssets = AttachmentImportPaths.GetDraftAssetsDirectory(draft.FilePath);
+        var stagedAttachment = Path.Combine(draftAssets, "spec.pdf");
+        var finalAttachment = Path.Combine(rootPath, "Notes", "blocked.assets", "spec.pdf");
+        await WriteFileAsync(draft.FilePath, draft.Content);
+        await WriteFileAsync(stagedAttachment, "draft attachment");
+
+        await Assert.ThrowsAsync<IOException>(() => service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken));
+
+        Assert.False(File.Exists(finalAttachment));
+        Assert.True(File.Exists(stagedAttachment));
+        Assert.True(File.Exists(draft.FilePath));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_skips_included_image_ocr_when_ocr_is_unavailable()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var imagePath = Path.Combine(rootPath, "Images", "photo.png");
+        await WriteFileAsync(imagePath, "not real image data");
+        var service = CreateService(
+            rootPath,
+            new RecordingAiProvider("""{ "body": "Processed without OCR." }"""),
+            new ThrowingOcrEngine(new OcrDependencyUnavailableException("Native OCR library missing.")));
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic OCR
+
+            Image note: ![[Images/photo.png]]
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        var result = await service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken);
+
+        Assert.True(result.Processed);
+        Assert.False(File.Exists(draft.FilePath));
+        var target = Path.Combine(rootPath, "Notes", "ocr.md");
+        var content = await File.ReadAllTextAsync(target, cancellationToken);
+        Assert.Contains("Processed without OCR.", content);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_surfaces_non_dependency_ocr_configuration_errors()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var imagePath = Path.Combine(rootPath, "Images", "photo.png");
+        await WriteFileAsync(imagePath, "not real image data");
+        var service = CreateService(
+            rootPath,
+            new RecordingAiProvider("""{ "body": "Should not be written." }"""),
+            new ThrowingOcrEngine(new InvalidOperationException("Bundled tessdata for language 'fra' not found.")));
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic OCR
+
+            Image note: ![[Images/photo.png]]
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken));
+
+        Assert.True(File.Exists(draft.FilePath));
+        Assert.False(File.Exists(Path.Combine(rootPath, "Notes", "ocr.md")));
+    }
+
     private DraftProcessingService CreateService(string rootPath, string aiResponse)
     {
         return CreateService(rootPath, new RecordingAiProvider(aiResponse));
     }
 
-    private DraftProcessingService CreateService(string rootPath, IAiProvider aiProvider)
+    private DraftProcessingService CreateService(
+        string rootPath,
+        IAiProvider aiProvider,
+        ITesseractOcrEngine? ocrEngine = null)
     {
         var options = new NoteyOptions
         {
@@ -489,7 +669,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
             workspace,
             new FileSystemDocumentStoreIndex(workspace),
             new AiProviderRegistry([aiProvider], "default"),
-            new RecordingOcrEngine(),
+            ocrEngine ?? new RecordingOcrEngine(),
             new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)),
             NullLogger<DraftProcessingService>.Instance);
     }
@@ -574,6 +754,14 @@ public sealed class DraftProcessingServiceTests : IDisposable
         public ValueTask<OcrResult> RecognizeAsync(TesseractOcrRequest request, CancellationToken cancellationToken = default)
         {
             return ValueTask.FromResult(new OcrResult("ocr text", "eng", 1.0, []));
+        }
+    }
+
+    private sealed class ThrowingOcrEngine(Exception exception) : ITesseractOcrEngine
+    {
+        public ValueTask<OcrResult> RecognizeAsync(TesseractOcrRequest request, CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromException<OcrResult>(exception);
         }
     }
 

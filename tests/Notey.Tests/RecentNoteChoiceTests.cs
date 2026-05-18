@@ -98,4 +98,20 @@ public sealed class RecentNoteChoiceTests
     {
         Assert.Equal(shouldClose, RecentNoteChoiceWindow.ShouldCloseOnDeactivate(hasActivated, hasDialogResult));
     }
+
+    [Fact]
+    public void FormatUpdatedLabel_converts_utc_timestamp_to_local_time()
+    {
+        var utcTimestamp = new DateTimeOffset(2026, 5, 18, 23, 55, 0, TimeSpan.Zero);
+        var timeZone = TimeZoneInfo.CreateCustomTimeZone(
+            "Test/+02",
+            TimeSpan.FromHours(2),
+            "Test +02",
+            "Test +02");
+        var expected = $"Updated {TimeZoneInfo.ConvertTime(utcTimestamp, timeZone):ddd, HH:mm}";
+
+        var label = RecentNoteChoiceWindow.FormatUpdatedLabel(utcTimestamp, timeZone);
+
+        Assert.Equal(expected, label);
+    }
 }

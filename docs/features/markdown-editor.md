@@ -6,6 +6,10 @@ sidebar_position: 3
 
 Notey's editor writes plain markdown and includes shortcuts for common capture-time formatting.
 
+## File drops
+
+Drop files onto the editor to import them into the vault and insert markdown references at the drop position. Images become Obsidian image embeds; PDFs, documents, and other attachments become links to note-specific assets folders. Outlook `.msg` email exports are converted into readable markdown with metadata and imported attachments.
+
 ## Inline formatting
 
 - `Ctrl+B` on Windows/Linux or `Command+B` on macOS wraps the selection in `**bold**` markers.

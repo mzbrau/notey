@@ -437,6 +437,12 @@ public sealed class RecentNoteChoiceWindow : Window
         return hasActivated && !hasDialogResult;
     }
 
+    internal static string FormatUpdatedLabel(DateTimeOffset updatedAt, TimeZoneInfo? timeZone = null)
+    {
+        var localTime = TimeZoneInfo.ConvertTime(updatedAt, timeZone ?? TimeZoneInfo.Local);
+        return $"Updated {localTime:ddd, HH:mm}";
+    }
+
     private static string BuildSearchText(RecentNoteSummary note)
     {
         return string.IsNullOrWhiteSpace(note.SearchText)
@@ -459,7 +465,7 @@ public sealed class RecentNoteChoiceWindow : Window
 
         public string FullPath { get; } = Note.FilePath;
 
-        public string UpdatedLabel { get; } = $"Updated {Note.CreatedAt:ddd, HH:mm}";
+        public string UpdatedLabel { get; } = FormatUpdatedLabel(Note.CreatedAt);
 
         public static RecentNoteChoiceItem FromSummary(RecentNoteSummary note) => new(note);
     }

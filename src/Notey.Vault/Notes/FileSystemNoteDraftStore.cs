@@ -112,6 +112,20 @@ public sealed partial class FileSystemNoteDraftStore(
             if (string.IsNullOrWhiteSpace(content))
             {
                 DeleteIfExists(filePath);
+                DeleteDraftAssetsIfExists(filePath);
+            }
+        }
+
+        var activeDraftAssets = Directory
+            .EnumerateFiles(notesPath, "*.md", SearchOption.TopDirectoryOnly)
+            .Select(GetDraftAssetsDirectory)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var assetsDirectory in Directory.EnumerateDirectories(notesPath, "*.assets", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!activeDraftAssets.Contains(assetsDirectory))
+            {
+                TryDeleteDirectory(assetsDirectory);
             }
         }
     }
@@ -221,6 +235,40 @@ public sealed partial class FileSystemNoteDraftStore(
         {
             File.Delete(filePath);
         }
+    }
+
+    private static void DeleteDraftAssetsIfExists(string draftFilePath)
+    {
+        var draftAssetsDirectory = GetDraftAssetsDirectory(draftFilePath);
+        if (Directory.Exists(draftAssetsDirectory))
+        {
+            TryDeleteDirectory(draftAssetsDirectory);
+        }
+    }
+
+    private static void TryDeleteDirectory(string directoryPath)
+    {
+        try
+        {
+            Directory.Delete(directoryPath, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static string GetDraftAssetsDirectory(string draftFilePath)
+    {
+        var directory = Path.GetDirectoryName(draftFilePath);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            throw new InvalidOperationException("Draft file path must include a directory.");
+        }
+
+        return Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(draftFilePath)}.assets");
     }
 
     private static void EnsureFileIsInsideNotesPath(string notesPath, string filePath)

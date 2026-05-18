@@ -7,6 +7,7 @@ using Notey.AI.Abstractions;
 using Notey.AI.Providers;
 using Notey.App.Assistant;
 using Notey.App.Diagnostics;
+using Notey.App.Imports;
 using Notey.App.Processing;
 using Notey.App.Platform;
 using Notey.App.Views;
@@ -106,8 +107,11 @@ public static class HostBootstrapper
                 services.AddSingleton<IVaultEntityStore, FileSystemVaultEntityStore>();
                 services.AddSingleton<INoteDraftStore, FileSystemNoteDraftStore>();
                 services.AddSingleton<ITaskStore, FileSystemTaskStore>();
+                services.AddSingleton<DraftAttachmentPromoter>();
                 services.AddSingleton<DraftProcessingService>();
                 services.AddSingleton<NoteyAssistantService>();
+                services.AddSingleton<IMessageImportReader, MsgReaderMessageImportReader>();
+                services.AddSingleton<FileImportService>();
                 services.AddSingleton<IRecentNoteChooser, RecentNoteDialogChooser>();
 
                 if (platformRuntime.IsWindows)
