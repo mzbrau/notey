@@ -35,40 +35,7 @@ public sealed class ImagePreviewWindow : Window
             }
         };
 
-        Control previewContent = content.Bitmap is null
-            ? new Border
-            {
-                Background = new SolidColorBrush(Color.Parse("#0B0E15")),
-                BorderBrush = new SolidColorBrush(Color.Parse("#424754")),
-                BorderThickness = new Avalonia.Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Avalonia.Thickness(18),
-                Child = new TextBlock
-                {
-                    Text = content.ErrorMessage,
-                    Foreground = new SolidColorBrush(Color.Parse("#C2C6D6")),
-                    TextWrapping = TextWrapping.Wrap
-                }
-            }
-            : new Border
-            {
-                Background = new SolidColorBrush(Color.Parse("#0B0E15")),
-                BorderBrush = new SolidColorBrush(Color.Parse("#424754")),
-                BorderThickness = new Avalonia.Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Child = new ScrollViewer
-                {
-                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    Content = new Image
-                    {
-                        Source = content.Bitmap,
-                        Stretch = Stretch.Uniform,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center
-                    }
-                }
-            };
+        var previewContent = CreatePreviewContent(content.Bitmap, content.ErrorMessage);
 
         var closeButton = new Button
         {
@@ -138,6 +105,74 @@ public sealed class ImagePreviewWindow : Window
     {
         var dialog = new ImagePreviewWindow(await LoadPreviewContentAsync(absolutePath, relativePath, cancellationToken));
         await dialog.ShowDialog(owner);
+    }
+
+    internal static Control CreatePreviewContent(Bitmap? bitmap, string errorMessage)
+    {
+        if (bitmap is null)
+        {
+            return new Border
+            {
+                Background = new SolidColorBrush(Color.Parse("#0B0E15")),
+                BorderBrush = new SolidColorBrush(Color.Parse("#424754")),
+                BorderThickness = new Avalonia.Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Avalonia.Thickness(18),
+                Child = new TextBlock
+                {
+                    Text = errorMessage,
+                    Foreground = new SolidColorBrush(Color.Parse("#C2C6D6")),
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+        }
+
+        var previewImage = new Image
+        {
+            Source = bitmap,
+            Stretch = Stretch.Uniform,
+            StretchDirection = StretchDirection.DownOnly,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var previewBorder = new Border
+        {
+            Background = new SolidColorBrush(Color.Parse("#0B0E15")),
+            BorderBrush = new SolidColorBrush(Color.Parse("#424754")),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            ClipToBounds = true,
+            Child = previewImage
+        };
+
+        previewBorder.SizeChanged += (_, args) =>
+        {
+            var constrainedSize = GetConstrainedImageSize(bitmap.Size, args.NewSize);
+            previewImage.Width = constrainedSize.Width;
+            previewImage.Height = constrainedSize.Height;
+        };
+
+        return previewBorder;
+    }
+
+    internal static Size GetConstrainedImageSize(Size imageSize, Size availableSize)
+    {
+        if (imageSize.Width <= 0
+            || imageSize.Height <= 0
+            || availableSize.Width <= 0
+            || availableSize.Height <= 0)
+        {
+            return default;
+        }
+
+        var scale = Math.Min(
+            1d,
+            Math.Min(
+                availableSize.Width / imageSize.Width,
+                availableSize.Height / imageSize.Height));
+
+        return new Size(imageSize.Width * scale, imageSize.Height * scale);
     }
 
     private static async Task<PreviewContent> LoadPreviewContentAsync(string absolutePath, string relativePath, CancellationToken cancellationToken)
