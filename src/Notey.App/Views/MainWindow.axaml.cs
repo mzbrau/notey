@@ -176,7 +176,8 @@ public sealed partial class MainWindow : Window
         _draftProcessingService = draftProcessingService;
         _assistantService = assistantService ?? new NoteyAssistantService(
             options,
-            new AiProviderRegistry([], string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId));
+            new AiProviderRegistry([], string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId),
+            NullLogger<NoteyAssistantService>.Instance);
         _recentNoteChooser = recentNoteChooser ?? new RecentNoteDialogChooser();
         _timeProvider = timeProvider;
         _logger = logger;
@@ -239,8 +240,9 @@ public sealed partial class MainWindow : Window
             aiRegistry,
             ocrEngine,
             TimeProvider.System,
+            NullLogger<DraftProcessingService>.Instance,
             taskStore);
-        var assistantService = new NoteyAssistantService(options, aiRegistry);
+        var assistantService = new NoteyAssistantService(options, aiRegistry, NullLogger<NoteyAssistantService>.Instance);
 
         return new DefaultDependencies(
             options,
@@ -259,7 +261,7 @@ public sealed partial class MainWindow : Window
     private static NoteySettingsStore CreateFallbackSettingsStore(NoteyOptions options)
     {
         var providerRegistry = new AiProviderRegistry(
-            OpenAiCompatibleAiProviderFactory.CreateProviders(options.Ai, static () => new HttpClient()),
+            OpenAiCompatibleAiProviderFactory.CreateProviders(options.Ai, static () => new HttpClient(), NullLoggerFactory.Instance),
             string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId);
 
         return new NoteySettingsStore(

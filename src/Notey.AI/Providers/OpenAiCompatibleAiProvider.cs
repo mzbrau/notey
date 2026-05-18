@@ -1,12 +1,14 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace Notey.AI.Providers;
 
 public sealed class OpenAiCompatibleAiProvider(
     OpenAiCompatibleAiProviderConfiguration configuration,
-    HttpClient httpClient) : IAiProvider
+    HttpClient httpClient,
+    ILogger<OpenAiCompatibleAiProvider> logger) : IAiProvider
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
@@ -27,12 +29,17 @@ public sealed class OpenAiCompatibleAiProvider(
             throw new AiProviderException($"AI provider '{Id}' has no configured model name.");
         }
 
+        logger.LogDebug("Sending request to AI provider '{ProviderId}' using model '{ModelName}'.", Id, modelName);
+
         using var message = CreateRequestMessage(request, modelName);
         using var response = await httpClient.SendAsync(message, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
+            logger.LogError(
+                "AI provider '{ProviderId}' returned HTTP {StatusCode}: {ResponseBody}",
+                Id, (int)response.StatusCode, TrimForError(responseBody));
             throw new AiProviderException(
                 $"AI provider '{Id}' returned {(int)response.StatusCode} {response.ReasonPhrase}: {TrimForError(responseBody)}");
         }

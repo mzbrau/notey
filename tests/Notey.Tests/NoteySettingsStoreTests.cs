@@ -88,7 +88,7 @@ public sealed class NoteySettingsStoreTests
         return new NoteySettingsStore(
             options,
             new AiProviderRegistry(
-                OpenAiCompatibleAiProviderFactory.CreateProviders(options.Ai, static () => new HttpClient()),
+                OpenAiCompatibleAiProviderFactory.CreateProviders(options.Ai, static () => new HttpClient(), NullLoggerFactory.Instance),
                 "default"),
             new FakeHttpClientFactory(),
             NullLogger<NoteySettingsStore>.Instance,

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using Notey.AI.Providers;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
@@ -21,6 +22,7 @@ public sealed partial class DraftProcessingService(
     IAiProviderRegistry aiProviderRegistry,
     ITesseractOcrEngine ocrEngine,
     TimeProvider timeProvider,
+    ILogger<DraftProcessingService> logger,
     ITaskStore? taskStore = null)
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
@@ -37,6 +39,8 @@ public sealed partial class DraftProcessingService(
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(content);
 
+        logger.LogInformation("Processing draft {DraftFile}.", Path.GetFileName(draft.FilePath));
+
         var paths = workspace.GetPaths();
         var commands = await documentStoreIndex.GetFolderCommandsAsync(cancellationToken);
         var parsed = _directiveParser.Parse(content, commands.Select(static command => command.CommandName));
@@ -48,6 +52,7 @@ public sealed partial class DraftProcessingService(
             .ToList();
         if (string.IsNullOrWhiteSpace(body) && !hasTasks && ocrSnippets.Count == 0)
         {
+            logger.LogInformation("Draft {DraftFile} skipped — no note content.", Path.GetFileName(draft.FilePath));
             return DraftProcessingResult.Skipped(draft.FilePath, "Draft has no note content.");
         }
 
@@ -85,6 +90,7 @@ public sealed partial class DraftProcessingService(
         IReadOnlyList<NoteyTask> createdTasks = [];
         if (hasTasks)
         {
+            logger.LogInformation("Saving {TaskCount} task(s) from draft {DraftFile}.", parsed.Tasks.Count, Path.GetFileName(draft.FilePath));
             createdTasks = await _taskStore.AddAsync(
                 parsed.Tasks.Select(task => new NewNoteyTask(task.Text, task.DueDate, sourceFilePath)).ToArray(),
                 DateOnly.FromDateTime(localNow.DateTime),
@@ -119,6 +125,7 @@ public sealed partial class DraftProcessingService(
                 throw;
             }
 
+            logger.LogInformation("Draft {DraftFile} written to {DestinationFile}.", Path.GetFileName(draft.FilePath), route.FilePath);
             writtenPaths.Add(route.FilePath);
         }
 
@@ -145,6 +152,8 @@ public sealed partial class DraftProcessingService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         ArgumentNullException.ThrowIfNull(markdown);
+
+        logger.LogInformation("Processing existing note {NoteFile}.", Path.GetFileName(filePath));
 
         var paths = workspace.GetPaths();
         var commands = await documentStoreIndex.GetFolderCommandsAsync(cancellationToken);
@@ -195,11 +204,13 @@ public sealed partial class DraftProcessingService(
     {
         if (!aiProviderRegistry.TryGet(options.Ai.DefaultProviderId, out var provider))
         {
+            logger.LogDebug("AI provider '{ProviderId}' not configured; falling back to unprocessed output.", options.Ai.DefaultProviderId);
             return CreateFallbackAiResult(body, ocrSnippets);
         }
 
         try
         {
+            logger.LogDebug("Invoking AI provider '{ProviderId}' for note processing.", provider.Id);
             var response = await provider.CompleteTextAsync(
                 new AiTextRequest(
                     BuildPrompt(parsed, commands, string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body, ocrSnippets),
@@ -210,10 +221,12 @@ public sealed partial class DraftProcessingService(
                     MaxTokens: 1600),
                 cancellationToken);
 
+            logger.LogDebug("AI provider '{ProviderId}' returned a response.", provider.Id);
             return ProcessedNoteAiResult.Parse(response.Text);
         }
         catch (AiProviderException ex) when (IsAiConfigurationError(ex))
         {
+            logger.LogWarning(ex, "AI provider '{ProviderId}' is not fully configured; falling back to unprocessed output.", options.Ai.DefaultProviderId);
             return CreateFallbackAiResult(body, ocrSnippets);
         }
     }

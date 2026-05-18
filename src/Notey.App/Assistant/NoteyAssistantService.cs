@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Notey.AI.Providers;
 using Notey.Core.Configuration;
 
@@ -8,7 +9,8 @@ namespace Notey.App.Assistant;
 
 public sealed class NoteyAssistantService(
     NoteyOptions options,
-    IAiProviderRegistry providerRegistry)
+    IAiProviderRegistry providerRegistry,
+    ILogger<NoteyAssistantService> logger)
 {
     private const string SystemPrompt = """
         You are Notey Assistant. Help the user edit the currently open markdown note and manage the Notey task list.
@@ -28,8 +30,14 @@ public sealed class NoteyAssistantService(
 
         if (!providerRegistry.TryGet(options.Ai.DefaultProviderId, out var provider))
         {
+            logger.LogError("AI provider '{ProviderId}' is not configured; cannot complete assistant request.", options.Ai.DefaultProviderId);
             throw new AiProviderException($"AI provider '{options.Ai.DefaultProviderId}' is not configured.");
         }
+
+        logger.LogInformation(
+            "Assistant request started — prompt length {PromptLength}, note length {NoteLength}.",
+            request.Prompt.Length,
+            request.NoteText.Length);
 
         var response = await provider.CompleteTextAsync(
             new AiTextRequest(
@@ -41,6 +49,7 @@ public sealed class NoteyAssistantService(
                 MaxTokens: 2400),
             cancellationToken);
 
+        logger.LogInformation("Assistant response received from provider '{ProviderId}'.", provider.Id);
         return AssistantOperationValidator.Validate(
             AssistantResponseParser.Parse(response.Text),
             request.NoteText,

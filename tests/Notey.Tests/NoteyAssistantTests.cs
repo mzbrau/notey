@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
 using Notey.App.Assistant;
 using Notey.Core.Configuration;
@@ -149,7 +150,8 @@ public sealed class NoteyAssistantTests
             """);
         var service = new NoteyAssistantService(
             new NoteyOptions { Ai = new AiOptions { DefaultProviderId = "default", ModelName = "test-model" } },
-            new AiProviderRegistry([provider], "default"));
+            new AiProviderRegistry([provider], "default"),
+            NullLogger<NoteyAssistantService>.Instance);
 
         var result = await service.CompleteAsync(new NoteyAssistantRequest(
             "Summarize this.",

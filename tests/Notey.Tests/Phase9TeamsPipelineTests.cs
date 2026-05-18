@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
 using Notey.Core.Configuration;
 using Notey.Ocr;
@@ -147,7 +148,7 @@ public sealed class TeamsPipelineTests
             "gpt-test");
         var registry = CreatePhase9Registry(ocr, provider);
         var pipeline = CreateTeamsPipelineDefinition();
-        var result = await new PipelineExecutor(registry, new PipelineValidator(registry), TimeProvider.System)
+        var result = await new PipelineExecutor(registry, new PipelineValidator(registry), TimeProvider.System, NullLogger<PipelineExecutor>.Instance)
             .ExecuteAsync(pipeline, new ImageData("teams.png", DateTimeOffset.UtcNow, 1200, 800));
 
         var output = Assert.IsType<StructuredNoteData>(result.Output);
