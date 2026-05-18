@@ -1,3 +1,4 @@
+using System.Text;
 using MsgReader.Outlook;
 using OutlookStorage = MsgReader.Outlook.Storage;
 
@@ -6,14 +7,47 @@ namespace Notey.App.Imports;
 public sealed class MsgReaderMessageImportReader : IMessageImportReader
 {
     private const int MaxEmbeddedMessageReadDepth = 3;
+    private static readonly object LegacyEncodingsRegistrationGate = new();
+    private static bool _legacyEncodingsRegistered;
+    private readonly Func<Stream, OutlookStorage.Message> _messageFactory;
+
+    public MsgReaderMessageImportReader()
+        : this(static stream => new OutlookStorage.Message(stream, FileAccess.Read, leaveStreamOpen: false))
+    {
+    }
+
+    internal MsgReaderMessageImportReader(Func<Stream, OutlookStorage.Message> messageFactory)
+    {
+        _messageFactory = messageFactory ?? throw new ArgumentNullException(nameof(messageFactory));
+    }
 
     public async ValueTask<ImportedEmailMessage> ReadAsync(ImportFile file, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(file);
 
+        EnsureLegacyEncodingsRegistered();
         await using var stream = await file.OpenReadAsync(cancellationToken);
-        using var message = new OutlookStorage.Message(stream, FileAccess.Read, leaveStreamOpen: false);
+        using var message = _messageFactory(stream);
         return ReadMessage(message, depth: 0);
+    }
+
+    internal static void EnsureLegacyEncodingsRegistered()
+    {
+        if (_legacyEncodingsRegistered)
+        {
+            return;
+        }
+
+        lock (LegacyEncodingsRegistrationGate)
+        {
+            if (_legacyEncodingsRegistered)
+            {
+                return;
+            }
+
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            _legacyEncodingsRegistered = true;
+        }
     }
 
     private static ImportedEmailMessage ReadMessage(OutlookStorage.Message message, int depth)
