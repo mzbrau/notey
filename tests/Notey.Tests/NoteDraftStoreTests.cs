@@ -270,6 +270,39 @@ public sealed class NoteDraftStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteEmptyDraftsAsync_removes_assets_for_empty_draft()
+    {
+        var rootPath = CreateTempDirectory();
+        var notesPath = Path.Combine(rootPath, "Notes", "Draft");
+        var draftPath = Path.Combine(notesPath, "2026-05-13-2200-note.md");
+        var assetsPath = Path.Combine(notesPath, "2026-05-13-2200-note.assets");
+        Directory.CreateDirectory(assetsPath);
+        await File.WriteAllTextAsync(draftPath, "   \n", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(assetsPath, "spec.pdf"), "attachment", TestContext.Current.CancellationToken);
+        var store = CreateStore(rootPath);
+
+        await store.DeleteEmptyDraftsAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(File.Exists(draftPath));
+        Assert.False(Directory.Exists(assetsPath));
+    }
+
+    [Fact]
+    public async Task DeleteEmptyDraftsAsync_removes_orphaned_draft_assets()
+    {
+        var rootPath = CreateTempDirectory();
+        var notesPath = Path.Combine(rootPath, "Notes", "Draft");
+        var orphanAssetsPath = Path.Combine(notesPath, "orphan.assets");
+        Directory.CreateDirectory(orphanAssetsPath);
+        await File.WriteAllTextAsync(Path.Combine(orphanAssetsPath, "spec.pdf"), "attachment", TestContext.Current.CancellationToken);
+        var store = CreateStore(rootPath);
+
+        await store.DeleteEmptyDraftsAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(Directory.Exists(orphanAssetsPath));
+    }
+
+    [Fact]
     public async Task DeleteEmptyDraftsAsync_does_nothing_when_draft_folder_does_not_exist()
     {
         var rootPath = CreateTempDirectory();

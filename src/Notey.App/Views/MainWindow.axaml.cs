@@ -10,6 +10,7 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using AvaloniaEdit;
 using Microsoft.Extensions.Logging;
@@ -18,6 +19,7 @@ using Notey.AI.Providers;
 using Notey.App.Assistant;
 using Notey.App.Configuration;
 using Notey.App.Editing;
+using Notey.App.Imports;
 using Notey.App.Processing;
 using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
@@ -54,6 +56,7 @@ public sealed partial class MainWindow : Window
     private readonly ITaskStore _taskStore;
     private readonly DraftProcessingService _draftProcessingService;
     private readonly NoteyAssistantService _assistantService;
+    private readonly FileImportService _fileImportService;
     private readonly IRecentNoteChooser _recentNoteChooser;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindow> _logger;
@@ -141,7 +144,8 @@ public sealed partial class MainWindow : Window
             timeProvider,
             logger,
             taskStore: dependencies.TaskStore,
-            assistantService: dependencies.AssistantService)
+            assistantService: dependencies.AssistantService,
+            fileImportService: dependencies.FileImportService)
     {
     }
 
@@ -160,7 +164,8 @@ public sealed partial class MainWindow : Window
         IRecentNoteChooser? recentNoteChooser = null,
         NoteySettingsStore? settingsStore = null,
         ITaskStore? taskStore = null,
-        NoteyAssistantService? assistantService = null)
+        NoteyAssistantService? assistantService = null,
+        FileImportService? fileImportService = null)
     {
         InitializeComponent();
 
@@ -178,6 +183,7 @@ public sealed partial class MainWindow : Window
             options,
             new AiProviderRegistry([], string.IsNullOrWhiteSpace(options.Ai.DefaultProviderId) ? "default" : options.Ai.DefaultProviderId),
             NullLogger<NoteyAssistantService>.Instance);
+        _fileImportService = fileImportService ?? new FileImportService(vaultWorkspace, linkBuilder, new MsgReaderMessageImportReader());
         _recentNoteChooser = recentNoteChooser ?? new RecentNoteDialogChooser();
         _timeProvider = timeProvider;
         _logger = logger;
@@ -233,6 +239,7 @@ public sealed partial class MainWindow : Window
         var aiRegistry = new AiProviderRegistry([], "default");
         var ocrEngine = new TesseractNativeOcrEngine();
         var taskStore = new FileSystemTaskStore(workspace, linkBuilder, TimeProvider.System);
+        var attachmentPromoter = new DraftAttachmentPromoter(workspace);
         var draftProcessingService = new DraftProcessingService(
             options,
             workspace,
@@ -241,8 +248,11 @@ public sealed partial class MainWindow : Window
             ocrEngine,
             TimeProvider.System,
             NullLogger<DraftProcessingService>.Instance,
-            taskStore);
+            taskStore,
+            attachmentPromoter);
         var assistantService = new NoteyAssistantService(options, aiRegistry, NullLogger<NoteyAssistantService>.Instance);
+        var messageImportReader = new MsgReaderMessageImportReader();
+        var fileImportService = new FileImportService(workspace, linkBuilder, messageImportReader);
 
         return new DefaultDependencies(
             options,
@@ -255,7 +265,8 @@ public sealed partial class MainWindow : Window
             linkBuilder,
             taskStore,
             draftProcessingService,
-            assistantService);
+            assistantService,
+            fileImportService);
     }
 
     private static NoteySettingsStore CreateFallbackSettingsStore(NoteyOptions options)
@@ -312,6 +323,9 @@ public sealed partial class MainWindow : Window
         ApplyEditorTheme();
         NoteEditor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizingTransformer());
         NoteEditor.TextArea.LeftMargins.Insert(0, _imagePreviewMargin);
+        DragDrop.SetAllowDrop(NoteEditor, true);
+        DragDrop.AddDragOverHandler(NoteEditor, OnEditorDragOver);
+        DragDrop.AddDropHandler(NoteEditor, OnEditorDrop);
     }
 
     private void ConfigureCommands()
@@ -1757,6 +1771,7 @@ public sealed partial class MainWindow : Window
             && !_directOcrSnippets.Any(static snippet => !string.IsNullOrWhiteSpace(snippet)))
         {
             DeleteIfExists(_currentDraft.FilePath);
+            DeleteDraftAssetsIfExists(_currentDraft.FilePath);
             ClearPendingAssistantResult();
             _currentDraft = null;
             _lastSavedText = string.Empty;
@@ -2169,6 +2184,140 @@ public sealed partial class MainWindow : Window
     {
         e.Handled = true;
         await PasteFromClipboardAsync();
+    }
+
+    private void OnEditorDragOver(object? sender, DragEventArgs e)
+    {
+        var canImportFiles = !NoteEditor.IsReadOnly
+            && e.DataTransfer.Formats.Contains(DataFormat.File)
+            && e.DataTransfer.TryGetFiles()?.OfType<IStorageFile>().Any() == true;
+        e.DragEffects = canImportFiles ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnEditorDrop(object? sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        if (NoteEditor.IsReadOnly || !e.DataTransfer.Formats.Contains(DataFormat.File))
+        {
+            return;
+        }
+
+        var storageFiles = e.DataTransfer.TryGetFiles()?.OfType<IStorageFile>().ToArray() ?? [];
+        if (storageFiles.Length == 0)
+        {
+            AutosaveStatusText.Text = "NO FILES TO IMPORT";
+            return;
+        }
+
+        await ImportFilesAsync(storageFiles.Select(CreateImportFile).ToArray());
+    }
+
+    internal async Task ImportFilesForTestingAsync(IReadOnlyList<ImportFile> files)
+    {
+        await ImportFilesAsync(files);
+    }
+
+    private async Task ImportFilesAsync(IReadOnlyList<ImportFile> files)
+    {
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        var context = await GetFileImportContextAsync();
+        if (context is null)
+        {
+            return;
+        }
+
+        var placeholder = $"<!-- notey-import-{Guid.NewGuid():N} -->";
+        var replacementStart = NoteEditor.SelectionStart;
+        NoteEditor.Document.Replace(replacementStart, NoteEditor.SelectionLength, placeholder);
+        NoteEditor.CaretOffset = replacementStart + placeholder.Length;
+
+        try
+        {
+            AutosaveStatusText.Text = "IMPORTING FILES";
+            var result = await _fileImportService.ImportAsync(files, context, _windowClosed.Token);
+            ReplaceImportPlaceholder(placeholder, result.Markdown.Trim());
+            AutosaveStatusText.Text = result.WrittenPaths.Count == 1 ? "FILE IMPORTED" : "FILES IMPORTED";
+            UpdateEditorStatus();
+            UpdateContextChip();
+            ScheduleAutosave();
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            RemoveImportPlaceholder(placeholder);
+            _logger.LogDebug("File import was cancelled because the window closed.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        {
+            RemoveImportPlaceholder(placeholder);
+            AutosaveStatusText.Text = "IMPORT ERROR";
+            _logger.LogError(ex, "Failed to import dropped files.");
+        }
+    }
+
+    private async Task<FileImportContext?> GetFileImportContextAsync()
+    {
+        if (_currentFinalNotePath is not null)
+        {
+            return FileImportContext.ForFinalNote(_currentFinalNotePath);
+        }
+
+        if (_currentDraft is null && !await TryCreateAndLoadDraftAsync("importing files"))
+        {
+            return null;
+        }
+
+        return _currentDraft is null ? null : FileImportContext.ForDraft(_currentDraft.FilePath);
+    }
+
+    private void ReplaceImportPlaceholder(string placeholder, string markdown)
+    {
+        var index = NoteEditor.Document.Text.IndexOf(placeholder, StringComparison.Ordinal);
+        if (index < 0)
+        {
+            AppendMarkdownBlock(markdown);
+            return;
+        }
+
+        NoteEditor.Document.Replace(index, placeholder.Length, markdown);
+        NoteEditor.CaretOffset = index + markdown.Length;
+    }
+
+    private void RemoveImportPlaceholder(string placeholder)
+    {
+        var index = NoteEditor.Document.Text.IndexOf(placeholder, StringComparison.Ordinal);
+        if (index >= 0)
+        {
+            NoteEditor.Document.Remove(index, placeholder.Length);
+            NoteEditor.CaretOffset = Math.Min(index, NoteEditor.Document.TextLength);
+        }
+    }
+
+    private static ImportFile CreateImportFile(IStorageFile storageFile)
+    {
+        if (storageFile.Path.IsFile && File.Exists(storageFile.Path.LocalPath))
+        {
+            return new ImportFile(
+                storageFile.Name,
+                cancellationToken =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Stream stream = new FileStream(storageFile.Path.LocalPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
+                    return ValueTask.FromResult(stream);
+                });
+        }
+
+        return new ImportFile(
+            storageFile.Name,
+            async cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return await storageFile.OpenReadAsync();
+            });
     }
 
     private async Task PasteFromClipboardAsync()
@@ -3336,6 +3485,28 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void DeleteDraftAssetsIfExists(string draftFilePath)
+    {
+        var draftAssetsDirectory = AttachmentImportPaths.GetDraftAssetsDirectory(draftFilePath);
+        if (!Directory.Exists(draftAssetsDirectory))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(draftAssetsDirectory, recursive: true);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete empty draft attachment staging folder {DraftAssetsDirectory}.", draftAssetsDirectory);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Notey does not have permission to delete empty draft attachment staging folder {DraftAssetsDirectory}.", draftAssetsDirectory);
+        }
+    }
+
     private sealed record DefaultDependencies(
         NoteyOptions Options,
         INoteDraftStore NoteDraftStore,
@@ -3347,7 +3518,8 @@ public sealed partial class MainWindow : Window
         ObsidianLinkBuilder LinkBuilder,
         ITaskStore TaskStore,
         DraftProcessingService DraftProcessingService,
-        NoteyAssistantService AssistantService);
+        NoteyAssistantService AssistantService,
+        FileImportService FileImportService);
 
     private sealed record SlashCommandDefinition(string Name, string Description, string InsertionText);
 

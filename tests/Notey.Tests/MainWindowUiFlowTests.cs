@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using Notey.App.Imports;
 using Notey.App.Views;
 
 #pragma warning disable xUnit1051 // AvaloniaFact does not provide xUnit test-context cancellation token support.
@@ -78,6 +79,33 @@ public sealed class MainWindowUiFlowTests
         Assert.Equal(filePath, harness.CurrentNotePathText);
         Assert.Equal("Opened recent note", harness.ContextText);
         Assert.Equal(content, harness.Editor.Document.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task File_import_into_open_final_note_copies_attachment_to_final_assets()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var content = """
+            ---
+            created: 2026-05-14T09:30+00:00
+            processed: 2026-05-14T09:31+00:00
+            topic: "Roadmap"
+            people: []
+            tags: []
+            links: []
+            ---
+            Roadmap note.
+            """;
+        var filePath = await harness.WriteFinalNoteAsync("roadmap.md", content);
+        await harness.OpenRecentNoteAsync(filePath);
+        harness.Editor.CaretOffset = harness.Editor.Document.TextLength;
+
+        await harness.Window.ImportFilesForTestingAsync([ImportFile.FromBytes("brief.pdf", [1, 2, 3])]);
+        await harness.DrainAsync();
+
+        var attachmentPath = Path.Combine(harness.RootPath, "Notes", "roadmap.assets", "brief.pdf");
+        Assert.True(File.Exists(attachmentPath));
+        Assert.Contains("[[Notes/roadmap.assets/brief.pdf|brief.pdf]]", harness.Editor.Document.Text);
     }
 
     [AvaloniaFact]

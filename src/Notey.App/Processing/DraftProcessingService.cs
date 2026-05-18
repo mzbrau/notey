@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Notey.AI.Providers;
+using Notey.App.Imports;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
 using Notey.Ocr;
@@ -23,12 +24,14 @@ public sealed partial class DraftProcessingService(
     ITesseractOcrEngine ocrEngine,
     TimeProvider timeProvider,
     ILogger<DraftProcessingService> logger,
-    ITaskStore? taskStore = null)
+    ITaskStore? taskStore = null,
+    DraftAttachmentPromoter? attachmentPromoter = null)
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly NoteDirectiveParser _directiveParser = new();
     private readonly ObsidianLinkBuilder _taskLinkBuilder = new(workspace);
     private readonly ITaskStore _taskStore = taskStore ?? new FileSystemTaskStore(workspace, new ObsidianLinkBuilder(workspace), timeProvider);
+    private readonly DraftAttachmentPromoter _attachmentPromoter = attachmentPromoter ?? new DraftAttachmentPromoter(workspace);
 
     public async Task<DraftProcessingResult> ProcessAsync(
         NoteDraft draft,
@@ -100,8 +103,12 @@ public sealed partial class DraftProcessingService(
 
         if (route is not null && finalBody is not null && metadata is not null)
         {
+            DraftAttachmentPromotionResult? attachmentPromotion = null;
             try
             {
+                attachmentPromotion = await _attachmentPromoter.PromoteAsync(draft.FilePath, finalBody, route.FilePath, cancellationToken);
+                finalBody = attachmentPromotion.Markdown;
+
                 string markdown;
                 if (route.AppendIfExists && File.Exists(route.FilePath))
                 {
@@ -121,15 +128,22 @@ public sealed partial class DraftProcessingService(
             }
             catch
             {
+                if (attachmentPromotion is not null)
+                {
+                    DraftAttachmentPromoter.DeleteFiles(attachmentPromotion.PromotedPaths);
+                }
+
                 await _taskStore.RemoveAsync(createdTasks.Select(static task => task.Id).ToArray(), cancellationToken);
                 throw;
             }
 
             logger.LogInformation("Draft {DraftFile} written to note {DestinationFileName}.", Path.GetFileName(draft.FilePath), Path.GetFileName(route.FilePath));
             writtenPaths.Add(route.FilePath);
+            writtenPaths.AddRange(attachmentPromotion.PromotedPaths);
         }
 
         DeleteIfExists(draft.FilePath);
+        _attachmentPromoter.DeleteDraftAssetsDirectory(draft.FilePath, logger);
         return DraftProcessingResult.Completed(draft.FilePath, writtenPaths);
     }
 
@@ -255,6 +269,7 @@ public sealed partial class DraftProcessingService(
             - For meeting notes, base "filename" on the meeting topic or agenda, not on attendee names. If no clear topic is available, use "meeting" as the fallback stem.
             - Omit "filename" when a /topic directive is already provided.
             - "tags" must not include a leading '#' character.
+            - Preserve Obsidian wiki links and file attachment references from the note body unless the linked text is duplicated verbatim elsewhere.
 
             Routing metadata:
             - meeting: {{parsed.IsMeeting}}
