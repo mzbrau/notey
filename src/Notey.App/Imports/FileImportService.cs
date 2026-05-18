@@ -135,48 +135,55 @@ public sealed partial class FileImportService(
         AppendMessageMarkdown(markdown, message, headingLevel: Math.Min(2 + depth, 6));
         var writtenPaths = new List<string>();
         var attachmentMarkdown = new List<string>();
-
-        foreach (var attachment in message.Attachments)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (attachment.IsInline && !string.IsNullOrWhiteSpace(attachment.ContentId))
+            foreach (var attachment in message.Attachments)
             {
-                continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (attachment.IsInline && !string.IsNullOrWhiteSpace(attachment.ContentId))
+                {
+                    continue;
+                }
+
+                if (!attachmentBudget.TryTake())
+                {
+                    attachmentMarkdown.Add("- Further attachments skipped because the email import limit was reached.");
+                    break;
+                }
+
+                var result = await ImportSingleAsync(
+                    ImportFile.FromBytes(attachment.FileName, attachment.Data),
+                    context,
+                    depth + 1,
+                    attachmentBudget,
+                    cancellationToken);
+                if (!string.IsNullOrWhiteSpace(result.Markdown))
+                {
+                    attachmentMarkdown.Add(AttachmentImportPaths.ToReferenceText(result.Markdown));
+                }
+
+                writtenPaths.AddRange(result.WrittenPaths);
             }
 
-            if (!attachmentBudget.TryTake())
+            foreach (var embeddedMessage in message.EmbeddedMessages)
             {
-                attachmentMarkdown.Add("- Further attachments skipped because the email import limit was reached.");
-                break;
-            }
+                if (!attachmentBudget.TryTake())
+                {
+                    attachmentMarkdown.Add("- Further embedded messages skipped because the email import limit was reached.");
+                    break;
+                }
 
-            var result = await ImportSingleAsync(
-                ImportFile.FromBytes(attachment.FileName, attachment.Data),
-                context,
-                depth + 1,
-                attachmentBudget,
-                cancellationToken);
-            if (!string.IsNullOrWhiteSpace(result.Markdown))
-            {
-                attachmentMarkdown.Add(AttachmentImportPaths.ToReferenceText(result.Markdown));
+                var embeddedMarkdown = new StringBuilder();
+                var embeddedResult = await ImportMessageAsync(embeddedMessage, context, depth + 1, attachmentBudget, cancellationToken);
+                embeddedMarkdown.Append(embeddedResult.Markdown);
+                attachmentMarkdown.Add(embeddedMarkdown.ToString().Trim());
+                writtenPaths.AddRange(embeddedResult.WrittenPaths);
             }
-
-            writtenPaths.AddRange(result.WrittenPaths);
         }
-
-        foreach (var embeddedMessage in message.EmbeddedMessages)
+        catch
         {
-            if (!attachmentBudget.TryTake())
-            {
-                attachmentMarkdown.Add("- Further embedded messages skipped because the email import limit was reached.");
-                break;
-            }
-
-            var embeddedMarkdown = new StringBuilder();
-            var embeddedResult = await ImportMessageAsync(embeddedMessage, context, depth + 1, attachmentBudget, cancellationToken);
-            embeddedMarkdown.Append(embeddedResult.Markdown);
-            attachmentMarkdown.Add(embeddedMarkdown.ToString().Trim());
-            writtenPaths.AddRange(embeddedResult.WrittenPaths);
+            DraftAttachmentPromoter.DeleteFiles(writtenPaths);
+            throw;
         }
 
         if (attachmentMarkdown.Count > 0)

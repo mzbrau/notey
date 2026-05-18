@@ -109,6 +109,32 @@ public sealed class MainWindowUiFlowTests
     }
 
     [AvaloniaFact]
+    public async Task File_import_for_explicit_insertion_offset_inserts_at_requested_position()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var content = """
+            ---
+            created: 2026-05-14T09:30+00:00
+            processed: 2026-05-14T09:31+00:00
+            topic: "Roadmap"
+            people: []
+            tags: []
+            links: []
+            ---
+            Roadmap note.
+            """;
+        var filePath = await harness.WriteFinalNoteAsync("roadmap.md", content);
+        await harness.OpenRecentNoteAsync(filePath);
+        harness.Editor.Select(harness.Editor.Document.TextLength - 5, 5);
+
+        await harness.Window.ImportFilesForTestingAsync([ImportFile.FromBytes("brief.pdf", [1, 2, 3])], insertionOffset: 0);
+        await harness.DrainAsync();
+
+        Assert.StartsWith("[[Notes/roadmap.assets/brief.pdf|brief.pdf]]", harness.Editor.Document.Text, StringComparison.Ordinal);
+        Assert.Contains("Roadmap note.", harness.Editor.Document.Text);
+    }
+
+    [AvaloniaFact]
     public async Task Tasks_panel_adds_task_and_updates_badge()
     {
         using var harness = await MainWindowTestHarness.CreateAsync();

@@ -118,6 +118,36 @@ public sealed class FileImportServiceTests : IDisposable
         Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Draft", "draft.assets", "thread.txt")));
     }
 
+    [Fact]
+    public async Task ImportAsync_rolls_back_written_message_attachments_when_nested_import_fails()
+    {
+        var rootPath = CreateTempDirectory();
+        var draftPath = Path.Combine(rootPath, "Notes", "Draft", "draft.md");
+        var rootMessage = new ImportedEmailMessage(
+            "Project update",
+            null,
+            null,
+            null,
+            null,
+            null,
+            "See attachments.",
+            null,
+            [
+                new ImportedEmailAttachment("agenda.docx", [1, 2], IsInline: false, ContentId: null, MimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                new ImportedEmailAttachment("nested.msg", [3], IsInline: false, ContentId: null, MimeType: "application/vnd.ms-outlook")
+            ],
+            []);
+        var service = CreateService(rootPath, new FailingNestedMessageImportReader(rootMessage));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ImportAsync(
+            [ImportFile.FromBytes("message.msg", [9])],
+            FileImportContext.ForDraft(draftPath),
+            TestContext.Current.CancellationToken));
+
+        var stagedAttachment = Path.Combine(rootPath, "Notes", "Draft", "draft.assets", "agenda.docx");
+        Assert.False(File.Exists(stagedAttachment));
+    }
+
     public void Dispose()
     {
         foreach (var directory in _tempDirectories)
@@ -167,6 +197,24 @@ public sealed class FileImportServiceTests : IDisposable
         public ValueTask<ImportedEmailMessage> ReadAsync(ImportFile file, CancellationToken cancellationToken = default)
         {
             return ValueTask.FromResult(message);
+        }
+    }
+
+    private sealed class FailingNestedMessageImportReader(ImportedEmailMessage rootMessage) : IMessageImportReader
+    {
+        public ValueTask<ImportedEmailMessage> ReadAsync(ImportFile file, CancellationToken cancellationToken = default)
+        {
+            if (string.Equals(file.FileName, "message.msg", StringComparison.OrdinalIgnoreCase))
+            {
+                return ValueTask.FromResult(rootMessage);
+            }
+
+            if (string.Equals(file.FileName, "nested.msg", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Nested message import failed.");
+            }
+
+            return ValueTask.FromResult(EmptyMessage);
         }
     }
 }

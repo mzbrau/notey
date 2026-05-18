@@ -538,6 +538,32 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_rejects_draft_attachment_links_that_traverse_outside_staging_folder()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var service = CreateServiceWithoutAi(rootPath);
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic Roadmap
+
+            Do not import [[Notes/Draft/draft.assets/../secret.txt|secret.txt]].
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        var draftAssets = AttachmentImportPaths.GetDraftAssetsDirectory(draft.FilePath);
+        await WriteFileAsync(draft.FilePath, draft.Content);
+        await WriteFileAsync(Path.Combine(draftAssets, "spec.pdf"), "draft attachment");
+        await WriteFileAsync(Path.Combine(rootPath, "Notes", "Draft", "secret.txt"), "should never be promoted");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken));
+
+        Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Draft", "secret.txt")));
+        Assert.False(Directory.Exists(Path.Combine(rootPath, "Notes", "roadmap.assets")));
+        Assert.True(File.Exists(draft.FilePath));
+    }
+
+    [Fact]
     public async Task ProcessAsync_rolls_back_promoted_attachments_when_final_note_write_fails()
     {
         var cancellationToken = TestContext.Current.CancellationToken;

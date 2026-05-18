@@ -2210,15 +2210,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await ImportFilesAsync(storageFiles.Select(CreateImportFile).ToArray());
+        var dropOffset = GetDropInsertionOffset(e);
+        await ImportFilesAsync(storageFiles.Select(CreateImportFile).ToArray(), dropOffset);
     }
 
-    internal async Task ImportFilesForTestingAsync(IReadOnlyList<ImportFile> files)
+    internal async Task ImportFilesForTestingAsync(IReadOnlyList<ImportFile> files, int? insertionOffset = null)
     {
-        await ImportFilesAsync(files);
+        await ImportFilesAsync(files, insertionOffset);
     }
 
-    private async Task ImportFilesAsync(IReadOnlyList<ImportFile> files)
+    private async Task ImportFilesAsync(IReadOnlyList<ImportFile> files, int? insertionOffset = null)
     {
         if (files.Count == 0)
         {
@@ -2232,8 +2233,9 @@ public sealed partial class MainWindow : Window
         }
 
         var placeholder = $"<!-- notey-import-{Guid.NewGuid():N} -->";
-        var replacementStart = NoteEditor.SelectionStart;
-        NoteEditor.Document.Replace(replacementStart, NoteEditor.SelectionLength, placeholder);
+        var replacementStart = Math.Clamp(insertionOffset ?? NoteEditor.SelectionStart, 0, NoteEditor.Document.TextLength);
+        var replacementLength = insertionOffset.HasValue ? 0 : NoteEditor.SelectionLength;
+        NoteEditor.Document.Replace(replacementStart, replacementLength, placeholder);
         NoteEditor.CaretOffset = replacementStart + placeholder.Length;
 
         try
@@ -2257,6 +2259,17 @@ public sealed partial class MainWindow : Window
             AutosaveStatusText.Text = "IMPORT ERROR";
             _logger.LogError(ex, "Failed to import dropped files.");
         }
+    }
+
+    private int GetDropInsertionOffset(DragEventArgs e)
+    {
+        var textPosition = NoteEditor.GetPositionFromPoint(e.GetPosition(NoteEditor));
+        if (textPosition is null)
+        {
+            return NoteEditor.SelectionStart;
+        }
+
+        return NoteEditor.Document.GetOffset(textPosition.Value.Line, textPosition.Value.Column);
     }
 
     private async Task<FileImportContext?> GetFileImportContextAsync()

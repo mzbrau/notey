@@ -44,6 +44,11 @@ public sealed partial class DraftAttachmentPromoter(IVaultWorkspace workspace)
                 {
                     var stagedPath = AttachmentImportPaths.TryResolveVaultRelativePath(paths, linkPath)
                         ?? throw new InvalidOperationException("Draft attachment link could not be resolved inside the vault.");
+                    if (!IsPathUnderDirectory(stagedPath, draftAssetsDirectory))
+                    {
+                        throw new InvalidOperationException("Draft attachment link must resolve inside the draft assets folder.");
+                    }
+
                     if (!File.Exists(stagedPath))
                     {
                         throw new FileNotFoundException("Draft attachment link points to a missing staged file.", stagedPath);
@@ -119,6 +124,18 @@ public sealed partial class DraftAttachmentPromoter(IVaultWorkspace workspace)
     {
         var normalized = linkPath.Replace('\\', '/');
         return normalized.StartsWith(draftAssetsRelativePath, StringComparison.Ordinal);
+    }
+
+    private static bool IsPathUnderDirectory(string filePath, string directoryPath)
+    {
+        var normalizedFilePath = Path.GetFullPath(filePath);
+        var normalizedDirectoryPath = Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var relativePath = Path.GetRelativePath(normalizedDirectoryPath, normalizedFilePath);
+        return relativePath.Length > 0
+            && relativePath != ".."
+            && !relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            && !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal)
+            && !Path.IsPathFullyQualified(relativePath);
     }
 
     [GeneratedRegex(@"(?<prefix>!?\[\[)(?<path>[^\]|]+)(?<alias>\|[^\]]+)?\]\]")]
