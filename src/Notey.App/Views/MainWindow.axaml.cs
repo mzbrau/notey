@@ -421,7 +421,7 @@ public sealed partial class MainWindow : Window
         UpdateAssistantButtons();
         AssistantPromptTextBox.KeyDown += async (_, e) =>
         {
-            if (e.Key == Key.Enter && IsCommandModifier(e.KeyModifiers))
+            if (IsAssistantSendShortcut(e.Key, e.KeyModifiers))
             {
                 await SendAssistantPromptAsync();
                 e.Handled = true;
@@ -757,6 +757,11 @@ public sealed partial class MainWindow : Window
 
     private string FormatAssistantResult(NoteyAssistantResult result)
     {
+        return FormatAssistantResult(result, _tasks);
+    }
+
+    internal static string FormatAssistantResult(NoteyAssistantResult result, IReadOnlyList<NoteyTask> tasks)
+    {
         var builder = new StringBuilder(result.Message.Trim());
         if (result.NoteOperations.Count > 0 || result.TaskOperations.Count > 0)
         {
@@ -766,9 +771,9 @@ public sealed partial class MainWindow : Window
             if (result.NoteOperations.Count > 0)
             {
                 builder.AppendLine(CultureInfo.InvariantCulture, $"- Note edits: {result.NoteOperations.Count}");
-                foreach (var operation in result.NoteOperations)
+                for (var index = 0; index < result.NoteOperations.Count; index++)
                 {
-                    builder.AppendLine(CultureInfo.InvariantCulture, $"  - {DescribeNoteOperation(operation)}");
+                    AppendNoteOperation(builder, result.NoteOperations[index], index + 1);
                 }
             }
 
@@ -777,7 +782,7 @@ public sealed partial class MainWindow : Window
                 builder.AppendLine(CultureInfo.InvariantCulture, $"- Task changes: {result.TaskOperations.Count}");
                 foreach (var operation in result.TaskOperations)
                 {
-                    builder.AppendLine(CultureInfo.InvariantCulture, $"  - {DescribeTaskOperation(operation)}");
+                    builder.AppendLine(CultureInfo.InvariantCulture, $"  - {DescribeTaskOperation(operation, tasks)}");
                 }
             }
         }
@@ -795,23 +800,38 @@ public sealed partial class MainWindow : Window
         return builder.ToString();
     }
 
-    private static string DescribeNoteOperation(AssistantNoteOperation operation)
+    private static void AppendNoteOperation(StringBuilder builder, AssistantNoteOperation operation, int index)
     {
-        return operation switch
+        switch (operation)
         {
-            InsertNoteTextOperation insert => $"Insert at {insert.Offset}: \"{PreviewText(insert.Text)}\"",
-            ReplaceNoteRangeOperation replace => $"Replace {replace.Length} character(s) at {replace.Start}: \"{PreviewText(replace.ExpectedText ?? string.Empty)}\" -> \"{PreviewText(replace.Text)}\"",
-            DeleteNoteRangeOperation delete => $"Delete {delete.Length} character(s) at {delete.Start}: \"{PreviewText(delete.ExpectedText ?? string.Empty)}\"",
-            ReplaceAllNoteTextOperation replaceAll => $"Replace entire note with {replaceAll.Text.Length} character(s).",
-            _ => "Unknown note edit"
-        };
+            case InsertNoteTextOperation insert:
+                builder.AppendLine(CultureInfo.InvariantCulture, $"  {index}. Insert text at {insert.Offset}");
+                AppendTextPreview(builder, "Added text", insert.Text, "     ");
+                break;
+            case ReplaceNoteRangeOperation replace:
+                builder.AppendLine(CultureInfo.InvariantCulture, $"  {index}. Replace {replace.Length} character(s) at {replace.Start}");
+                AppendOptionalTextPreview(builder, "Current text", replace.ExpectedText, "     ");
+                AppendTextPreview(builder, "Proposed text", replace.Text, "     ");
+                break;
+            case DeleteNoteRangeOperation delete:
+                builder.AppendLine(CultureInfo.InvariantCulture, $"  {index}. Delete {delete.Length} character(s) at {delete.Start}");
+                AppendOptionalTextPreview(builder, "Removed text", delete.ExpectedText, "     ");
+                break;
+            case ReplaceAllNoteTextOperation replaceAll:
+                builder.AppendLine(CultureInfo.InvariantCulture, $"  {index}. Replace entire note");
+                AppendTextPreview(builder, "Proposed text", replaceAll.Text, "     ");
+                break;
+            default:
+                builder.AppendLine(CultureInfo.InvariantCulture, $"  {index}. Unknown note edit");
+                break;
+        }
     }
 
-    private string DescribeTaskOperation(AssistantTaskOperation operation)
+    private static string DescribeTaskOperation(AssistantTaskOperation operation, IReadOnlyList<NoteyTask> tasks)
     {
         var task = operation.TaskId is null
             ? null
-            : _tasks.FirstOrDefault(task => string.Equals(task.Id, operation.TaskId, StringComparison.OrdinalIgnoreCase));
+            : tasks.FirstOrDefault(task => string.Equals(task.Id, operation.TaskId, StringComparison.OrdinalIgnoreCase));
         return operation.Kind switch
         {
             AssistantTaskOperationKind.Add => $"Add task: \"{operation.Text}\"{FormatDueDatePreview(operation.DueDate)}",
@@ -831,13 +851,34 @@ public sealed partial class MainWindow : Window
             : string.Empty;
     }
 
-    private static string PreviewText(string text)
+    private static void AppendOptionalTextPreview(StringBuilder builder, string label, string? text, string indent)
     {
-        var normalized = text
-            .Replace("\r\n", "\\n", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal)
-            .Replace("\r", "\\n", StringComparison.Ordinal);
-        return normalized.Length <= 80 ? normalized : $"{normalized[..80]}...";
+        if (text is null)
+        {
+            builder.AppendLine($"{indent}{label}: (not provided)");
+            return;
+        }
+
+        AppendTextPreview(builder, label, text, indent);
+    }
+
+    private static void AppendTextPreview(StringBuilder builder, string label, string text, string indent)
+    {
+        builder.AppendLine($"{indent}{label}:");
+        builder.AppendLine($"{indent}---");
+        if (text.Length == 0)
+        {
+            builder.AppendLine($"{indent}(empty)");
+        }
+        else
+        {
+            foreach (var line in text.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.None))
+            {
+                builder.AppendLine($"{indent}{line}");
+            }
+        }
+
+        builder.AppendLine($"{indent}---");
     }
 
     private void ShowAssistantError(string message)
@@ -3415,6 +3456,11 @@ public sealed partial class MainWindow : Window
     internal static bool IsPasteShortcut(Key key, KeyModifiers modifiers)
     {
         return key == Key.V && IsCommandModifier(modifiers);
+    }
+
+    internal static bool IsAssistantSendShortcut(Key key, KeyModifiers modifiers)
+    {
+        return key == Key.Enter && (modifiers == KeyModifiers.None || IsCommandModifier(modifiers));
     }
 
     internal static bool TryBeginOpenRecentDialog(ref bool isRecentNoteDialogOpen)
