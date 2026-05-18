@@ -157,6 +157,25 @@ internal sealed class MainWindowTestHarness : IDisposable
         Assert.Equal(expectedText, Editor.Document.Text);
     }
 
+    public async Task WaitForTextBlockTextAsync(string name, string expectedText, TimeSpan timeout)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            await DrainAsync();
+            if (string.Equals(Find<TextBlock>(name).Text, expectedText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            await Task.Delay(EditorWaitPollInterval, cancellationToken);
+        }
+
+        await DrainAsync();
+        Assert.Equal(expectedText, Find<TextBlock>(name).Text);
+    }
+
     public async Task WaitForFileContainsAsync(string filePath, string expectedText, TimeSpan timeout)
     {
         var cancellationToken = TestContext.Current.CancellationToken;

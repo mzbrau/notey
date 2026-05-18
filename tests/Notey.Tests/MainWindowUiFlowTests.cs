@@ -150,8 +150,9 @@ public sealed class MainWindowUiFlowTests
 
         Assert.IsType<PathIcon>(setDueTodayButton.Content);
         setDueTodayButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await harness.WaitForFileDoesNotContainAsync(tasksPath, $"- [ ] Overdue task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(5));
+        await harness.WaitForTextBlockTextAsync("AutosaveStatusText", "TASK MOVED", TimeSpan.FromSeconds(5));
         await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Overdue task (due: {today:yyyy-MM-dd})", TimeSpan.FromSeconds(5));
+        await harness.WaitForFileDoesNotContainAsync(tasksPath, $"- [ ] Overdue task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(5));
     }
 
     [AvaloniaFact]

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using Notey.AI.Providers;
@@ -83,7 +84,34 @@ public sealed class NoteySettingsStoreTests
         }
     }
 
-    private static NoteySettingsStore CreateStore(NoteyOptions options, string localSettingsPath)
+    [Fact]
+    public async Task Save_refreshes_ai_providers_with_injected_logger_factory()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var current = new NoteyOptions();
+            var updated = NoteySettingsStore.Clone(current);
+            var localSettingsPath = Path.Combine(root, "appsettings.Local.json");
+            var loggerFactory = new RecordingLoggerFactory();
+            var store = CreateStore(current, localSettingsPath, loggerFactory);
+
+            await store.SaveAsync(updated);
+
+            Assert.Contains(
+                loggerFactory.CreatedCategories,
+                static category => string.Equals(category, typeof(OpenAiCompatibleAiProvider).FullName, StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static NoteySettingsStore CreateStore(
+        NoteyOptions options,
+        string localSettingsPath,
+        ILoggerFactory? loggerFactory = null)
     {
         return new NoteySettingsStore(
             options,
@@ -92,7 +120,8 @@ public sealed class NoteySettingsStoreTests
                 "default"),
             new FakeHttpClientFactory(),
             NullLogger<NoteySettingsStore>.Instance,
-            localSettingsPath);
+            localSettingsPath,
+            loggerFactory);
     }
 
     private static string CreateTempDirectory()
@@ -107,6 +136,27 @@ public sealed class NoteySettingsStoreTests
         public HttpClient CreateClient(string name)
         {
             return new HttpClient();
+        }
+    }
+
+    private sealed class RecordingLoggerFactory : ILoggerFactory
+    {
+        private readonly List<string> createdCategories = [];
+
+        public IReadOnlyList<string> CreatedCategories => createdCategories;
+
+        public void AddProvider(ILoggerProvider provider)
+        {
+        }
+
+        public ILogger CreateLogger(string categoryName)
+        {
+            createdCategories.Add(categoryName);
+            return NullLogger.Instance;
+        }
+
+        public void Dispose()
+        {
         }
     }
 }
