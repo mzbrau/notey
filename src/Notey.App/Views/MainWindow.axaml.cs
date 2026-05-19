@@ -1954,8 +1954,9 @@ public sealed partial class MainWindow : Window
 
         var content = NoteEditor.Document.Text;
         var draftPath = _currentDraft.FilePath;
-        var pendingOcrSnips = GetPendingOcrSnipTasks(draftPath);
         var parsed = _directiveParser.Parse(content, _folderCommands.Select(static command => command.CommandName));
+        _isProcessingDraft = true;
+        var pendingOcrSnips = GetPendingOcrSnipTasks(draftPath);
         if (string.IsNullOrWhiteSpace(parsed.Body)
             && parsed.Tasks.Count == 0
             && !_directOcrSnippets.Any(static snippet => !string.IsNullOrWhiteSpace(snippet))
@@ -1974,10 +1975,10 @@ public sealed partial class MainWindow : Window
                 await ApplyProcessedDraftFollowUpAsync(trigger, primaryFinalNotePath: null);
             }
 
+            _isProcessingDraft = false;
             return DraftProcessOutcome.Changed(primaryFinalNotePath: null);
         }
 
-        _isProcessingDraft = true;
         var wasReadOnly = NoteEditor.IsReadOnly;
         NoteEditor.IsReadOnly = true;
         var cancellation = trigger == ProcessTrigger.Idle
@@ -2180,7 +2181,13 @@ public sealed partial class MainWindow : Window
             return [];
         }
 
-        return await Task.WhenAll(pendingOcrSnips).WaitAsync(cancellationToken);
+        var processed = new List<ProcessedOcrSnippetResult>(pendingOcrSnips.Count);
+        foreach (var pendingOcrSnip in pendingOcrSnips)
+        {
+            processed.Add(await pendingOcrSnip.WaitAsync(cancellationToken));
+        }
+
+        return processed;
     }
 
     private DraftProcessingSupplementalMetadata CreateSupplementalMetadata(

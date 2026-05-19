@@ -7,11 +7,23 @@ namespace Notey.Vault.Linking;
 public sealed class FileSystemVaultEntityStore(
     IVaultWorkspace workspace,
     ObsidianLinkBuilder linkBuilder,
-    TimeProvider timeProvider) : IVaultEntityStore
+    TimeProvider timeProvider) : IVaultEntityStore, IDisposable
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly Dictionary<VaultEntityKind, IReadOnlyList<VaultEntity>> _entityCache = [];
     private readonly SemaphoreSlim _ensureGate = new(1, 1);
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _ensureGate.Dispose();
+        _disposed = true;
+    }
 
     public async Task<IReadOnlyList<VaultEntity>> GetAllAsync(VaultEntityKind kind, CancellationToken cancellationToken = default)
     {
