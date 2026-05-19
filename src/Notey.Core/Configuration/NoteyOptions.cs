@@ -46,7 +46,7 @@ public sealed class AiOptions
 
     public string ModelName { get; set; } = string.Empty;
 
-    public int RequestTimeoutSeconds { get; set; } = 60;
+    public int RequestTimeoutSeconds { get; set; } = 120;
 
     public bool StoreApiKeyInPlaintext { get; set; }
 

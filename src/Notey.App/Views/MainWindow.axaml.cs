@@ -2184,20 +2184,29 @@ public sealed partial class MainWindow : Window
         _isClosePending = true;
         _autosaveTimer.Stop();
         _idleProcessingTimer.Stop();
+
+        if (HideInsteadOfClose && !_isExitRequested)
+        {
+            _isClosePending = false;
+            Hide();
+            if (_currentDraft is not null)
+            {
+                _ = ProcessCurrentDraftAsync(ProcessTrigger.Close);
+            }
+            else if (_currentFinalNotePath is not null)
+            {
+                _ = ProcessCurrentRecentNoteAsync();
+            }
+
+            return;
+        }
+
         if (_currentDraft is not null)
         {
             var processed = await ProcessCurrentDraftAsync(ProcessTrigger.Close);
             if (!processed.Succeeded)
             {
                 _logger.LogWarning("Draft processing failed while closing. Continuing close without processing.");
-
-                if (HideInsteadOfClose && !_isExitRequested)
-                {
-                    _isClosePending = false;
-                    Hide();
-                    return;
-                }
-
                 _isClosePending = false;
                 _isCloseConfirmed = true;
                 Close();
@@ -2207,13 +2216,6 @@ public sealed partial class MainWindow : Window
         else if (_currentFinalNotePath is not null && !await ProcessCurrentRecentNoteAsync())
         {
             _isClosePending = false;
-            return;
-        }
-
-        if (HideInsteadOfClose && !_isExitRequested)
-        {
-            _isClosePending = false;
-            Hide();
             return;
         }
 
