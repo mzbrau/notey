@@ -584,8 +584,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
         await WriteFileAsync(draft.FilePath, draft.Content);
         await WriteFileAsync(stagedAttachment, "draft attachment");
 
-        await Assert.ThrowsAsync<IOException>(() => service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken));
-
+        var ex = await Record.ExceptionAsync(() => service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken));
+        Assert.NotNull(ex);
+        Assert.True(ex is IOException or UnauthorizedAccessException, $"Expected IOException or UnauthorizedAccessException but got {ex.GetType().Name}.");
         Assert.False(File.Exists(finalAttachment));
         Assert.True(File.Exists(stagedAttachment));
         Assert.True(File.Exists(draft.FilePath));

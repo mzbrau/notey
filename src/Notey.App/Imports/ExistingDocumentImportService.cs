@@ -94,7 +94,7 @@ public sealed partial class ExistingDocumentImportService(
                 importContext: new DraftProcessingImportContext(
                     Path.GetFileName(sourceFile),
                     GetRelativePath(sourceRoot, sourceFile),
-                    sourceInfo.Exists ? sourceInfo.LastWriteTime : null),
+                    sourceInfo.Exists ? new DateTimeOffset(sourceInfo.LastWriteTimeUtc, TimeSpan.Zero) : null),
                 cancellationToken: cancellationToken);
 
             return importWrittenPaths.Concat(result.WrittenPaths).ToArray();

@@ -285,6 +285,7 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
         Assert.Contains($"- [ ] Clearable task (due: {dueDate:yyyy-MM-dd})", beforeSave);
 
         FindPopupControl<Button>(harness, "TaskEditSaveButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.WaitForTextBlockTextAsync("AutosaveStatusText", "TASK UPDATED", TimeSpan.FromSeconds(5));
         await harness.WaitForFileDoesNotContainAsync(tasksPath, $"Clearable task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
         var afterSave = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
         Assert.Contains("- [ ] Clearable task", afterSave);
@@ -299,7 +300,7 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
 
         await OpenTaskEditPopupAsync(harness, dueDate);
         FindPopupControl<Button>(harness, "TaskEditDeleteButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-
+        await harness.WaitForTextBlockTextAsync("AutosaveStatusText", "TASK DELETED", TimeSpan.FromSeconds(5));
         await harness.WaitForFileDoesNotContainAsync(tasksPath, "Deletable task", TimeSpan.FromSeconds(5));
     }
 

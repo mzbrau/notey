@@ -3185,6 +3185,13 @@ public sealed partial class MainWindow : Window
             Width = _options.Ui.DefaultWindowWidth;
             Height = _options.Ui.DefaultWindowHeight;
             _openNoteGesture = TryParseOpenNoteGesture(_options.Hotkeys.OpenNote);
+            if (_setupRequired && !IsSetupRequired())
+            {
+                _setupRequired = false;
+                SetSetupRequiredUi(required: false);
+                await RefreshIndexesAsync(force: true);
+            }
+
             AutosaveStatusText.Text = result.RestartRequired ? "SETTINGS SAVED - RESTART NEEDED" : "SETTINGS SAVED";
             SettingsSaved?.Invoke(this, EventArgs.Empty);
         }

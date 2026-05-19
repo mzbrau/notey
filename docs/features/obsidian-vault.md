@@ -34,7 +34,7 @@ Inline commands at the start of draft lines control where final notes are writte
 - `/task Follow up // tomorrow` appends to `Notes/tasks.md`.
 - Dynamic commands such as `/customer Microsoft` route into matching first-level `Notes` folders.
 
-People links are stored under `People`. Project and topic notes are stored inside their matching `Notes/Projects/<project>` or `Notes/Topics/<topic>` folders.
+People links are stored under `People`. Project and topic *entity* notes are stored at `Notes/Projects/<project>.md` and `Notes/Topics/<topic>.md`; the matching folders created by the setup wizard are used for routing captured notes, not for entity files.
 
 ## Tasks
 

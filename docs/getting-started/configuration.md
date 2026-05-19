@@ -24,7 +24,7 @@ If `Notey:Vault:RootPath` is empty on startup, Notey shows the setup wizard inst
 }
 ```
 
-The setup wizard also creates the fixed top-level note folders `Customers`, `Projects`, and `Topics` when requested. Entered project and topic names create child folders, not standalone markdown files. First-level folders under `Notes` become dynamic slash commands.
+The setup wizard also creates the fixed top-level note folders `Customers`, `Projects`, and `Topics` when requested. Entered project and topic names create child folders for routing captured notes; Notey stores project and topic *entity* files at `Notes/Projects/<name>.md` and `Notes/Topics/<name>.md`. First-level folders under `Notes` become dynamic slash commands.
 
 ## AI provider
 

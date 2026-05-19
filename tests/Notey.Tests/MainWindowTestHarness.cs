@@ -110,7 +110,7 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     public static async Task<MainWindowTestHarness> CreateSetupRequiredWithoutShowingAsync(ISetupWorkflow setupWorkflow)
     {
-        var harness = new MainWindowTestHarness(setupRequired: true, setupWorkflow);
+        var harness = new MainWindowTestHarness(setupRequired: true, setupWorkflow: setupWorkflow);
         await harness.DrainAsync();
         return harness;
     }
