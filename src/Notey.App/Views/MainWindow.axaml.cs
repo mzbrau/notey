@@ -2184,20 +2184,29 @@ public sealed partial class MainWindow : Window
         _isClosePending = true;
         _autosaveTimer.Stop();
         _idleProcessingTimer.Stop();
+
+        if (HideInsteadOfClose && !_isExitRequested)
+        {
+            _isClosePending = false;
+            Hide();
+            if (_currentDraft is not null)
+            {
+                ObserveBackgroundCloseTask(ProcessCurrentDraftAsync(ProcessTrigger.Close), "processing a draft after hiding to tray");
+            }
+            else if (_currentFinalNotePath is not null)
+            {
+                ObserveBackgroundCloseTask(ProcessCurrentRecentNoteAsync(), "processing a recent note after hiding to tray");
+            }
+
+            return;
+        }
+
         if (_currentDraft is not null)
         {
             var processed = await ProcessCurrentDraftAsync(ProcessTrigger.Close);
             if (!processed.Succeeded)
             {
                 _logger.LogWarning("Draft processing failed while closing. Continuing close without processing.");
-
-                if (HideInsteadOfClose && !_isExitRequested)
-                {
-                    _isClosePending = false;
-                    Hide();
-                    return;
-                }
-
                 _isClosePending = false;
                 _isCloseConfirmed = true;
                 Close();
@@ -2210,15 +2219,23 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (HideInsteadOfClose && !_isExitRequested)
-        {
-            _isClosePending = false;
-            Hide();
-            return;
-        }
-
         _isCloseConfirmed = true;
         Close();
+    }
+
+    private void ObserveBackgroundCloseTask(Task task, string operation)
+    {
+        _ = task.ContinueWith(
+            completedTask =>
+            {
+                if (completedTask.Exception is { } ex)
+                {
+                    _logger.LogError(ex, "Background close task failed while {Operation}.", operation);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
     }
 
     private void OnEditorKeyDown(object? sender, KeyEventArgs e)
