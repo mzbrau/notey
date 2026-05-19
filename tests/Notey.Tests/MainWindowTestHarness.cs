@@ -444,7 +444,7 @@ internal sealed class MainWindowTestHarness : IDisposable
                 const string updatedResponse = """
                     {
                       "body": "Updated recent note body.",
-                      "tags": ["updated"]
+                      "tags": [{ "name": "updated", "confidence": 0.82 }]
                     }
                     """;
                 return new AiTextResponse(updatedResponse, Id, "test");
@@ -453,8 +453,8 @@ internal sealed class MainWindowTestHarness : IDisposable
             const string response = """
                 {
                   "body": "Captured accounts launch context.",
-                  "people": ["Jane Doe"],
-                  "tags": ["accounts"]
+                  "people": [{ "name": "Jane Doe", "confidence": 0.91 }],
+                  "tags": [{ "name": "accounts", "confidence": 0.82 }]
                 }
                 """;
             return new AiTextResponse(response, Id, "test");

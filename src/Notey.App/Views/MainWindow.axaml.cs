@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -73,6 +74,11 @@ public sealed partial class MainWindow : Window
     private readonly TranslateTransform _tasksPanelTransform = new();
     private readonly NoteDirectiveParser _directiveParser = new();
     private readonly List<string> _directOcrSnippets = [];
+    private readonly List<string> _directOcrPeople = [];
+    private readonly List<string> _directOcrTags = [];
+    private readonly Dictionary<string, List<Task<ProcessedOcrSnippetResult>>> _pendingOcrSnips = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _backgroundDrafts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _backgroundProcessingGate = new();
     private NoteyTask? _currentEditTask;
 
     private NoteDraft? _currentDraft;
@@ -1146,7 +1152,7 @@ public sealed partial class MainWindow : Window
         {
             _logger.LogDebug("Task refresh was cancelled because the window closed.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or TimeoutException)
         {
             AutosaveStatusText.Text = "TASKS ERROR";
             _logger.LogError(ex, "Failed to refresh tasks from {TasksPath}.", _taskStore.GetTasksFilePath());
@@ -1575,12 +1581,12 @@ public sealed partial class MainWindow : Window
         _idleProcessingTimer.Stop();
         if (_currentDraft is not null)
         {
-            var outcome = await ProcessCurrentDraftAsync(ProcessTrigger.NewNote);
-            if (!outcome.Succeeded)
+            if (!await QueueCurrentDraftForBackgroundProcessingAsync())
             {
                 return;
             }
 
+            await TryCreateAndLoadDraftAsync("starting a new note");
             return;
         }
 
@@ -1642,7 +1648,7 @@ public sealed partial class MainWindow : Window
             _logger.LogDebug("Setup was cancelled because the window closed.");
             return false;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or TimeoutException)
         {
             AutosaveStatusText.Text = "SETUP ERROR";
             _logger.LogError(ex, "Failed to complete first-run setup.");
@@ -1770,7 +1776,7 @@ public sealed partial class MainWindow : Window
             _currentFinalNotePath = null;
             _currentRecentNoteCreatedAt = null;
             _recentNoteNeedsProcessing = false;
-            _directOcrSnippets.Clear();
+            ClearDirectOcrContext();
             NoteEditor.Document.Text = draft.Content;
             NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
             NoteEditor.IsReadOnly = false;
@@ -1911,7 +1917,7 @@ public sealed partial class MainWindow : Window
             _currentFinalNotePath = filePath;
             _currentRecentNoteCreatedAt = ResolveRecentNoteCreatedAt(filePath, content);
             _recentNoteNeedsProcessing = false;
-            _directOcrSnippets.Clear();
+            ClearDirectOcrContext();
             NoteEditor.Document.Text = content;
             NoteEditor.CaretOffset = 0;
             NoteEditor.IsReadOnly = false;
@@ -1950,25 +1956,30 @@ public sealed partial class MainWindow : Window
         var content = NoteEditor.Document.Text;
         var draftPath = _currentDraft.FilePath;
         var parsed = _directiveParser.Parse(content, _folderCommands.Select(static command => command.CommandName));
+        _isProcessingDraft = true;
+        var pendingOcrSnips = GetPendingOcrSnipTasks(draftPath);
         if (string.IsNullOrWhiteSpace(parsed.Body)
             && parsed.Tasks.Count == 0
-            && !_directOcrSnippets.Any(static snippet => !string.IsNullOrWhiteSpace(snippet)))
+            && !_directOcrSnippets.Any(static snippet => !string.IsNullOrWhiteSpace(snippet))
+            && _directOcrPeople.Count == 0
+            && _directOcrTags.Count == 0
+            && pendingOcrSnips.Count == 0)
         {
             DeleteIfExists(_currentDraft.FilePath);
             DeleteDraftAssetsIfExists(_currentDraft.FilePath);
             ClearPendingAssistantResult();
             _currentDraft = null;
             _lastSavedText = string.Empty;
-            _directOcrSnippets.Clear();
+            ClearDirectOcrContext();
             if (applyImmediateFollowUp)
             {
                 await ApplyProcessedDraftFollowUpAsync(trigger, primaryFinalNotePath: null);
             }
 
+            _isProcessingDraft = false;
             return DraftProcessOutcome.Changed(primaryFinalNotePath: null);
         }
 
-        _isProcessingDraft = true;
         var wasReadOnly = NoteEditor.IsReadOnly;
         NoteEditor.IsReadOnly = true;
         var cancellation = trigger == ProcessTrigger.Idle
@@ -1978,10 +1989,14 @@ public sealed partial class MainWindow : Window
         try
         {
             AutosaveStatusText.Text = "PROCESSING";
+            var processedOcrSnips = await AwaitPendingOcrSnipsAsync(pendingOcrSnips, cancellation.Token);
+            content = AppendProcessedOcrSnips(content, processedOcrSnips);
+            var supplementalMetadata = CreateSupplementalMetadata(processedOcrSnips);
             var result = await _draftProcessingService.ProcessAsync(
                 _currentDraft,
                 content,
                 _directOcrSnippets,
+                supplementalMetadata,
                 cancellationToken: cancellation.Token);
             if (result.Processed)
             {
@@ -1990,7 +2005,7 @@ public sealed partial class MainWindow : Window
                 ClearPendingAssistantResult();
                 _currentDraft = null;
                 _lastSavedText = string.Empty;
-                _directOcrSnippets.Clear();
+                ClearDirectOcrContext();
                 if (applyImmediateFollowUp)
                 {
                     await ApplyProcessedDraftFollowUpAsync(trigger, primaryFinalNotePath);
@@ -2027,7 +2042,7 @@ public sealed partial class MainWindow : Window
             NoteEditor.IsReadOnly = wasReadOnly;
             return DraftProcessOutcome.Failure;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or TimeoutException or Win32Exception)
         {
             AutosaveStatusText.Text = "PROCESSING FAILED";
             _logger.LogError(ex, "Failed to process draft {DraftPath}.", draftPath);
@@ -2043,6 +2058,254 @@ public sealed partial class MainWindow : Window
 
             cancellation.Dispose();
             _isProcessingDraft = false;
+        }
+    }
+
+    private async Task<bool> QueueCurrentDraftForBackgroundProcessingAsync()
+    {
+        if (_currentDraft is null)
+        {
+            return true;
+        }
+
+        if (!await FlushAutosaveAsync())
+        {
+            return false;
+        }
+
+        var draft = _currentDraft;
+        var draftPath = draft.FilePath;
+        if (!TryMarkBackgroundDraft(draftPath))
+        {
+            AutosaveStatusText.Text = "PROCESSING";
+            return false;
+        }
+
+        var content = NoteEditor.Document.Text;
+        var pendingOcrSnips = GetPendingOcrSnipTasks(draftPath);
+        var parsed = _directiveParser.Parse(content, _folderCommands.Select(static command => command.CommandName));
+        if (string.IsNullOrWhiteSpace(parsed.Body)
+            && parsed.Tasks.Count == 0
+            && !_directOcrSnippets.Any(static snippet => !string.IsNullOrWhiteSpace(snippet))
+            && _directOcrPeople.Count == 0
+            && _directOcrTags.Count == 0
+            && pendingOcrSnips.Count == 0)
+        {
+            UnmarkBackgroundDraft(draftPath);
+            DeleteIfExists(draft.FilePath);
+            DeleteDraftAssetsIfExists(draft.FilePath);
+            ClearPendingAssistantResult();
+            _currentDraft = null;
+            _lastSavedText = string.Empty;
+            ClearDirectOcrContext();
+            return true;
+        }
+
+        var snapshot = new BackgroundDraftProcessingSnapshot(
+            draft,
+            content,
+            _directOcrSnippets.Where(static snippet => !string.IsNullOrWhiteSpace(snippet)).Select(static snippet => snippet.Trim()).ToArray(),
+            _directOcrPeople.ToArray(),
+            _directOcrTags.ToArray(),
+            pendingOcrSnips);
+
+        ClearPendingAssistantResult();
+        _currentDraft = null;
+        _lastSavedText = string.Empty;
+        ClearDirectOcrContext();
+        AutosaveStatusText.Text = "PROCESSING IN BACKGROUND";
+        ObserveBackgroundDraftProcessing(snapshot);
+        return true;
+    }
+
+    private void ObserveBackgroundDraftProcessing(BackgroundDraftProcessingSnapshot snapshot)
+    {
+        _ = ProcessBackgroundDraftAsync(snapshot);
+    }
+
+    private async Task ProcessBackgroundDraftAsync(BackgroundDraftProcessingSnapshot snapshot)
+    {
+        try
+        {
+            var processedOcrSnips = await AwaitPendingOcrSnipsAsync(snapshot.PendingOcrSnips, _windowClosed.Token);
+            var content = AppendProcessedOcrSnips(snapshot.Content, processedOcrSnips);
+            var supplementalMetadata = CreateSupplementalMetadata(processedOcrSnips, snapshot.People, snapshot.Tags);
+            var result = await _draftProcessingService.ProcessAsync(
+                snapshot.Draft,
+                content,
+                snapshot.DirectOcrSnippets,
+                supplementalMetadata,
+                cancellationToken: _windowClosed.Token);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AutosaveStatusText.Text = result.Processed ? "PROCESSED IN BACKGROUND" : "NOTHING TO PROCESS";
+            });
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Background draft processing was cancelled because the window closed.");
+        }
+        catch (AiProviderException ex)
+        {
+            await ReportBackgroundDraftProcessingFailureAsync(snapshot.Draft.FilePath, IsAiConfigurationError(ex) ? "AI NOT CONFIGURED" : "AI ERROR", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            await ReportBackgroundDraftProcessingFailureAsync(snapshot.Draft.FilePath, "AI ERROR", ex);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or TimeoutException or Win32Exception)
+        {
+            await ReportBackgroundDraftProcessingFailureAsync(snapshot.Draft.FilePath, "PROCESSING FAILED", ex);
+        }
+        finally
+        {
+            UnmarkBackgroundDraft(snapshot.Draft.FilePath);
+        }
+    }
+
+    private async Task ReportBackgroundDraftProcessingFailureAsync(string draftPath, string status, Exception exception)
+    {
+        _logger.LogError(exception, "Background draft processing failed for draft {DraftPath}.", draftPath);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            AutosaveStatusText.Text = status;
+        });
+    }
+
+    private async Task<IReadOnlyList<ProcessedOcrSnippetResult>> AwaitPendingOcrSnipsAsync(
+        IReadOnlyList<Task<ProcessedOcrSnippetResult>> pendingOcrSnips,
+        CancellationToken cancellationToken)
+    {
+        if (pendingOcrSnips.Count == 0)
+        {
+            return [];
+        }
+
+        var allPendingOcrSnips = Task.WhenAll(pendingOcrSnips);
+        try
+        {
+            return await allPendingOcrSnips.WaitAsync(cancellationToken);
+        }
+        catch (AggregateException aggregateException)
+        {
+            ExceptionDispatchInfo.Capture(aggregateException.Flatten().InnerExceptions[0]).Throw();
+            return [];
+        }
+    }
+
+    private DraftProcessingSupplementalMetadata CreateSupplementalMetadata(
+        IReadOnlyList<ProcessedOcrSnippetResult> processedOcrSnips,
+        IReadOnlyList<string>? people = null,
+        IReadOnlyList<string>? tags = null)
+    {
+        return new DraftProcessingSupplementalMetadata(
+            (people ?? _directOcrPeople).Concat(processedOcrSnips.SelectMany(static result => result.People)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            (tags ?? _directOcrTags).Concat(processedOcrSnips.SelectMany(static result => result.Tags)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+    }
+
+    private static string AppendProcessedOcrSnips(string content, IReadOnlyList<ProcessedOcrSnippetResult> processedOcrSnips)
+    {
+        var output = content;
+        foreach (var result in processedOcrSnips)
+        {
+            if (!string.IsNullOrWhiteSpace(result.Body))
+            {
+                output = AppendMarkdownBlock(output, result.Body);
+            }
+        }
+
+        return output;
+    }
+
+    private static string AppendMarkdownBlock(string currentText, string markdown)
+    {
+        var trimmed = markdown.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return currentText;
+        }
+
+        var separator = currentText.Length == 0
+            ? string.Empty
+            : currentText.EndsWith("\n\n", StringComparison.Ordinal)
+                ? string.Empty
+                : currentText.EndsWith('\n')
+                    ? "\n"
+                    : "\n\n";
+        return $"{currentText}{separator}{trimmed}\n";
+    }
+
+    private bool HasPendingOcrSnips(string draftPath)
+    {
+        lock (_backgroundProcessingGate)
+        {
+            return _pendingOcrSnips.TryGetValue(draftPath, out var tasks) && tasks.Count > 0;
+        }
+    }
+
+    private IReadOnlyList<Task<ProcessedOcrSnippetResult>> GetPendingOcrSnipTasks(string draftPath)
+    {
+        lock (_backgroundProcessingGate)
+        {
+            return _pendingOcrSnips.TryGetValue(draftPath, out var tasks)
+                ? tasks.ToArray()
+                : [];
+        }
+    }
+
+    private void RegisterPendingOcrSnip(string draftPath, Task<ProcessedOcrSnippetResult> task)
+    {
+        lock (_backgroundProcessingGate)
+        {
+            if (!_pendingOcrSnips.TryGetValue(draftPath, out var tasks))
+            {
+                tasks = [];
+                _pendingOcrSnips[draftPath] = tasks;
+            }
+
+            tasks.Add(task);
+        }
+    }
+
+    private void UnregisterPendingOcrSnip(string draftPath, Task<ProcessedOcrSnippetResult> task)
+    {
+        lock (_backgroundProcessingGate)
+        {
+            if (!_pendingOcrSnips.TryGetValue(draftPath, out var tasks))
+            {
+                return;
+            }
+
+            tasks.Remove(task);
+            if (tasks.Count == 0)
+            {
+                _pendingOcrSnips.Remove(draftPath);
+            }
+        }
+    }
+
+    private bool TryMarkBackgroundDraft(string draftPath)
+    {
+        lock (_backgroundProcessingGate)
+        {
+            return _backgroundDrafts.Add(draftPath);
+        }
+    }
+
+    private void UnmarkBackgroundDraft(string draftPath)
+    {
+        lock (_backgroundProcessingGate)
+        {
+            _backgroundDrafts.Remove(draftPath);
+        }
+    }
+
+    private bool IsBackgroundDraft(string draftPath)
+    {
+        lock (_backgroundProcessingGate)
+        {
+            return _backgroundDrafts.Contains(draftPath);
         }
     }
 
@@ -2454,7 +2717,7 @@ public sealed partial class MainWindow : Window
             RemoveImportPlaceholder(placeholder);
             _logger.LogDebug("File import was cancelled because the window closed.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or TimeoutException)
         {
             RemoveImportPlaceholder(placeholder);
             AutosaveStatusText.Text = "IMPORT ERROR";
@@ -3045,6 +3308,11 @@ public sealed partial class MainWindow : Window
             return true;
         }
 
+        if (_directOcrPeople.Count > 0 || _directOcrTags.Count > 0 || HasPendingOcrSnips(_currentDraft.FilePath))
+        {
+            return true;
+        }
+
         var parsed = _directiveParser.Parse(NoteEditor.Document.Text, _folderCommands.Select(static command => command.CommandName));
         return parsed.IsMeeting
             || !string.IsNullOrWhiteSpace(parsed.Topic)
@@ -3082,6 +3350,29 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var ownerDraft = _currentDraft;
+        if (ownerDraft is null)
+        {
+            DeleteIfExists(snip.FilePath);
+            return;
+        }
+
+        var ownerDraftPath = ownerDraft.FilePath;
+        var noteContext = NoteEditor.Document.Text;
+        var processingTask = Task.Run(
+            () => ProcessCapturedOcrSnipAsync(snip, noteContext, _windowClosed.Token),
+            _windowClosed.Token);
+        RegisterPendingOcrSnip(ownerDraftPath, processingTask);
+        ObserveOcrSnippetProcessing(ownerDraftPath, processingTask);
+        AutosaveStatusText.Text = "OCR PROCESSING";
+        UpdateContextChip();
+    }
+
+    private async Task<ProcessedOcrSnippetResult> ProcessCapturedOcrSnipAsync(
+        ScreenSnipResult snip,
+        string noteContext,
+        CancellationToken cancellationToken)
+    {
         try
         {
             var result = await _ocrEngine.RecognizeAsync(
@@ -3089,22 +3380,64 @@ public sealed partial class MainWindow : Window
                     snip.FilePath,
                     _options.Ocr.DefaultLanguage,
                     string.IsNullOrWhiteSpace(_options.Ocr.TesseractDataPath) ? null : _options.Ocr.TesseractDataPath),
-                _windowClosed.Token);
-            if (!string.IsNullOrWhiteSpace(result.Text))
-            {
-                _directOcrSnippets.Add(result.Text.Trim());
-                AutosaveStatusText.Text = "OCR ADDED";
-                UpdateContextChip();
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or Win32Exception)
-        {
-            AutosaveStatusText.Text = "OCR ERROR";
-            _logger.LogError(ex, "Failed to OCR temporary screen snip.");
+                cancellationToken);
+            return string.IsNullOrWhiteSpace(result.Text)
+                ? ProcessedOcrSnippetResult.Empty
+                : await _draftProcessingService.ProcessOcrSnippetAsync(result.Text, noteContext, cancellationToken);
         }
         finally
         {
             DeleteIfExists(snip.FilePath);
+        }
+    }
+
+    private void ObserveOcrSnippetProcessing(string ownerDraftPath, Task<ProcessedOcrSnippetResult> processingTask)
+    {
+        _ = ObserveOcrSnippetProcessingAsync(ownerDraftPath, processingTask);
+    }
+
+    private async Task ObserveOcrSnippetProcessingAsync(string ownerDraftPath, Task<ProcessedOcrSnippetResult> processingTask)
+    {
+        try
+        {
+            var result = await processingTask;
+            if (string.IsNullOrWhiteSpace(result.Body))
+            {
+                return;
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_currentDraft is null
+                    || !string.Equals(_currentDraft.FilePath, ownerDraftPath, StringComparison.OrdinalIgnoreCase)
+                    || _isProcessingDraft
+                    || IsBackgroundDraft(ownerDraftPath))
+                {
+                    return;
+                }
+
+                AppendMarkdownBlock(result.Body, preserveCaret: true);
+                _directOcrPeople.AddRange(result.People);
+                _directOcrTags.AddRange(result.Tags);
+                AutosaveStatusText.Text = "OCR PROCESSED";
+                UpdateContextChip();
+            });
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("OCR snip processing was cancelled because the window closed.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or Win32Exception or AiProviderException or HttpRequestException or FormatException or TimeoutException)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AutosaveStatusText.Text = ex is AiProviderException or HttpRequestException ? "AI ERROR" : "OCR ERROR";
+            });
+            _logger.LogError(ex, "Failed to process temporary OCR screen snip.");
+        }
+        finally
+        {
+            UnregisterPendingOcrSnip(ownerDraftPath, processingTask);
         }
     }
 
@@ -3246,14 +3579,14 @@ public sealed partial class MainWindow : Window
         {
             _logger.LogDebug("Document import was cancelled because the window closed.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or TimeoutException)
         {
             AutosaveStatusText.Text = "IMPORT ERROR";
             _logger.LogError(ex, "Failed to import existing documents.");
         }
     }
 
-    private void AppendMarkdownBlock(string markdown)
+    private void AppendMarkdownBlock(string markdown, bool preserveCaret = false)
     {
         var trimmed = markdown.Trim();
         if (string.IsNullOrWhiteSpace(trimmed))
@@ -3262,15 +3595,23 @@ public sealed partial class MainWindow : Window
         }
 
         var currentText = NoteEditor.Document.Text;
-        var separator = currentText.Length == 0
-            ? string.Empty
-            : currentText.EndsWith("\n\n", StringComparison.Ordinal)
-                ? string.Empty
-                : currentText.EndsWith('\n')
-                    ? "\n"
-                    : "\n\n";
-        NoteEditor.Document.Insert(NoteEditor.Document.TextLength, $"{separator}{trimmed}\n");
-        NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
+        var appended = AppendMarkdownBlock(currentText, trimmed);
+        var caretOffset = NoteEditor.CaretOffset;
+        var selectionStart = NoteEditor.SelectionStart;
+        var selectionLength = NoteEditor.SelectionLength;
+        NoteEditor.Document.Text = appended;
+        if (preserveCaret)
+        {
+            NoteEditor.CaretOffset = Math.Clamp(caretOffset, 0, NoteEditor.Document.TextLength);
+            NoteEditor.Select(
+                Math.Clamp(selectionStart, 0, NoteEditor.Document.TextLength),
+                Math.Clamp(selectionLength, 0, NoteEditor.Document.TextLength - Math.Clamp(selectionStart, 0, NoteEditor.Document.TextLength)));
+        }
+        else
+        {
+            NoteEditor.CaretOffset = NoteEditor.Document.TextLength;
+        }
+
         UpdateEditorStatus();
     }
 
@@ -3305,7 +3646,24 @@ public sealed partial class MainWindow : Window
             parts.Add($"{_directOcrSnippets.Count} OCR snippet(s)");
         }
 
+        if (_currentDraft is not null && HasPendingOcrSnips(_currentDraft.FilePath))
+        {
+            parts.Add("OCR processing");
+        }
+
+        if (_directOcrPeople.Count > 0)
+        {
+            parts.Add($"{_directOcrPeople.Count} OCR people");
+        }
+
         ContextChipText.Text = parts.Count == 0 ? "/ for commands, @ for people" : string.Join(" | ", parts);
+    }
+
+    private void ClearDirectOcrContext()
+    {
+        _directOcrSnippets.Clear();
+        _directOcrPeople.Clear();
+        _directOcrTags.Clear();
     }
 
     private void ApplyEdit(MarkdownTextEdit edit)
@@ -3470,7 +3828,7 @@ public sealed partial class MainWindow : Window
             _logger.LogError(ex, "AI request failed for recent note {FilePath}.", _currentFinalNotePath);
             return false;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or TimeoutException)
         {
             AutosaveStatusText.Text = "PROCESSING FAILED";
             _logger.LogError(ex, "Failed to process recent note {FilePath}.", _currentFinalNotePath);
@@ -3805,6 +4163,14 @@ public sealed partial class MainWindow : Window
 
         public static DraftProcessOutcome Changed(string? primaryFinalNotePath) => new(true, true, primaryFinalNotePath);
     }
+
+    private sealed record BackgroundDraftProcessingSnapshot(
+        NoteDraft Draft,
+        string Content,
+        IReadOnlyList<string> DirectOcrSnippets,
+        IReadOnlyList<string> People,
+        IReadOnlyList<string> Tags,
+        IReadOnlyList<Task<ProcessedOcrSnippetResult>> PendingOcrSnips);
 
     private enum CompletionKind
     {

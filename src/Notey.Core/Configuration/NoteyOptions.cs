@@ -50,6 +50,10 @@ public sealed class AiOptions
 
     public bool StoreApiKeyInPlaintext { get; set; }
 
+    public double PersonConfidenceThreshold { get; set; } = 0.85;
+
+    public double TagConfidenceThreshold { get; set; } = 0.75;
+
     public List<AiProviderOptions> Providers { get; set; } = [];
 }
 

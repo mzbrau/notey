@@ -137,6 +137,68 @@ public sealed class VaultEntityStoreTests : IDisposable
         Assert.Single(Directory.EnumerateFiles(peoplePath, "*.md"));
     }
 
+    [Fact]
+    public async Task EnsureAsync_reuses_existing_person_when_two_part_name_order_differs()
+    {
+        var rootPath = CreateTempDirectory();
+        var peoplePath = Path.Combine(rootPath, "People");
+        Directory.CreateDirectory(peoplePath);
+        var existingPath = Path.Combine(peoplePath, "Michael Browne.md");
+        await File.WriteAllTextAsync(existingPath, """
+            ---
+            title: Michael Browne
+            aliases: []
+            ---
+
+            # Michael Browne
+            """);
+        var store = CreateStore(rootPath);
+
+        var commaOrdered = await store.EnsureAsync(VaultEntityKind.Person, "Browne, Michael");
+        var reversed = await store.EnsureAsync(VaultEntityKind.Person, "Browne Michael");
+
+        Assert.Equal(existingPath, commaOrdered.FilePath);
+        Assert.Equal(existingPath, reversed.FilePath);
+        Assert.Single(Directory.EnumerateFiles(peoplePath, "*.md"));
+    }
+
+    [Fact]
+    public async Task EnsureAsync_reuses_existing_person_when_multi_part_name_order_differs()
+    {
+        var rootPath = CreateTempDirectory();
+        var peoplePath = Path.Combine(rootPath, "People");
+        Directory.CreateDirectory(peoplePath);
+        var existingPath = Path.Combine(peoplePath, "Jane Marie Doe.md");
+        await File.WriteAllTextAsync(existingPath, """
+            ---
+            title: Jane Marie Doe
+            aliases: []
+            ---
+
+            # Jane Marie Doe
+            """);
+        var store = CreateStore(rootPath);
+
+        var commaOrdered = await store.EnsureAsync(VaultEntityKind.Person, "Doe, Jane Marie");
+        var reversed = await store.EnsureAsync(VaultEntityKind.Person, "Doe Jane Marie");
+
+        Assert.Equal(existingPath, commaOrdered.FilePath);
+        Assert.Equal(existingPath, reversed.FilePath);
+        Assert.Single(Directory.EnumerateFiles(peoplePath, "*.md"));
+    }
+
+    [Fact]
+    public async Task EnsureAsync_allows_concurrent_person_creation_for_same_name()
+    {
+        var rootPath = CreateTempDirectory();
+        var store = CreateStore(rootPath);
+
+        var created = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => store.EnsureAsync(VaultEntityKind.Person, "Jane Doe")));
+
+        Assert.All(created, entity => Assert.Equal("Jane Doe", entity.Name));
+        Assert.Single(Directory.EnumerateFiles(Path.Combine(rootPath, "People"), "*.md"));
+    }
+
     private static FileSystemVaultEntityStore CreateStore(string rootPath)
     {
         var workspace = CreateWorkspace(rootPath);
