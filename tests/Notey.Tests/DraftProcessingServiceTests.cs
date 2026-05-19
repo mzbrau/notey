@@ -447,6 +447,31 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_includes_known_people_context_for_direct_ocr_snippets()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        await WriteFileAsync(Path.Combine(rootPath, "People", "James Simpson.md"), """
+            ---
+            title: James Simpson
+            aliases: [Jim Simpson, Simpson James]
+            ---
+            """);
+        var aiProvider = new RecordingAiProvider("""{ "title": "OCR note", "filename": "ocr-note", "body": "Clean OCR note." }""");
+        var service = CreateService(rootPath, aiProvider);
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), string.Empty, new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content, ["Jarnes Sirnpson"], cancellationToken: cancellationToken);
+
+        var request = Assert.Single(aiProvider.Requests);
+        Assert.Contains("Known People for matching:", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("- James Simpson (aliases: Jim Simpson, Simpson James)", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Before returning a person name extracted from OCR, first compare it to the known People list.", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Return the canonical known People name when a match is likely.", request.Prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProcessAsync_falls_back_to_body_based_filename_when_ai_is_not_configured()
     {
         var rootPath = CreateTempDirectory();
@@ -693,6 +718,42 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_includes_known_people_context_for_included_image_ocr()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var imagePath = Path.Combine(rootPath, "Images", "photo.png");
+        await WriteFileAsync(imagePath, "not real image data");
+        await WriteFileAsync(Path.Combine(rootPath, "People", "Michael Browne.md"), """
+            ---
+            title: Michael Browne
+            aliases:
+              - Mike Browne
+            ---
+            """);
+        var aiProvider = new RecordingAiProvider("""{ "body": "Processed image OCR." }""");
+        var service = CreateService(rootPath, aiProvider, new RecordingOcrEngine("Micheal Brown joined"));
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /topic OCR
+
+            Image note: ![[Images/photo.png]]
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: cancellationToken);
+
+        var request = Assert.Single(aiProvider.Requests);
+        Assert.Contains("Image Images/photo.png: Micheal Brown joined", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Known People for matching:", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("- Michael Browne (aliases: Mike Browne)", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("reversed first/last name order", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("slight spelling differences", request.Prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProcessAsync_surfaces_non_dependency_ocr_configuration_errors()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -717,6 +778,43 @@ public sealed class DraftProcessingServiceTests : IDisposable
 
         Assert.True(File.Exists(draft.FilePath));
         Assert.False(File.Exists(Path.Combine(rootPath, "Notes", "ocr.md")));
+    }
+
+    [Fact]
+    public async Task ProcessOcrSnippetAsync_omits_known_people_context_when_no_people_exist()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var aiProvider = new RecordingAiProvider("""{ "body": "Unknown attendee." }""");
+        var service = CreateService(rootPath, aiProvider);
+
+        await service.ProcessOcrSnippetAsync("Unknown attendee", "Existing note context", cancellationToken);
+
+        var request = Assert.Single(aiProvider.Requests);
+        Assert.DoesNotContain("Known People for matching:", request.Prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProcessOcrSnippetAsync_includes_known_people_context()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        await WriteFileAsync(Path.Combine(rootPath, "People", "James Simpson.md"), """
+            ---
+            title: James Simpson
+            aliases:
+              - Jim Simpson
+            ---
+            """);
+        var aiProvider = new RecordingAiProvider("""{ "body": "Met James Simpson." }""");
+        var service = CreateService(rootPath, aiProvider);
+
+        await service.ProcessOcrSnippetAsync("Jarnes Sirnpson", "Existing note context", cancellationToken);
+
+        var request = Assert.Single(aiProvider.Requests);
+        Assert.Contains("Known People for matching:", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("- James Simpson (aliases: Jim Simpson)", request.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Return the canonical known People name when a match is likely.", request.Prompt, StringComparison.Ordinal);
     }
 
     private DraftProcessingService CreateService(string rootPath, string aiResponse)
@@ -812,19 +910,22 @@ public sealed class DraftProcessingServiceTests : IDisposable
 
     private sealed class RecordingAiProvider(string response) : IAiProvider
     {
+        public List<AiTextRequest> Requests { get; } = [];
+
         public string Id => "default";
 
         public ValueTask<AiTextResponse> CompleteTextAsync(AiTextRequest request, CancellationToken cancellationToken = default)
         {
+            Requests.Add(request);
             return ValueTask.FromResult(new AiTextResponse(response, Id, "test"));
         }
     }
 
-    private sealed class RecordingOcrEngine : ITesseractOcrEngine
+    private sealed class RecordingOcrEngine(string text = "ocr text") : ITesseractOcrEngine
     {
         public ValueTask<OcrResult> RecognizeAsync(TesseractOcrRequest request, CancellationToken cancellationToken = default)
         {
-            return ValueTask.FromResult(new OcrResult("ocr text", "eng", 1.0, []));
+            return ValueTask.FromResult(new OcrResult(text, "eng", 1.0, []));
         }
     }
 

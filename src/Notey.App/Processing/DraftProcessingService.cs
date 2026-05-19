@@ -232,9 +232,18 @@ public sealed partial class DraftProcessingService(
         try
         {
             logger.LogDebug("Invoking AI provider '{ProviderId}' for note processing.", provider.Id);
+            var knownPeoplePromptSection = ocrSnippets.Count == 0
+                ? string.Empty
+                : await BuildKnownPeoplePromptSectionAsync(cancellationToken);
             var response = await provider.CompleteTextAsync(
                 new AiTextRequest(
-                    BuildPrompt(parsed, commands, string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body, ocrSnippets, importContext),
+                    BuildPrompt(
+                        parsed,
+                        commands,
+                        string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body,
+                        ocrSnippets,
+                        knownPeoplePromptSection,
+                        importContext),
                     "You process captured markdown notes for Obsidian. Return only JSON.",
                     options.Ai.ModelName,
                     JsonOutput: true,
@@ -257,6 +266,7 @@ public sealed partial class DraftProcessingService(
         IReadOnlyList<VaultFolderCommand> commands,
         string body,
         IReadOnlyList<string> ocrSnippets,
+        string knownPeoplePromptSection,
         DraftProcessingImportContext? importContext = null)
     {
         return $$"""
@@ -282,6 +292,8 @@ public sealed partial class DraftProcessingService(
             - Use only one- or two-word tags; prefer one word when possible.
             - Set tag confidence from 0 to 1. Use >= 0.75 only when the tag is strongly supported by the content.
             - Preserve Obsidian wiki links and file attachment references from the note body unless the linked text is duplicated verbatim elsewhere.
+
+            {{knownPeoplePromptSection}}
 
             Routing metadata:
             - meeting: {{parsed.IsMeeting}}
@@ -344,9 +356,10 @@ public sealed partial class DraftProcessingService(
 
         try
         {
+            var knownPeoplePromptSection = await BuildKnownPeoplePromptSectionAsync(cancellationToken);
             var response = await provider.CompleteTextAsync(
                 new AiTextRequest(
-                    BuildOcrSnippetPrompt(ocrText, noteContext),
+                    BuildOcrSnippetPrompt(ocrText, noteContext, knownPeoplePromptSection),
                     "You analyze OCR snippets for Obsidian notes. Return only JSON.",
                     options.Ai.ModelName,
                     JsonOutput: true,
@@ -363,7 +376,7 @@ public sealed partial class DraftProcessingService(
         }
     }
 
-    private static string BuildOcrSnippetPrompt(string ocrText, string noteContext)
+    private static string BuildOcrSnippetPrompt(string ocrText, string noteContext, string knownPeoplePromptSection)
     {
         return $$"""
             Analyze this OCR text for insertion into the current note.
@@ -381,12 +394,59 @@ public sealed partial class DraftProcessingService(
             - People confidence must be >= 0.85 only for names clear enough to create or reference People documents.
             - Tags must be one or two words, no leading '#', and confidence >= 0.75 only when strongly supported.
 
+            {{knownPeoplePromptSection}}
+
             Current note context:
             {{(string.IsNullOrWhiteSpace(noteContext) ? "none" : noteContext)}}
 
             OCR text:
             {{ocrText}}
             """;
+    }
+
+    private async Task<string> BuildKnownPeoplePromptSectionAsync(CancellationToken cancellationToken)
+    {
+        var people = await _vaultEntityStore.GetAllAsync(VaultEntityKind.Person, cancellationToken);
+        return BuildKnownPeoplePromptSection(people);
+    }
+
+    private static string BuildKnownPeoplePromptSection(IReadOnlyList<VaultEntity> people)
+    {
+        var lines = people
+            .Where(static person => !string.IsNullOrWhiteSpace(person.Name))
+            .OrderBy(static person => person.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(FormatKnownPersonPromptLine)
+            .ToArray();
+        if (lines.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return $"""
+            Known People for matching:
+            {string.Join("\n", lines)}
+
+            Known People matching rules:
+            - Before returning a person name extracted from OCR, first compare it to the known People list.
+            - Treat reversed first/last name order as a likely existing-person match.
+            - Treat slight spelling differences as likely OCR noise when one known person is an obvious near-match.
+            - Return the canonical known People name when a match is likely.
+            - Only return a new person name when the OCR text clearly describes someone not represented by the known People list.
+            """;
+    }
+
+    private static string FormatKnownPersonPromptLine(VaultEntity person)
+    {
+        var aliases = person.Aliases
+            .Where(static alias => !string.IsNullOrWhiteSpace(alias))
+            .Select(static alias => alias.Trim())
+            .Where(alias => !string.Equals(alias, person.Name, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return aliases.Length == 0
+            ? $"- {person.Name}"
+            : $"- {person.Name} (aliases: {string.Join(", ", aliases)})";
     }
 
     private async Task<IReadOnlyList<string>> OcrIncludedImagesAsync(
