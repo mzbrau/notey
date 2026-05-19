@@ -37,6 +37,7 @@ public sealed partial class DraftProcessingService(
         NoteDraft draft,
         string content,
         IReadOnlyList<string>? directOcrSnippets = null,
+        DraftProcessingImportContext? importContext = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(draft);
@@ -63,7 +64,7 @@ public sealed partial class DraftProcessingService(
 
         var aiResult = string.IsNullOrWhiteSpace(body) && ocrSnippets.Count == 0
             ? ProcessedNoteAiResult.Empty
-            : await RunAiAsync(parsed, commands, body, ocrSnippets, cancellationToken);
+            : await RunAiAsync(parsed, commands, body, ocrSnippets, importContext, cancellationToken);
         var localNow = timeProvider.GetLocalNow();
         var writtenPaths = new List<string>();
         string? sourceFilePath = null;
@@ -178,7 +179,7 @@ public sealed partial class DraftProcessingService(
         var ocrSnippets = await OcrIncludedImagesAsync(existingTasks.Body, paths, cancellationToken);
         var aiResult = string.IsNullOrWhiteSpace(existingTasks.Body) && ocrSnippets.Count == 0
             ? ProcessedNoteAiResult.Empty
-            : await RunAiAsync(parsed, commands, existingTasks.Body, ocrSnippets, cancellationToken);
+            : await RunAiAsync(parsed, commands, existingTasks.Body, ocrSnippets, importContext: null, cancellationToken);
         var finalBody = string.IsNullOrWhiteSpace(aiResult.Body)
             ? string.IsNullOrWhiteSpace(existingTasks.Body) ? string.Join("\n\n", ocrSnippets) : existingTasks.Body
             : aiResult.Body.Trim();
@@ -214,6 +215,7 @@ public sealed partial class DraftProcessingService(
         IReadOnlyList<VaultFolderCommand> commands,
         string body,
         IReadOnlyList<string> ocrSnippets,
+        DraftProcessingImportContext? importContext,
         CancellationToken cancellationToken)
     {
         if (!aiProviderRegistry.TryGet(options.Ai.DefaultProviderId, out var provider))
@@ -227,7 +229,7 @@ public sealed partial class DraftProcessingService(
             logger.LogDebug("Invoking AI provider '{ProviderId}' for note processing.", provider.Id);
             var response = await provider.CompleteTextAsync(
                 new AiTextRequest(
-                    BuildPrompt(parsed, commands, string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body, ocrSnippets),
+                    BuildPrompt(parsed, commands, string.IsNullOrWhiteSpace(body) ? "(no typed note text)" : body, ocrSnippets, importContext),
                     "You process captured markdown notes for Obsidian. Return only JSON.",
                     options.Ai.ModelName,
                     JsonOutput: true,
@@ -249,7 +251,8 @@ public sealed partial class DraftProcessingService(
         ParsedNoteDirectives parsed,
         IReadOnlyList<VaultFolderCommand> commands,
         string body,
-        IReadOnlyList<string> ocrSnippets)
+        IReadOnlyList<string> ocrSnippets,
+        DraftProcessingImportContext? importContext = null)
     {
         return $$"""
             Process this captured note. The slash directive lines have already been removed from the body.
@@ -276,6 +279,9 @@ public sealed partial class DraftProcessingService(
             - topic: {{parsed.Topic ?? "none"}}
             - dynamic directives: {{string.Join(", ", parsed.DynamicDirectives.Select(static item => $"{item.CommandName}={item.Value}"))}}
             - available dynamic commands: {{string.Join(", ", commands.Select(static command => $"/{command.CommandName} -> {command.FolderName}"))}}
+
+            Import context:
+            {{(importContext is null ? "none" : importContext.ToPromptText())}}
 
             OCR text:
             {{(ocrSnippets.Count == 0 ? "none" : string.Join("\n\n---\n\n", ocrSnippets))}}

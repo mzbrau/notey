@@ -11,12 +11,17 @@ Notey writes standard markdown files with Obsidian-compatible wiki links.
 ```text
 Images/
 Notes/
+  Customers/
   Draft/
   Meetings/
+  Projects/
+  Topics/
 People/
 ```
 
 First-level folders under `Notes` become dynamic slash commands. For example, `Notes/Customers` enables `/customer`.
+
+The setup wizard can create the fixed `Customers`, `Projects`, and `Topics` headings, plus child folders for entered customers, projects, and topics. Topic and project entries also get entity documents under their matching folders.
 
 Imported non-image files are stored in assets folders. Draft imports are staged under `Notes/Draft/<draft-stem>.assets/`; when a draft is processed they are copied beside the final note under `<note-stem>.assets/` and note links are rewritten to the final vault-relative paths.
 

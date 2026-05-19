@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
 using Notey.App.Assistant;
 using Notey.App.Processing;
+using Notey.App.Setup;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
@@ -26,7 +27,7 @@ internal sealed class MainWindowTestHarness : IDisposable
     private readonly FixedTimeProvider _timeProvider;
     private readonly RecordingAiProvider _aiProvider;
 
-    private MainWindowTestHarness()
+    private MainWindowTestHarness(bool setupRequired = false, ISetupWorkflow? setupWorkflow = null)
     {
         RootPath = Path.Combine(Path.GetTempPath(), "notey-ui-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(RootPath, "Notes", "Customers"));
@@ -34,7 +35,7 @@ internal sealed class MainWindowTestHarness : IDisposable
         _timeProvider = new FixedTimeProvider(DateTimeOffset.Now);
         var options = new NoteyOptions
         {
-            Vault = new VaultOptions { RootPath = RootPath },
+            Vault = new VaultOptions { RootPath = setupRequired ? string.Empty : RootPath },
             Ai = new AiOptions { DefaultProviderId = "default", ModelName = "test" }
         };
 
@@ -67,7 +68,8 @@ internal sealed class MainWindowTestHarness : IDisposable
             _timeProvider,
             NullLogger<MainWindow>.Instance,
             RecentNoteChooser,
-            assistantService: new NoteyAssistantService(options, aiProviderRegistry, NullLogger<NoteyAssistantService>.Instance));
+            assistantService: new NoteyAssistantService(options, aiProviderRegistry, NullLogger<NoteyAssistantService>.Instance),
+            setupWorkflow: setupWorkflow);
     }
 
     public string RootPath { get; }
@@ -102,6 +104,13 @@ internal sealed class MainWindowTestHarness : IDisposable
     {
         var harness = new MainWindowTestHarness();
         harness.Window.Show();
+        await harness.DrainAsync();
+        return harness;
+    }
+
+    public static async Task<MainWindowTestHarness> CreateSetupRequiredWithoutShowingAsync(ISetupWorkflow setupWorkflow)
+    {
+        var harness = new MainWindowTestHarness(setupRequired: true, setupWorkflow);
         await harness.DrainAsync();
         return harness;
     }

@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using Notey.App.Setup;
 using Notey.App.Imports;
 using Notey.App.Views;
 
@@ -14,7 +15,33 @@ namespace Notey.Tests;
 public sealed class MainWindowUiFlowTests
 {
     [AvaloniaFact]
-    public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
+public async Task Toolbar_exposes_import_button()
+{
+    using var harness = await MainWindowTestHarness.CreateAsync();
+
+    Assert.NotNull(harness.Find<Button>("ImportButton"));
+}
+
+[AvaloniaFact]
+public async Task Open_recent_note_setup_gate_is_not_reentrant()
+{
+    var setupWorkflow = new BlockingSetupWorkflow();
+    using var harness = await MainWindowTestHarness.CreateSetupRequiredWithoutShowingAsync(setupWorkflow);
+
+    var first = harness.Window.OpenRecentFinalNoteAsync();
+    await setupWorkflow.WaitForRunAsync();
+    var second = harness.Window.OpenRecentFinalNoteAsync();
+
+    await second.WaitAsync(TimeSpan.FromSeconds(2));
+    Assert.Equal(1, setupWorkflow.InitialSetupCalls);
+
+    setupWorkflow.Complete(SetupWorkflowResult.Cancelled("Setup cancelled."));
+    await first.WaitAsync(TimeSpan.FromSeconds(2));
+    Assert.Empty(harness.RecentNoteChooser.LastRecentNotes);
+}
+
+[AvaloniaFact]
+public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
     {
         using var harness = await MainWindowTestHarness.CreateAsync();
         var draft = """
@@ -530,6 +557,37 @@ public sealed class MainWindowUiFlowTests
     private static DateTimeOffset ToPickerDate(DateOnly date, TimeSpan offset)
     {
         return new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), offset);
+    }
+
+    private sealed class BlockingSetupWorkflow : ISetupWorkflow
+    {
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<SetupWorkflowResult> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _initialSetupCalls;
+
+        public int InitialSetupCalls => _initialSetupCalls;
+
+        public Task<SetupWorkflowResult> RunInitialSetupAsync(Window owner, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _initialSetupCalls);
+            _started.TrySetResult();
+            return _completion.Task.WaitAsync(cancellationToken);
+        }
+
+        public Task<SetupWorkflowResult> RunImportAsync(Window owner, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(SetupWorkflowResult.Cancelled("Import cancelled."));
+        }
+
+        public Task WaitForRunAsync()
+        {
+            return _started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+
+        public void Complete(SetupWorkflowResult result)
+        {
+            _completion.TrySetResult(result);
+        }
     }
 }
 
