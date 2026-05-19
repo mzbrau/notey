@@ -423,8 +423,8 @@ public sealed partial class MainWindow : Window
         {
             if (IsAssistantSendShortcut(e.Key, e.KeyModifiers))
             {
-                await SendAssistantPromptAsync();
                 e.Handled = true;
+                await SendAssistantPromptAsync();
             }
         };
     }
