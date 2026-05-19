@@ -368,8 +368,9 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     private sealed class RecordingAiProvider : IAiProvider
     {
+        private readonly object _completionSync = new();
         private TaskCompletionSource? _completionBlock;
-        private TaskCompletionSource _completionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource? _completionStarted;
 
         public string Id => "default";
 
@@ -385,26 +386,49 @@ internal sealed class MainWindowTestHarness : IDisposable
 
         public void BlockCompletions()
         {
-            _completionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _completionBlock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_completionSync)
+            {
+                _completionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _completionBlock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
         }
 
         public Task WaitForCompletionStartedAsync(TimeSpan timeout)
         {
-            return _completionStarted.Task.WaitAsync(timeout);
+            Task completionStartedTask;
+            lock (_completionSync)
+            {
+                completionStartedTask = _completionStarted?.Task ?? Task.CompletedTask;
+            }
+
+            return completionStartedTask.WaitAsync(timeout);
         }
 
         public void ReleaseCompletions()
         {
-            _completionBlock?.TrySetResult();
-            _completionBlock = null;
+            TaskCompletionSource? completionBlock;
+            lock (_completionSync)
+            {
+                completionBlock = _completionBlock;
+                _completionBlock = null;
+                _completionStarted = null;
+            }
+
+            completionBlock?.TrySetResult();
         }
 
         public async ValueTask<AiTextResponse> CompleteTextAsync(AiTextRequest request, CancellationToken cancellationToken = default)
         {
             LastRequest = request;
-            _completionStarted.TrySetResult();
-            var completionBlock = _completionBlock;
+            TaskCompletionSource? completionStarted;
+            TaskCompletionSource? completionBlock;
+            lock (_completionSync)
+            {
+                completionStarted = _completionStarted;
+                completionBlock = _completionBlock;
+            }
+
+            completionStarted?.TrySetResult();
             if (completionBlock is not null)
             {
                 await completionBlock.Task.WaitAsync(cancellationToken);

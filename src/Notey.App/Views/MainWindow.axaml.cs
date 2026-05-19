@@ -2226,7 +2226,13 @@ public sealed partial class MainWindow : Window
     private void ObserveBackgroundCloseTask(Task task, string operation)
     {
         _ = task.ContinueWith(
-            faultedTask => _logger.LogError(faultedTask.Exception, "Background close task failed while {Operation}.", operation),
+            completedTask =>
+            {
+                if (completedTask.Exception is { } ex)
+                {
+                    _logger.LogError(ex, "Background close task failed while {Operation}.", operation);
+                }
+            },
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
