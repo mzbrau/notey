@@ -1,5 +1,7 @@
 using Avalonia.Input;
+using Notey.App.Assistant;
 using Notey.App.Views;
+using Notey.Vault.Tasks;
 
 namespace Notey.Tests;
 
@@ -25,6 +27,35 @@ public sealed class MainWindowShortcutTests
     public void IsFormatTablesShortcut_matches_control_or_command_alt_t(Key key, KeyModifiers modifiers, bool expected)
     {
         Assert.Equal(expected, MainWindow.IsFormatTablesShortcut(key, modifiers));
+    }
+
+    [Theory]
+    [InlineData(Key.Enter, KeyModifiers.None, true)]
+    [InlineData(Key.Enter, KeyModifiers.Control, true)]
+    [InlineData(Key.Enter, KeyModifiers.Meta, true)]
+    [InlineData(Key.Enter, KeyModifiers.Shift, false)]
+    [InlineData(Key.Enter, KeyModifiers.Control | KeyModifiers.Shift, false)]
+    [InlineData(Key.Tab, KeyModifiers.None, false)]
+    public void IsAssistantSendShortcut_matches_enter_without_shift_or_extra_modifiers(Key key, KeyModifiers modifiers, bool expected)
+    {
+        Assert.Equal(expected, MainWindow.IsAssistantSendShortcut(key, modifiers));
+    }
+
+    [Fact]
+    public void FormatAssistantResult_shows_full_replace_all_text()
+    {
+        var result = new NoteyAssistantResult(
+            "I rewrote the note.",
+            [new ReplaceAllNoteTextOperation("# Plan\n\n- first\n- second", string.Empty)],
+            [],
+            []);
+
+        var formatted = MainWindow.FormatAssistantResult(result, Array.Empty<NoteyTask>()).ReplaceLineEndings("\n");
+
+        Assert.Contains("I rewrote the note.", formatted, StringComparison.Ordinal);
+        Assert.Contains("1. Replace entire note", formatted, StringComparison.Ordinal);
+        Assert.Contains("     Proposed text:\n     ---\n     # Plan\n     \n     - first\n     - second\n     ---", formatted, StringComparison.Ordinal);
+        Assert.DoesNotContain("Replace entire note with", formatted, StringComparison.Ordinal);
     }
 
     [Fact]
