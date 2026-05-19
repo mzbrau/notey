@@ -3117,7 +3117,7 @@ public sealed partial class MainWindow : Window
 
         if (normalizedSearch.Length >= 2)
         {
-            var displayName = PersonDisplayNameFormatter.ToTitleCase(normalizedSearch);
+            var displayName = GetPersonCompletionDisplayName(normalizedSearch);
             if (!suggestions.Any(suggestion => suggestion.DisplayText.Equals($"@{displayName}", StringComparison.OrdinalIgnoreCase)))
             {
                 suggestions.Add(new CompletionSuggestion(

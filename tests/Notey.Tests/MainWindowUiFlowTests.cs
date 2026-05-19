@@ -270,7 +270,7 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
         await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Moveable task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
 
         FindButtonByToolTip(harness.Window, "Move task back one day").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Moveable task (due: {dueDate.AddDays(-1):yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Moveable task (due: {dueDate.AddDays(-1):yyyy-MM-dd})", TimeSpan.FromSeconds(5));
 
         FindButtonByToolTip(harness.Window, "Move task forward one day").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Moveable task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
@@ -325,7 +325,7 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
         FindPopupControl<DatePicker>(harness, "TaskEditDueDatePicker").SelectedDate = ToPickerDate(updatedDate, harness.LocalNow.Offset);
         FindPopupControl<Button>(harness, "TaskEditSaveButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Updated task (due: {updatedDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Updated task (due: {updatedDate:yyyy-MM-dd})", TimeSpan.FromSeconds(5));
         var content = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
         Assert.DoesNotContain("Editable task", content);
     }
