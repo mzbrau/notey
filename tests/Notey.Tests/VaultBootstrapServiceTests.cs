@@ -1,7 +1,6 @@
 using Notey.App.Setup;
 using Notey.Core.Configuration;
 using Notey.Vault.Abstractions;
-using Notey.Vault.Linking;
 
 namespace Notey.Tests;
 
@@ -14,9 +13,7 @@ public sealed class VaultBootstrapServiceTests : IDisposable
     {
         var rootPath = CreateTempDirectory();
         var workspace = CreateWorkspace(rootPath);
-        var service = new VaultBootstrapService(
-            workspace,
-            new FileSystemVaultEntityStore(workspace, new ObsidianLinkBuilder(workspace), TimeProvider.System));
+        var service = new VaultBootstrapService(workspace);
 
         await service.BootstrapAsync(new VaultBootstrapRequest(
             Customers: ["Microsoft"],
@@ -35,9 +32,10 @@ public sealed class VaultBootstrapServiceTests : IDisposable
         Assert.True(Directory.Exists(Path.Combine(rootPath, "Notes", "Customers", "Microsoft")));
         Assert.True(Directory.Exists(Path.Combine(rootPath, "Notes", "Projects", "Apollo")));
         Assert.True(Directory.Exists(Path.Combine(rootPath, "Notes", "Topics", "Roadmap")));
-        Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Projects", "Apollo.md")));
-        Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Topics", "Roadmap.md")));
-        Assert.Single(Directory.EnumerateFiles(Path.Combine(rootPath, "Notes", "Projects"), "Apollo*.md"));
+        Assert.False(File.Exists(Path.Combine(rootPath, "Notes", "Projects", "Apollo.md")));
+        Assert.False(File.Exists(Path.Combine(rootPath, "Notes", "Topics", "Roadmap.md")));
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(rootPath, "Notes", "Projects"), "*.md"));
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(rootPath, "Notes", "Topics"), "*.md"));
     }
 
     public void Dispose()

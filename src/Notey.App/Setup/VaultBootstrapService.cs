@@ -8,9 +8,7 @@ public sealed record VaultBootstrapRequest(
     IReadOnlyList<string>? Projects = null,
     IReadOnlyList<string>? Topics = null);
 
-public sealed class VaultBootstrapService(
-    IVaultWorkspace workspace,
-    IVaultEntityStore entityStore)
+public sealed class VaultBootstrapService(IVaultWorkspace workspace)
 {
     private static readonly string[] FixedNoteHeadings = ["Customers", "Projects", "Topics"];
 
@@ -34,8 +32,6 @@ public sealed class VaultBootstrapService(
         await CreateDynamicFoldersAsync(paths, "Customers", request.Customers ?? [], cancellationToken);
         await CreateDynamicFoldersAsync(paths, "Projects", request.Projects ?? [], cancellationToken);
         await CreateDynamicFoldersAsync(paths, "Topics", request.Topics ?? [], cancellationToken);
-        await EnsureEntitiesAsync(VaultEntityKind.Project, request.Projects ?? [], cancellationToken);
-        await EnsureEntitiesAsync(VaultEntityKind.Topic, request.Topics ?? [], cancellationToken);
     }
 
     private static Task CreateDynamicFoldersAsync(
@@ -52,18 +48,6 @@ public sealed class VaultBootstrapService(
         }
 
         return Task.CompletedTask;
-    }
-
-    private async Task EnsureEntitiesAsync(
-        VaultEntityKind kind,
-        IReadOnlyList<string> values,
-        CancellationToken cancellationToken)
-    {
-        foreach (var value in NormalizeValues(values))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await entityStore.EnsureAsync(kind, value, cancellationToken);
-        }
     }
 
     private static IReadOnlyList<string> NormalizeValues(IReadOnlyList<string> values)

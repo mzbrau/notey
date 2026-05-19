@@ -3,7 +3,6 @@ using Notey.App.Configuration;
 using Notey.App.Imports;
 using Notey.Core.Configuration;
 using Notey.Vault.Abstractions;
-using Notey.Vault.Linking;
 
 namespace Notey.App.Setup;
 
@@ -75,9 +74,7 @@ public sealed class SetupWorkflow(
         CancellationToken cancellationToken)
     {
         var workspace = new FileSystemVaultWorkspace(updatedOptions);
-        var linkBuilder = new ObsidianLinkBuilder(workspace);
-        var entityStore = new FileSystemVaultEntityStore(workspace, linkBuilder, TimeProvider.System);
-        var bootstrap = new VaultBootstrapService(workspace, entityStore);
+        var bootstrap = new VaultBootstrapService(workspace);
         await bootstrap.BootstrapAsync(request, cancellationToken);
     }
 }

@@ -201,7 +201,6 @@ public sealed partial class MainWindow : Window
             _settingsStore,
             noteDraftStore,
             vaultWorkspace,
-            vaultEntityStore,
             draftProcessingService,
             _fileImportService,
             timeProvider);
@@ -311,12 +310,11 @@ public sealed partial class MainWindow : Window
         NoteySettingsStore settingsStore,
         INoteDraftStore noteDraftStore,
         IVaultWorkspace vaultWorkspace,
-        IVaultEntityStore vaultEntityStore,
         DraftProcessingService draftProcessingService,
         FileImportService fileImportService,
         TimeProvider timeProvider)
     {
-        var vaultBootstrapService = new VaultBootstrapService(vaultWorkspace, vaultEntityStore);
+        var vaultBootstrapService = new VaultBootstrapService(vaultWorkspace);
         var importService = new ExistingDocumentImportService(
             noteDraftStore,
             fileImportService,

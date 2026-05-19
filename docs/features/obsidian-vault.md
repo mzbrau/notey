@@ -21,7 +21,7 @@ People/
 
 First-level folders under `Notes` become dynamic slash commands. For example, `Notes/Customers` enables `/customer`.
 
-The setup wizard can create the fixed `Customers`, `Projects`, and `Topics` headings, plus child folders for entered customers, projects, and topics. Topic and project entries also get entity documents under their matching folders.
+The setup wizard can create the fixed `Customers`, `Projects`, and `Topics` headings, plus child folders for entered customers, projects, and topics. Project and topic setup entries create folders only; Notey writes future markdown documents inside those folders.
 
 Imported non-image files are stored in assets folders. Draft imports are staged under `Notes/Draft/<draft-stem>.assets/`; when a draft is processed they are copied beside the final note under `<note-stem>.assets/` and note links are rewritten to the final vault-relative paths.
 
@@ -34,7 +34,7 @@ Inline commands at the start of draft lines control where final notes are writte
 - `/task Follow up // tomorrow` appends to `Notes/tasks.md`.
 - Dynamic commands such as `/customer Microsoft` route into matching first-level `Notes` folders.
 
-People links are stored under `People`. Topic/project entity links are stored under `Notes/Topics` and `Notes/Projects`.
+People links are stored under `People`. Project and topic notes are stored inside their matching `Notes/Projects/<project>` or `Notes/Topics/<topic>` folders.
 
 ## Tasks
 
