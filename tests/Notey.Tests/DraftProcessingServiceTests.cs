@@ -20,7 +20,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
     {
         var rootPath = CreateTempDirectory();
         Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Customers"));
-        var service = CreateService(rootPath, """{ "body": "Keep the accounts safe.", "people": ["Jane Doe"], "tags": ["accounts"] }""");
+        var service = CreateService(rootPath, """{ "body": "Keep the accounts safe.", "people": [{ "name": "Jane Doe", "confidence": 0.91 }], "tags": [{ "name": "accounts", "confidence": 0.82 }] }""");
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/meeting\n/customer Microsoft\n/topic Accounts\n\nKeep accounts safe.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
@@ -52,6 +52,76 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var content = await File.ReadAllTextAsync(target);
         Assert.DoesNotContain("date:", content);
         Assert.DoesNotContain("meeting:", content);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_filters_ai_people_and_tags_by_confidence_and_tag_length()
+    {
+        var rootPath = CreateTempDirectory();
+        var service = CreateService(rootPath, """
+            {
+              "body": "Discussed launch focus.",
+              "people": [
+                { "name": "Jane Doe", "confidence": 0.91 },
+                { "name": "Sam Low", "confidence": 0.42 }
+              ],
+              "tags": [
+                { "name": "focus", "confidence": 0.8 },
+                { "name": "too many words", "confidence": 0.99 },
+                { "name": "weak", "confidence": 0.2 }
+              ]
+            }
+            """);
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var target = Path.Combine(rootPath, "Notes", "accounts.md");
+        var content = await File.ReadAllTextAsync(target);
+        Assert.Contains("  - \"[[People/Jane Doe|Jane Doe]]\"", content);
+        Assert.DoesNotContain("Sam Low", content);
+        Assert.Contains("  - \"focus\"", content);
+        Assert.DoesNotContain("too many words", content);
+        Assert.DoesNotContain("weak", content);
+        Assert.True(File.Exists(Path.Combine(rootPath, "People", "Jane Doe.md")));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ignores_unscored_legacy_people_and_tags()
+    {
+        var rootPath = CreateTempDirectory();
+        var service = CreateService(rootPath, """{ "body": "Legacy response.", "people": ["Jane Doe"], "tags": ["legacy"] }""");
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "accounts.md"));
+        Assert.DoesNotContain("People/Jane Doe", content);
+        Assert.DoesNotContain("legacy", content);
+        Assert.False(File.Exists(Path.Combine(rootPath, "People", "Jane Doe.md")));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_preserves_existing_person_wiki_links_when_linking_ai_people()
+    {
+        var rootPath = CreateTempDirectory();
+        var service = CreateService(rootPath, """
+            {
+              "body": "Met with [[People/Jane Doe|JD]] about launch.",
+              "people": [{ "name": "Jane Doe", "confidence": 0.91 }]
+            }
+            """);
+        var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "accounts.md"));
+        Assert.Contains("Met with [[People/Jane Doe|JD]] about launch.", content);
+        Assert.DoesNotContain("[[People/[[People/Jane Doe|Jane Doe]]|JD]]", content);
+        Assert.DoesNotContain("People: [[People/Jane Doe|Jane Doe]]", content);
     }
 
     [Fact]
@@ -153,7 +223,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
 
             Earlier note.
             """);
-        var service = CreateService(rootPath, """{ "body": "New note.", "tags": ["new"] }""");
+        var service = CreateService(rootPath, """{ "body": "New note.", "tags": [{ "name": "new", "confidence": 0.82 }] }""");
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
@@ -446,7 +516,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
             ---
             Current body.
             """);
-        var service = CreateService(rootPath, """{ "body": "Updated body.", "tags": ["new"], "links": ["https://example.com"] }""");
+        var service = CreateService(rootPath, """{ "body": "Updated body.", "tags": [{ "name": "new", "confidence": 0.82 }], "links": ["https://example.com"] }""");
 
         var updated = await service.ProcessExistingNoteAsync(
             target,

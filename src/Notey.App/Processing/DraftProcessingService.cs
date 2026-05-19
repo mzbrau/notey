@@ -25,18 +25,21 @@ public sealed partial class DraftProcessingService(
     TimeProvider timeProvider,
     ILogger<DraftProcessingService> logger,
     ITaskStore? taskStore = null,
-    DraftAttachmentPromoter? attachmentPromoter = null)
+    DraftAttachmentPromoter? attachmentPromoter = null,
+    IVaultEntityStore? vaultEntityStore = null)
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly NoteDirectiveParser _directiveParser = new();
     private readonly ObsidianLinkBuilder _taskLinkBuilder = new(workspace);
     private readonly ITaskStore _taskStore = taskStore ?? new FileSystemTaskStore(workspace, new ObsidianLinkBuilder(workspace), timeProvider);
     private readonly DraftAttachmentPromoter _attachmentPromoter = attachmentPromoter ?? new DraftAttachmentPromoter(workspace);
+    private readonly IVaultEntityStore _vaultEntityStore = vaultEntityStore ?? new FileSystemVaultEntityStore(workspace, new ObsidianLinkBuilder(workspace), timeProvider);
 
     public async Task<DraftProcessingResult> ProcessAsync(
         NoteDraft draft,
         string content,
         IReadOnlyList<string>? directOcrSnippets = null,
+        DraftProcessingSupplementalMetadata? supplementalMetadata = null,
         DraftProcessingImportContext? importContext = null,
         CancellationToken cancellationToken = default)
     {
@@ -81,7 +84,8 @@ public sealed partial class DraftProcessingService(
             finalBody = string.IsNullOrWhiteSpace(aiResult.Body)
                 ? string.IsNullOrWhiteSpace(body) ? string.Join("\n\n", ocrSnippets) : body
                 : aiResult.Body.Trim();
-            metadata = BuildMetadata(parsed, aiResult, draft.CreatedAt, localNow);
+            finalBody = await AddPeopleLinksToBodyAsync(finalBody, aiResult.People, cancellationToken);
+            metadata = await BuildMetadataAsync(parsed, aiResult, supplementalMetadata, draft.CreatedAt, localNow, cancellationToken);
             if (!route.AppendIfExists || !File.Exists(route.FilePath))
             {
                 var filePath = route.AppendIfExists ? route.FilePath : GetUniqueFilePath(route.FilePath);
@@ -183,8 +187,9 @@ public sealed partial class DraftProcessingService(
         var finalBody = string.IsNullOrWhiteSpace(aiResult.Body)
             ? string.IsNullOrWhiteSpace(existingTasks.Body) ? string.Join("\n\n", ocrSnippets) : existingTasks.Body
             : aiResult.Body.Trim();
+        finalBody = await AddPeopleLinksToBodyAsync(finalBody, aiResult.People, cancellationToken);
         var localNow = timeProvider.GetLocalNow();
-        var metadata = BuildMetadata(parsed, aiResult, createdAt, localNow);
+        var metadata = await BuildMetadataAsync(parsed, aiResult, supplementalMetadata: null, createdAt, localNow, cancellationToken);
         var updatedMarkdown = RenderProcessedDocument(normalizedMarkdown, finalBody, metadata);
 
         IReadOnlyList<NoteyTask> createdTasks = [];
@@ -262,8 +267,8 @@ public sealed partial class DraftProcessingService(
               "title": "short title used when no /topic is present",
               "filename": "optional safe filename stem",
               "body": "formatted markdown body without slash directive lines",
-              "people": ["person name"],
-              "tags": ["tag"],
+              "people": [{ "name": "person name", "confidence": 0.0 }],
+              "tags": [{ "name": "tag", "confidence": 0.0 }],
               "links": ["Obsidian link target or URL"]
             }
 
@@ -271,7 +276,11 @@ public sealed partial class DraftProcessingService(
             - "filename" should describe the subject or agenda of the note (e.g. "budget-review", "onboarding-plan").
             - For meeting notes, base "filename" on the meeting topic or agenda, not on attendee names. If no clear topic is available, use "meeting" as the fallback stem.
             - Omit "filename" when a /topic directive is already provided.
+            - "people" must include only real person names visible or strongly implied by the note/OCR text.
+            - Set people confidence from 0 to 1. Use >= 0.85 only when the name is clear enough to create or reference a People document.
             - "tags" must not include a leading '#' character.
+            - Use only one- or two-word tags; prefer one word when possible.
+            - Set tag confidence from 0 to 1. Use >= 0.75 only when the tag is strongly supported by the content.
             - Preserve Obsidian wiki links and file attachment references from the note body unless the linked text is duplicated verbatim elsewhere.
 
             Routing metadata:
@@ -288,6 +297,95 @@ public sealed partial class DraftProcessingService(
 
             Note body:
             {{body}}
+            """;
+    }
+
+    public async Task<ProcessedOcrSnippetResult> ProcessOcrSnippetAsync(
+        string ocrText,
+        string noteContext,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ocrText);
+        ArgumentNullException.ThrowIfNull(noteContext);
+
+        var trimmedOcrText = ocrText.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedOcrText))
+        {
+            return ProcessedOcrSnippetResult.Empty;
+        }
+
+        var aiResult = await RunOcrSnippetAiAsync(trimmedOcrText, noteContext, cancellationToken);
+        var people = await ResolvePeopleAsync(aiResult.People, cancellationToken);
+        var peopleLinks = people.Select(static person => person.ToWikiLink()).ToArray();
+        var tags = FilterTagsForOptions(aiResult.Tags);
+        if (peopleLinks.Length == 0)
+        {
+            return new ProcessedOcrSnippetResult(trimmedOcrText, [], tags, trimmedOcrText);
+        }
+
+        var body = string.IsNullOrWhiteSpace(aiResult.Body)
+            ? string.Join(", ", peopleLinks)
+            : LinkPeopleInBody(aiResult.Body.Trim(), people);
+        body = PrependMissingPeopleLinks(body, people);
+
+        return new ProcessedOcrSnippetResult(body, peopleLinks, tags, trimmedOcrText);
+    }
+
+    private async Task<ProcessedNoteAiResult> RunOcrSnippetAiAsync(
+        string ocrText,
+        string noteContext,
+        CancellationToken cancellationToken)
+    {
+        if (!aiProviderRegistry.TryGet(options.Ai.DefaultProviderId, out var provider))
+        {
+            logger.LogDebug("AI provider '{ProviderId}' not configured; using raw OCR snip text.", options.Ai.DefaultProviderId);
+            return new ProcessedNoteAiResult(null, null, ocrText, [], [], []);
+        }
+
+        try
+        {
+            var response = await provider.CompleteTextAsync(
+                new AiTextRequest(
+                    BuildOcrSnippetPrompt(ocrText, noteContext),
+                    "You analyze OCR snippets for Obsidian notes. Return only JSON.",
+                    options.Ai.ModelName,
+                    JsonOutput: true,
+                    Temperature: 0.1,
+                    MaxTokens: 900),
+                cancellationToken);
+
+            return ProcessedNoteAiResult.Parse(response.Text);
+        }
+        catch (AiProviderException ex) when (IsAiConfigurationError(ex))
+        {
+            logger.LogWarning(ex, "AI provider '{ProviderId}' is not fully configured; using raw OCR snip text.", options.Ai.DefaultProviderId);
+            return new ProcessedNoteAiResult(null, null, ocrText, [], [], []);
+        }
+    }
+
+    private static string BuildOcrSnippetPrompt(string ocrText, string noteContext)
+    {
+        return $$"""
+            Analyze this OCR text for insertion into the current note.
+
+            Return JSON using this shape:
+            {
+              "body": "concise markdown to insert; do not include raw OCR transcription when people are identified",
+              "people": [{ "name": "person name", "confidence": 0.0 }],
+              "tags": [{ "name": "tag", "confidence": 0.0 }]
+            }
+
+            Rules:
+            - If no clear person names are present, return no people and keep body close to the OCR text.
+            - If clear person names are present, summarize/organize the useful content instead of returning raw OCR text.
+            - People confidence must be >= 0.85 only for names clear enough to create or reference People documents.
+            - Tags must be one or two words, no leading '#', and confidence >= 0.75 only when strongly supported.
+
+            Current note context:
+            {{(string.IsNullOrWhiteSpace(noteContext) ? "none" : noteContext)}}
+
+            OCR text:
+            {{ocrText}}
             """;
     }
 
@@ -391,11 +489,13 @@ public sealed partial class DraftProcessingService(
         return new ProcessedNoteRoute(Path.Combine(folderPath, $"{fileStem}.md"), AppendIfExists: true);
     }
 
-    private static ProcessedNoteMetadata BuildMetadata(
+    private async Task<ProcessedNoteMetadata> BuildMetadataAsync(
         ParsedNoteDirectives parsed,
         ProcessedNoteAiResult aiResult,
+        DraftProcessingSupplementalMetadata? supplementalMetadata,
         DateTimeOffset createdAt,
-        DateTimeOffset processedAt)
+        DateTimeOffset processedAt,
+        CancellationToken cancellationToken)
     {
         var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (parsed.IsMeeting)
@@ -403,10 +503,23 @@ public sealed partial class DraftProcessingService(
             tags.Add("meeting");
         }
 
-        foreach (var tag in aiResult.Tags)
+        foreach (var tag in FilterTagsForOptions(aiResult.Tags))
         {
-            tags.Add(tag.Trim().TrimStart('#'));
+            tags.Add(tag);
         }
+
+        foreach (var tag in supplementalMetadata?.Tags ?? [])
+        {
+            var normalized = NormalizeTag(tag);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                tags.Add(normalized);
+            }
+        }
+
+        var people = new List<string>();
+        people.AddRange(supplementalMetadata?.People ?? []);
+        people.AddRange((await ResolvePeopleAsync(aiResult.People, cancellationToken)).Select(static person => person.ToWikiLink()));
 
         return new ProcessedNoteMetadata(
             createdAt,
@@ -414,9 +527,196 @@ public sealed partial class DraftProcessingService(
             parsed.IsMeeting,
             parsed.Topic,
             parsed.DynamicDirectives,
-            aiResult.People,
+            people.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             tags.Where(static tag => !string.IsNullOrWhiteSpace(tag)).Order(StringComparer.OrdinalIgnoreCase).ToArray(),
             aiResult.Links);
+    }
+
+    private async Task<string> AddPeopleLinksToBodyAsync(
+        string body,
+        IReadOnlyList<ProcessedNoteValueCandidate> candidates,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(body) || candidates.Count == 0)
+        {
+            return body;
+        }
+
+        var people = await ResolvePeopleAsync(candidates, cancellationToken);
+        if (people.Count == 0)
+        {
+            return body;
+        }
+
+        var linkedBody = LinkPeopleInBody(body, people);
+        return PrependMissingPeopleLinks(linkedBody, people);
+    }
+
+    private async Task<IReadOnlyList<VaultEntity>> ResolvePeopleAsync(
+        IReadOnlyList<ProcessedNoteValueCandidate> candidates,
+        CancellationToken cancellationToken)
+    {
+        var people = new List<VaultEntity>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            var name = NormalizePersonCandidate(candidate.Value);
+            if (string.IsNullOrWhiteSpace(name)
+                || !MeetsThreshold(candidate, options.Ai.PersonConfidenceThreshold)
+                || !seen.Add(name))
+            {
+                continue;
+            }
+
+            people.Add(await _vaultEntityStore.EnsureAsync(VaultEntityKind.Person, name, cancellationToken));
+        }
+
+        return people;
+    }
+
+    private IReadOnlyList<string> FilterTagsForOptions(IReadOnlyList<ProcessedNoteValueCandidate> candidates)
+    {
+        var tags = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            var tag = NormalizeTag(candidate.Value);
+            if (string.IsNullOrWhiteSpace(tag)
+                || !MeetsThreshold(candidate, options.Ai.TagConfidenceThreshold)
+                || !seen.Add(tag))
+            {
+                continue;
+            }
+
+            tags.Add(tag);
+        }
+
+        return tags;
+    }
+
+    private static bool MeetsThreshold(ProcessedNoteValueCandidate candidate, double threshold)
+    {
+        return candidate.Confidence is double confidence && confidence >= threshold && confidence <= 1;
+    }
+
+    private static string NormalizePersonCandidate(string value)
+    {
+        var trimmed = value.Trim().TrimStart('@').Trim();
+        return string.Join(' ', trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string NormalizeTag(string value)
+    {
+        var normalized = string.Join(' ', value.Trim().TrimStart('#').Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        return normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 2 ? normalized : string.Empty;
+    }
+
+    private static string LinkPeopleInBody(string body, IReadOnlyList<VaultEntity> people)
+    {
+        var linked = body;
+        foreach (var person in people)
+        {
+            var wikiLink = person.ToWikiLink();
+            if (ContainsPersonReference(linked, person))
+            {
+                continue;
+            }
+
+            foreach (var candidateName in new[] { person.Name }.Concat(person.Aliases))
+            {
+                var name = NormalizePersonCandidate(candidateName);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                var pattern = $@"(?<![\p{{L}}\p{{N}}_]){Regex.Escape(name)}(?![\p{{L}}\p{{N}}_])";
+                linked = ReplaceOutsideWikiLinks(linked, pattern, wikiLink);
+                if (linked.Contains(wikiLink, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+            }
+        }
+
+        return linked;
+    }
+
+    private static string PrependMissingPeopleLinks(string body, IReadOnlyList<VaultEntity> people)
+    {
+        var missing = people
+            .Where(person => !ContainsPersonReference(body, person))
+            .Select(static person => person.ToWikiLink())
+            .ToArray();
+        return missing.Length == 0
+            ? body
+            : $"People: {string.Join(", ", missing)}\n\n{body}";
+    }
+
+    private static string ReplaceOutsideWikiLinks(string text, string pattern, string replacement)
+    {
+        var builder = new StringBuilder(text.Length);
+        var index = 0;
+        while (index < text.Length)
+        {
+            var linkStart = text.IndexOf("[[", index, StringComparison.Ordinal);
+            if (linkStart < 0)
+            {
+                builder.Append(Regex.Replace(text[index..], pattern, replacement, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)));
+                break;
+            }
+
+            builder.Append(Regex.Replace(text[index..linkStart], pattern, replacement, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)));
+            var linkEnd = text.IndexOf("]]", linkStart + 2, StringComparison.Ordinal);
+            if (linkEnd < 0)
+            {
+                builder.Append(text[linkStart..]);
+                break;
+            }
+
+            builder.Append(text[linkStart..(linkEnd + 2)]);
+            index = linkEnd + 2;
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool ContainsPersonReference(string body, VaultEntity person)
+    {
+        if (body.Contains(person.ToWikiLink(), StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        foreach (Match match in WikiLinkRegex().Matches(body))
+        {
+            var target = match.Groups["target"].Value.Trim();
+            var alias = match.Groups["alias"].Success ? match.Groups["alias"].Value.Trim() : string.Empty;
+            if (PersonReferencePartMatches(target, person) || PersonReferencePartMatches(alias, person))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool PersonReferencePartMatches(string value, VaultEntity person)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var withoutExtension = Path.ChangeExtension(value, null)?.Replace('\\', '/') ?? value;
+        return string.Equals(withoutExtension, person.LinkPath, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Path.GetFileName(withoutExtension), person.Name, StringComparison.OrdinalIgnoreCase)
+            || person.Aliases.Any(alias => string.Equals(value, alias, StringComparison.OrdinalIgnoreCase));
     }
 
     private static async Task<string> BuildExistingNoteUpdateAsync(
@@ -1030,6 +1330,9 @@ public sealed partial class DraftProcessingService(
 
     [GeneratedRegex(@"!\[\[(?<path>[^\]|]+)(?:\|[^\]]+)?\]\]")]
     private static partial Regex ObsidianImageEmbedRegex();
+
+    [GeneratedRegex(@"\[\[(?<target>[^\]|]+)(?:\|(?<alias>[^\]]+))?\]\]")]
+    private static partial Regex WikiLinkRegex();
 }
 
 public sealed record DraftProcessingResult(
@@ -1066,8 +1369,8 @@ public sealed record ProcessedNoteAiResult(
     string? Title,
     string? Filename,
     string? Body,
-    IReadOnlyList<string> People,
-    IReadOnlyList<string> Tags,
+    IReadOnlyList<ProcessedNoteValueCandidate> People,
+    IReadOnlyList<ProcessedNoteValueCandidate> Tags,
     IReadOnlyList<string> Links)
 {
     public static ProcessedNoteAiResult Empty { get; } = new(null, null, null, [], [], []);
@@ -1087,8 +1390,8 @@ public sealed record ProcessedNoteAiResult(
             ReadString(root, "title"),
             ReadString(root, "filename"),
             ReadString(root, "body"),
-            ReadStringArray(root, "people"),
-            ReadStringArray(root, "tags"),
+            ReadValueCandidates(root, "people"),
+            ReadValueCandidates(root, "tags"),
             ReadStringArray(root, "links"));
     }
 
@@ -1097,6 +1400,52 @@ public sealed record ProcessedNoteAiResult(
         return root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+    }
+
+    private static IReadOnlyList<ProcessedNoteValueCandidate> ReadValueCandidates(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return value.EnumerateArray()
+            .Select(ReadValueCandidate)
+            .Where(static item => item is not null)
+            .Select(static item => item!)
+            .ToArray();
+    }
+
+    private static ProcessedNoteValueCandidate? ReadValueCandidate(JsonElement item)
+    {
+        if (item.ValueKind == JsonValueKind.String)
+        {
+            var legacyValue = item.GetString();
+            return string.IsNullOrWhiteSpace(legacyValue)
+                ? null
+                : new ProcessedNoteValueCandidate(legacyValue.Trim(), Confidence: null, IsLegacyString: true);
+        }
+
+        if (item.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var value = ReadString(item, "name") ?? ReadString(item, "title") ?? ReadString(item, "value");
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        double? confidence = null;
+        if (item.TryGetProperty("confidence", out var confidenceElement)
+            && confidenceElement.ValueKind == JsonValueKind.Number
+            && confidenceElement.TryGetDouble(out var parsedConfidence))
+        {
+            confidence = parsedConfidence;
+        }
+
+        return new ProcessedNoteValueCandidate(value.Trim(), confidence, IsLegacyString: false);
     }
 
     private static IReadOnlyList<string> ReadStringArray(JsonElement root, string propertyName)
@@ -1113,4 +1462,19 @@ public sealed record ProcessedNoteAiResult(
             .Select(static item => item!)
             .ToArray();
     }
+}
+
+public sealed record ProcessedNoteValueCandidate(string Value, double? Confidence, bool IsLegacyString);
+
+public sealed record DraftProcessingSupplementalMetadata(
+    IReadOnlyList<string> People,
+    IReadOnlyList<string> Tags);
+
+public sealed record ProcessedOcrSnippetResult(
+    string Body,
+    IReadOnlyList<string> People,
+    IReadOnlyList<string> Tags,
+    string OcrText)
+{
+    public static ProcessedOcrSnippetResult Empty { get; } = new(string.Empty, [], [], string.Empty);
 }

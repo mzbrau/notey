@@ -92,6 +92,31 @@ public async Task Open_recent_note_setup_gate_is_not_reentrant()
     }
 
     [AvaloniaFact]
+    public async Task New_note_appears_immediately_while_previous_draft_processes_in_background()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        harness.BlockAiCompletions();
+        var draft = """
+            /meeting
+            /customer Microsoft
+            /topic Accounts
+
+            Capture the implementation plan for the accounts launch.
+            """;
+        var expectedPath = harness.GetExpectedCustomerMeetingPath("Microsoft", "Accounts");
+        await harness.SetEditorTextAsync(draft);
+
+        await harness.Window.StartNewNoteAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await harness.DrainAsync();
+
+        Assert.False(harness.Editor.IsReadOnly);
+        Assert.DoesNotContain("Capture the implementation plan", harness.Editor.Document.Text, StringComparison.Ordinal);
+        await harness.WaitForAiCompletionStartedAsync(TimeSpan.FromSeconds(2));
+        harness.ReleaseAiCompletions();
+        await harness.WaitForFileContainsAsync(expectedPath, "Captured accounts launch context.", TimeSpan.FromSeconds(5));
+    }
+
+    [AvaloniaFact]
 public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
     {
         using var harness = await MainWindowTestHarness.CreateAsync();
@@ -111,13 +136,13 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
         await harness.DrainAsync();
 
         var expectedPath = harness.GetExpectedCustomerMeetingPath("Microsoft", "Accounts");
-        Assert.True(File.Exists(expectedPath));
+        await harness.WaitForFileContainsAsync(expectedPath, "Captured accounts launch context.", TimeSpan.FromSeconds(5));
         var expectedContent = await File.ReadAllTextAsync(expectedPath);
         Assert.Contains("meeting: true", expectedContent);
         Assert.Contains("topic: \"Accounts\"", expectedContent);
         Assert.Contains("customer: \"Microsoft\"", expectedContent);
         Assert.Contains("Captured accounts launch context.", expectedContent);
-        Assert.Contains("  - \"Jane Doe\"", expectedContent);
+        Assert.Contains("  - \"[[People/Jane Doe|Jane Doe]]\"", expectedContent);
         Assert.Contains("  - \"accounts\"", expectedContent);
 
         harness.RecentNoteChooser.Choose = notes =>

@@ -11,6 +11,7 @@ public sealed class FileSystemVaultEntityStore(
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly Dictionary<VaultEntityKind, IReadOnlyList<VaultEntity>> _entityCache = [];
+    private readonly SemaphoreSlim _ensureGate = new(1, 1);
 
     public async Task<IReadOnlyList<VaultEntity>> GetAllAsync(VaultEntityKind kind, CancellationToken cancellationToken = default)
     {
@@ -36,7 +37,19 @@ public sealed class FileSystemVaultEntityStore(
     public async Task<VaultEntity> EnsureAsync(VaultEntityKind kind, string name, CancellationToken cancellationToken = default)
     {
         var displayName = ObsidianLinkBuilder.NormalizeDisplayName(name);
+        await _ensureGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await EnsureCoreAsync(kind, displayName, cancellationToken);
+        }
+        finally
+        {
+            _ensureGate.Release();
+        }
+    }
 
+    private async Task<VaultEntity> EnsureCoreAsync(VaultEntityKind kind, string displayName, CancellationToken cancellationToken)
+    {
         if (!_entityCache.TryGetValue(kind, out var cachedEntities))
         {
             cachedEntities = await GetAllAsync(kind, cancellationToken);
@@ -154,17 +167,49 @@ public sealed class FileSystemVaultEntityStore(
             """;
     }
 
-    private static string NormalizeLookup(string value)
+    private static IReadOnlySet<string> NormalizeLookupVariants(string value)
     {
-        return ObsidianLinkBuilder.NormalizeDisplayName(value).ToUpperInvariant();
+        var variants = new HashSet<string>(StringComparer.Ordinal);
+        var normalized = ObsidianLinkBuilder.NormalizeDisplayName(value);
+        AddLookupVariant(variants, normalized);
+
+        var commaIndex = normalized.IndexOf(',', StringComparison.Ordinal);
+        if (commaIndex > 0 && commaIndex + 1 < normalized.Length)
+        {
+            var last = normalized[..commaIndex].Trim();
+            var first = normalized[(commaIndex + 1)..].Trim();
+            if (!string.IsNullOrWhiteSpace(first) && !string.IsNullOrWhiteSpace(last))
+            {
+                AddLookupVariant(variants, $"{first} {last}");
+            }
+        }
+
+        var tokens = normalized
+            .Replace(",", " ", StringComparison.Ordinal)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length >= 2)
+        {
+            AddLookupVariant(variants, $"{tokens[^1]} {string.Join(' ', tokens[..^1])}");
+        }
+
+        return variants;
+    }
+
+    private static void AddLookupVariant(ISet<string> variants, string value)
+    {
+        var normalized = string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            variants.Add(normalized.ToUpperInvariant());
+        }
     }
 
     private static bool EntityMatchesName(VaultEntity entity, string name)
     {
-        var normalizedName = NormalizeLookup(name);
+        var nameVariants = NormalizeLookupVariants(name);
 
-        return string.Equals(NormalizeLookup(entity.Name), normalizedName, StringComparison.Ordinal)
-            || entity.Aliases.Any(alias => string.Equals(NormalizeLookup(alias), normalizedName, StringComparison.Ordinal));
+        return NormalizeLookupVariants(entity.Name).Overlaps(nameVariants)
+            || entity.Aliases.Any(alias => NormalizeLookupVariants(alias).Overlaps(nameVariants));
     }
 
     private static string GetCandidateFilePath(string filePath, int index)
