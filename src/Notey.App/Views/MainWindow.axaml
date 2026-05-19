@@ -50,6 +50,9 @@
           <Button x:Name="SaveNoteButton" Classes="command" ToolTip.Tip="Save draft" AutomationProperties.Name="Save draft">
             <PathIcon Classes="commandIcon" Data="M5,12 L10,17 L19,7" />
           </Button>
+          <Button x:Name="ImportButton" Classes="command" ToolTip.Tip="Import existing documents" AutomationProperties.Name="Import existing documents">
+            <PathIcon Classes="commandIcon" Data="M5,5 L19,5 L19,9 L17,9 L17,7 L7,7 L7,17 L17,17 L17,15 L19,15 L19,19 L5,19 Z M12,9 L16,13 L13.5,13 L13.5,16 L10.5,16 L10.5,13 L8,13 Z" />
+          </Button>
           <Button x:Name="TasksButton" Classes="command" ToolTip.Tip="Show tasks" AutomationProperties.Name="Show tasks">
             <Grid>
               <PathIcon Classes="commandIcon" Data="M7,4 L17,4 L17,20 L7,20 Z M9,8 L11,10 L15,6 M9,13 L11,15 L15,11" />

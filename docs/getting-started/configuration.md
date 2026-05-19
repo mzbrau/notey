@@ -10,6 +10,8 @@ Notey reads configuration from `appsettings.json` and optional local overrides i
 
 The `Notey:Vault` section configures a single vault root. Notey owns `Images`, `Notes`, `Notes/Draft`, and `People` under that root.
 
+If `Notey:Vault:RootPath` is empty on startup, Notey shows the setup wizard instead of silently creating notes in the default documents folder. The wizard saves an explicit root path before normal capture begins.
+
 > **Breaking change:** legacy keys (`NotesPath`, `PeoplePath`, `TopicsPath`, `ProjectsPath`, `ScreenshotPath`) are no longer used. Configure only `Notey:Vault:RootPath`.
 
 ```json
@@ -21,6 +23,8 @@ The `Notey:Vault` section configures a single vault root. Notey owns `Images`, `
   }
 }
 ```
+
+The setup wizard also creates the fixed top-level note folders `Customers`, `Projects`, and `Topics` when requested. Entered project and topic names create child folders for routing captured notes; Notey stores project and topic *entity* files at `Notes/Projects/<name>.md` and `Notes/Topics/<name>.md`. First-level folders under `Notes` become dynamic slash commands.
 
 ## AI provider
 

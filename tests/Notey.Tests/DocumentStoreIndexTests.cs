@@ -43,11 +43,13 @@ public sealed class DocumentStoreIndexTests : IDisposable
         await WriteAsync(rootPath, "Notes/Customers/Microsoft/Meetings/2026-05-13 - accounts.md", "# Meeting");
         await WriteAsync(rootPath, "Notes/Draft/2026-05-13-note.md", "# Draft");
         await WriteAsync(rootPath, "Notes/tasks.md", "# Tasks");
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Topics", "Meetings"));
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Topics", "Roadmap"));
         var index = CreateIndex(rootPath);
 
         var suggestions = await index.GetTopicSuggestionsAsync();
 
-        Assert.Equal(["accounts", "contracts"], suggestions.Select(static suggestion => suggestion.Title));
+        Assert.Equal(["accounts", "contracts", "Meetings", "Roadmap"], suggestions.Select(static suggestion => suggestion.Title));
     }
 
     [Fact]

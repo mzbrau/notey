@@ -46,7 +46,7 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
             return Task.FromResult<IReadOnlyList<VaultDocumentSuggestion>>([]);
         }
 
-        var suggestions = Directory
+        var documentSuggestions = Directory
             .EnumerateFiles(paths.NotesPath, "*.md", SearchOption.AllDirectories)
             .Select(filePath =>
             {
@@ -59,6 +59,26 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
                 Path.GetFileNameWithoutExtension(filePath),
                 filePath,
                 GetRelativeMarkdownPath(paths, filePath)))
+            .ToArray();
+        var topicFoldersPath = Path.Combine(paths.NotesPath, "Topics");
+        var folderSuggestions = Directory.Exists(topicFoldersPath)
+            ? Directory
+                .EnumerateDirectories(topicFoldersPath, "*", SearchOption.TopDirectoryOnly)
+                .Select(directory =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return directory;
+                })
+                .Select(directory => new VaultDocumentSuggestion(
+                    Path.GetFileName(directory),
+                    directory,
+                    GetRelativePath(paths, directory)))
+                .ToArray()
+            : [];
+        var suggestions = documentSuggestions
+            .Concat(folderSuggestions)
+            .GroupBy(static suggestion => suggestion.Title, StringComparer.OrdinalIgnoreCase)
+            .Select(static group => group.First())
             .OrderBy(static suggestion => suggestion.Title, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
@@ -143,7 +163,12 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
 
     private static string GetRelativeMarkdownPath(VaultPaths paths, string filePath)
     {
-        return Path.GetRelativePath(paths.RootPath, Path.ChangeExtension(filePath, null))
+        return GetRelativePath(paths, Path.ChangeExtension(filePath, null));
+    }
+
+    private static string GetRelativePath(VaultPaths paths, string filePath)
+    {
+        return Path.GetRelativePath(paths.RootPath, filePath)
             .Replace(Path.DirectorySeparatorChar, '/')
             .Replace(Path.AltDirectorySeparatorChar, '/');
     }

@@ -21,6 +21,7 @@ using Notey.App.Configuration;
 using Notey.App.Editing;
 using Notey.App.Imports;
 using Notey.App.Processing;
+using Notey.App.Setup;
 using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
 using Notey.Core.Notes;
@@ -57,6 +58,7 @@ public sealed partial class MainWindow : Window
     private readonly DraftProcessingService _draftProcessingService;
     private readonly NoteyAssistantService _assistantService;
     private readonly FileImportService _fileImportService;
+    private readonly ISetupWorkflow _setupWorkflow;
     private readonly IRecentNoteChooser _recentNoteChooser;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindow> _logger;
@@ -86,6 +88,8 @@ public sealed partial class MainWindow : Window
     private bool _isClosePending;
     private bool _isExitRequested;
     private bool _isRecentNoteDialogOpen;
+    private bool _setupRequired;
+    private bool _isSetupRunning;
     private bool _isTasksPanelAnimating;
     private bool _isResizingTasksPanel;
     private bool _isResizingAssistantPanel;
@@ -122,6 +126,9 @@ public sealed partial class MainWindow : Window
     public bool IsCaptureInProgress => _isCaptureInProgress;
 
     internal Control? OpenTaskEditPopupContent => TaskEditCard.IsVisible ? TaskEditCard : null;
+
+    private Button ImportCommandButton => this.FindControl<Button>("ImportButton")
+        ?? throw new InvalidOperationException("ImportButton control was not found.");
 
     public event EventHandler? SettingsSaved;
 
@@ -165,7 +172,8 @@ public sealed partial class MainWindow : Window
         NoteySettingsStore? settingsStore = null,
         ITaskStore? taskStore = null,
         NoteyAssistantService? assistantService = null,
-        FileImportService? fileImportService = null)
+        FileImportService? fileImportService = null,
+        ISetupWorkflow? setupWorkflow = null)
     {
         InitializeComponent();
 
@@ -188,6 +196,14 @@ public sealed partial class MainWindow : Window
         _timeProvider = timeProvider;
         _logger = logger;
         _settingsStore = settingsStore ?? CreateFallbackSettingsStore(options);
+        _setupWorkflow = setupWorkflow ?? CreateFallbackSetupWorkflow(
+            options,
+            _settingsStore,
+            noteDraftStore,
+            vaultWorkspace,
+            draftProcessingService,
+            _fileImportService,
+            timeProvider);
         _autosaveTimer = new DispatcherTimer { Interval = AutosaveDelay };
         _idleProcessingTimer = new DispatcherTimer { Interval = IdleProcessingDelay };
         _taskRefreshTimer = new DispatcherTimer { Interval = TaskRefreshInterval };
@@ -207,9 +223,16 @@ public sealed partial class MainWindow : Window
         UpdateEditorStatus();
         UpdateContextChip();
         UpdateCurrentNoteFooter();
+        _setupRequired = IsSetupRequired();
+        SetSetupRequiredUi(_setupRequired);
 
         Opened += async (_, _) =>
         {
+            if (!await EnsureSetupCompleteAsync())
+            {
+                return;
+            }
+
             await RefreshTasksAsync();
             await OpenInitialDraftAsync();
         };
@@ -282,6 +305,26 @@ public sealed partial class MainWindow : Window
             NullLogger<NoteySettingsStore>.Instance);
     }
 
+    private static ISetupWorkflow CreateFallbackSetupWorkflow(
+        NoteyOptions options,
+        NoteySettingsStore settingsStore,
+        INoteDraftStore noteDraftStore,
+        IVaultWorkspace vaultWorkspace,
+        DraftProcessingService draftProcessingService,
+        FileImportService fileImportService,
+        TimeProvider timeProvider)
+    {
+        var vaultBootstrapService = new VaultBootstrapService(vaultWorkspace);
+        var importService = new ExistingDocumentImportService(
+            noteDraftStore,
+            fileImportService,
+            draftProcessingService,
+            vaultWorkspace,
+            timeProvider,
+            NullLogger<ExistingDocumentImportService>.Instance);
+        return new SetupWorkflow(options, settingsStore, vaultBootstrapService, importService);
+    }
+
     private void ConfigureEditor()
     {
         NoteEditor.TextChanged += (_, _) =>
@@ -350,6 +393,7 @@ public sealed partial class MainWindow : Window
         AssistantCancelButton.Click += (_, _) => CancelAssistantRequest();
         AssistantApplyButton.Click += async (_, _) => await ApplyPendingAssistantChangesAsync();
         SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
+        ImportCommandButton.Click += async (_, _) => await OpenImportWizardAsync();
     }
 
     private void ConfigureTasksPanel()
@@ -1502,6 +1546,11 @@ public sealed partial class MainWindow : Window
 
     public async Task ActivateOrResumeAsync()
     {
+        if (!await EnsureSetupCompleteAsync())
+        {
+            return;
+        }
+
         if (_currentDraft is null && _currentFinalNotePath is null)
         {
             await OpenInitialDraftAsync();
@@ -1513,6 +1562,11 @@ public sealed partial class MainWindow : Window
 
     public async Task StartNewNoteAsync()
     {
+        if (!await EnsureSetupCompleteAsync())
+        {
+            return;
+        }
+
         if (_isSwitchingDraft)
         {
             return;
@@ -1553,6 +1607,90 @@ public sealed partial class MainWindow : Window
     {
         _isExitRequested = true;
         Close();
+    }
+
+    private bool IsSetupRequired()
+    {
+        return string.IsNullOrWhiteSpace(_options.Vault.RootPath);
+    }
+
+    private async Task<bool> EnsureSetupCompleteAsync()
+    {
+        if (!IsSetupRequired())
+        {
+            _setupRequired = false;
+            SetSetupRequiredUi(required: false);
+            return true;
+        }
+
+        if (_isSetupRunning)
+        {
+            AutosaveStatusText.Text = "SETUP REQUIRED";
+            return false;
+        }
+
+        _setupRequired = true;
+        SetSetupRequiredUi(required: true);
+        SetupWorkflowResult result;
+        try
+        {
+            _isSetupRunning = true;
+            result = await _setupWorkflow.RunInitialSetupAsync(this, _windowClosed.Token);
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Setup was cancelled because the window closed.");
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        {
+            AutosaveStatusText.Text = "SETUP ERROR";
+            _logger.LogError(ex, "Failed to complete first-run setup.");
+            _setupRequired = IsSetupRequired();
+            SetSetupRequiredUi(_setupRequired);
+            return false;
+        }
+        finally
+        {
+            _isSetupRunning = false;
+        }
+
+        if (!result.Completed)
+        {
+            AutosaveStatusText.Text = "SETUP REQUIRED";
+            CurrentNotePathText.Text = result.Message;
+            return false;
+        }
+
+        _setupRequired = false;
+        SetSetupRequiredUi(required: false);
+        _openNoteGesture = TryParseOpenNoteGesture(_options.Hotkeys.OpenNote);
+        await RefreshIndexesAsync(force: true);
+        SettingsSaved?.Invoke(this, EventArgs.Empty);
+        AutosaveStatusText.Text = "SETUP COMPLETE";
+        CurrentNotePathText.Text = result.Message;
+        return true;
+    }
+
+    private void SetSetupRequiredUi(bool required)
+    {
+        NoteEditor.IsReadOnly = required;
+        NewNoteButton.IsEnabled = !required;
+        OpenRecentNoteButton.IsEnabled = !required;
+        CaptureAnalyzeButton.IsEnabled = !required;
+        CaptureSaveButton.IsEnabled = !required;
+        SaveNoteButton.IsEnabled = !required;
+        TasksButton.IsEnabled = !required;
+        AssistantButton.IsEnabled = !required;
+        OpenInObsidianButton.IsEnabled = !required;
+        ImportCommandButton.IsEnabled = !required;
+        SettingsButton.IsEnabled = true;
+
+        if (required)
+        {
+            AutosaveStatusText.Text = "SETUP REQUIRED";
+            CurrentNotePathText.Text = "Choose a vault root to start using Notey.";
+        }
     }
 
     private async Task OpenInitialDraftAsync()
@@ -1655,6 +1793,11 @@ public sealed partial class MainWindow : Window
 
     internal async Task OpenRecentFinalNoteAsync()
     {
+        if (!await EnsureSetupCompleteAsync())
+        {
+            return;
+        }
+
         if (!TryBeginOpenRecentDialog(ref _isRecentNoteDialogOpen))
         {
             return;
@@ -1839,7 +1982,7 @@ public sealed partial class MainWindow : Window
                 _currentDraft,
                 content,
                 _directOcrSnippets,
-                cancellation.Token);
+                cancellationToken: cancellation.Token);
             if (result.Processed)
             {
                 AutosaveStatusText.Text = "PROCESSED";
@@ -3042,6 +3185,13 @@ public sealed partial class MainWindow : Window
             Width = _options.Ui.DefaultWindowWidth;
             Height = _options.Ui.DefaultWindowHeight;
             _openNoteGesture = TryParseOpenNoteGesture(_options.Hotkeys.OpenNote);
+            if (_setupRequired && !IsSetupRequired())
+            {
+                _setupRequired = false;
+                SetSetupRequiredUi(required: false);
+                await RefreshIndexesAsync(force: true);
+            }
+
             AutosaveStatusText.Text = result.RestartRequired ? "SETTINGS SAVED - RESTART NEEDED" : "SETTINGS SAVED";
             SettingsSaved?.Invoke(this, EventArgs.Empty);
         }
@@ -3049,6 +3199,40 @@ public sealed partial class MainWindow : Window
         {
             AutosaveStatusText.Text = "SETTINGS ERROR";
             _logger.LogError(ex, "Failed to save settings.");
+        }
+    }
+
+    private async Task OpenImportWizardAsync()
+    {
+        if (!await EnsureSetupCompleteAsync())
+        {
+            return;
+        }
+
+        try
+        {
+            AutosaveStatusText.Text = "IMPORTING";
+            var result = await _setupWorkflow.RunImportAsync(this, _windowClosed.Token);
+            if (!result.Completed)
+            {
+                AutosaveStatusText.Text = "IMPORT CANCELLED";
+                CurrentNotePathText.Text = result.Message;
+                return;
+            }
+
+            await RefreshIndexesAsync(force: true);
+            await RefreshTasksAsync();
+            AutosaveStatusText.Text = "IMPORT COMPLETE";
+            CurrentNotePathText.Text = result.Message;
+        }
+        catch (OperationCanceledException) when (_windowClosed.IsCancellationRequested)
+        {
+            _logger.LogDebug("Document import was cancelled because the window closed.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException)
+        {
+            AutosaveStatusText.Text = "IMPORT ERROR";
+            _logger.LogError(ex, "Failed to import existing documents.");
         }
     }
 

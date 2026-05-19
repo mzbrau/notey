@@ -10,6 +10,7 @@ using Notey.App.Diagnostics;
 using Notey.App.Imports;
 using Notey.App.Processing;
 using Notey.App.Platform;
+using Notey.App.Setup;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
@@ -112,6 +113,9 @@ public static class HostBootstrapper
                 services.AddSingleton<NoteyAssistantService>();
                 services.AddSingleton<IMessageImportReader, MsgReaderMessageImportReader>();
                 services.AddSingleton<FileImportService>();
+                services.AddSingleton<VaultBootstrapService>();
+                services.AddSingleton<ExistingDocumentImportService>();
+                services.AddSingleton<ISetupWorkflow, SetupWorkflow>();
                 services.AddSingleton<IRecentNoteChooser, RecentNoteDialogChooser>();
 
                 if (platformRuntime.IsWindows)
