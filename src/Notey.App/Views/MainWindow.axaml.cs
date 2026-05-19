@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -2181,13 +2182,16 @@ public sealed partial class MainWindow : Window
             return [];
         }
 
-        var processed = new List<ProcessedOcrSnippetResult>(pendingOcrSnips.Count);
-        foreach (var pendingOcrSnip in pendingOcrSnips)
+        var allPendingOcrSnips = Task.WhenAll(pendingOcrSnips);
+        try
         {
-            processed.Add(await pendingOcrSnip.WaitAsync(cancellationToken));
+            return await allPendingOcrSnips.WaitAsync(cancellationToken);
         }
-
-        return processed;
+        catch (AggregateException aggregateException)
+        {
+            ExceptionDispatchInfo.Capture(aggregateException.Flatten().InnerExceptions[0]).Throw();
+            return [];
+        }
     }
 
     private DraftProcessingSupplementalMetadata CreateSupplementalMetadata(
