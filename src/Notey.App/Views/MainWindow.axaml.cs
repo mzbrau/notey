@@ -2191,11 +2191,11 @@ public sealed partial class MainWindow : Window
             Hide();
             if (_currentDraft is not null)
             {
-                _ = ProcessCurrentDraftAsync(ProcessTrigger.Close);
+                ObserveBackgroundCloseTask(ProcessCurrentDraftAsync(ProcessTrigger.Close), "processing a draft after hiding to tray");
             }
             else if (_currentFinalNotePath is not null)
             {
-                _ = ProcessCurrentRecentNoteAsync();
+                ObserveBackgroundCloseTask(ProcessCurrentRecentNoteAsync(), "processing a recent note after hiding to tray");
             }
 
             return;
@@ -2221,6 +2221,15 @@ public sealed partial class MainWindow : Window
 
         _isCloseConfirmed = true;
         Close();
+    }
+
+    private void ObserveBackgroundCloseTask(Task task, string operation)
+    {
+        _ = task.ContinueWith(
+            faultedTask => _logger.LogError(faultedTask.Exception, "Background close task failed while {Operation}.", operation),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
     }
 
     private void OnEditorKeyDown(object? sender, KeyEventArgs e)

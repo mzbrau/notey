@@ -88,6 +88,21 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     public AiTextRequest? LastAiRequest => _aiProvider.LastRequest;
 
+    public void BlockAiCompletions()
+    {
+        _aiProvider.BlockCompletions();
+    }
+
+    public Task WaitForAiCompletionStartedAsync(TimeSpan timeout)
+    {
+        return _aiProvider.WaitForCompletionStartedAsync(timeout);
+    }
+
+    public void ReleaseAiCompletions()
+    {
+        _aiProvider.ReleaseCompletions();
+    }
+
     public TextEditor Editor => FindRequired<TextEditor>("NoteEditor");
 
     public string ContextText => FindRequired<TextBlock>("ContextChipText").Text ?? string.Empty;
@@ -146,6 +161,25 @@ internal sealed class MainWindowTestHarness : IDisposable
     public Task DrainAsync()
     {
         return Dispatcher.UIThread.InvokeAsync(() => Dispatcher.UIThread.RunJobs()).GetTask();
+    }
+
+    public async Task WaitForWindowHiddenAsync(TimeSpan timeout)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            await DrainAsync();
+            if (!Window.IsVisible)
+            {
+                return;
+            }
+
+            await Task.Delay(EditorWaitPollInterval, cancellationToken);
+        }
+
+        await DrainAsync();
+        Assert.False(Window.IsVisible);
     }
 
     public async Task WaitForEditorTextAsync(string expectedText, TimeSpan timeout)
@@ -334,6 +368,9 @@ internal sealed class MainWindowTestHarness : IDisposable
 
     private sealed class RecordingAiProvider : IAiProvider
     {
+        private TaskCompletionSource? _completionBlock;
+        private TaskCompletionSource _completionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public string Id => "default";
 
         public string AssistantResponse { get; set; } = """
@@ -346,12 +383,36 @@ internal sealed class MainWindowTestHarness : IDisposable
 
         public AiTextRequest? LastRequest { get; private set; }
 
-        public ValueTask<AiTextResponse> CompleteTextAsync(AiTextRequest request, CancellationToken cancellationToken = default)
+        public void BlockCompletions()
+        {
+            _completionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _completionBlock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        public Task WaitForCompletionStartedAsync(TimeSpan timeout)
+        {
+            return _completionStarted.Task.WaitAsync(timeout);
+        }
+
+        public void ReleaseCompletions()
+        {
+            _completionBlock?.TrySetResult();
+            _completionBlock = null;
+        }
+
+        public async ValueTask<AiTextResponse> CompleteTextAsync(AiTextRequest request, CancellationToken cancellationToken = default)
         {
             LastRequest = request;
+            _completionStarted.TrySetResult();
+            var completionBlock = _completionBlock;
+            if (completionBlock is not null)
+            {
+                await completionBlock.Task.WaitAsync(cancellationToken);
+            }
+
             if (request.Prompt.Contains("\"noteOperations\"", StringComparison.Ordinal))
             {
-                return ValueTask.FromResult(new AiTextResponse(AssistantResponse, Id, "test"));
+                return new AiTextResponse(AssistantResponse, Id, "test");
             }
 
             if (request.Prompt.Contains("Updated recent note body.", StringComparison.Ordinal))
@@ -362,7 +423,7 @@ internal sealed class MainWindowTestHarness : IDisposable
                       "tags": ["updated"]
                     }
                     """;
-                return ValueTask.FromResult(new AiTextResponse(updatedResponse, Id, "test"));
+                return new AiTextResponse(updatedResponse, Id, "test");
             }
 
             const string response = """
@@ -372,7 +433,7 @@ internal sealed class MainWindowTestHarness : IDisposable
                   "tags": ["accounts"]
                 }
                 """;
-            return ValueTask.FromResult(new AiTextResponse(response, Id, "test"));
+            return new AiTextResponse(response, Id, "test");
         }
     }
 

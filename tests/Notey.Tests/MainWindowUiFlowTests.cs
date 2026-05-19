@@ -40,7 +40,58 @@ public async Task Open_recent_note_setup_gate_is_not_reentrant()
     Assert.Empty(harness.RecentNoteChooser.LastRecentNotes);
 }
 
-[AvaloniaFact]
+    [AvaloniaFact]
+    public async Task Close_hides_immediately_in_tray_mode_and_processes_draft_in_background()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        harness.Window.HideInsteadOfClose = true;
+        harness.BlockAiCompletions();
+        var draft = """
+            /meeting
+            /customer Microsoft
+            /topic Accounts
+
+            Capture the implementation plan for the accounts launch.
+            """;
+        var expectedPath = harness.GetExpectedCustomerMeetingPath("Microsoft", "Accounts");
+        await harness.SetEditorTextAsync(draft);
+
+        harness.Window.Close();
+        await harness.DrainAsync();
+
+        Assert.False(harness.Window.IsVisible);
+        await harness.WaitForAiCompletionStartedAsync(TimeSpan.FromSeconds(2));
+        harness.ReleaseAiCompletions();
+        await harness.WaitForFileContainsAsync(expectedPath, "Captured accounts launch context.", TimeSpan.FromSeconds(5));
+    }
+
+    [AvaloniaFact]
+    public async Task RequestExit_waits_for_processing_before_closing_even_in_tray_mode()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        harness.Window.HideInsteadOfClose = true;
+        harness.BlockAiCompletions();
+        var draft = """
+            /meeting
+            /customer Microsoft
+            /topic Accounts
+
+            Capture the implementation plan for the accounts launch.
+            """;
+        var expectedPath = harness.GetExpectedCustomerMeetingPath("Microsoft", "Accounts");
+        await harness.SetEditorTextAsync(draft);
+
+        harness.Window.RequestExit();
+        await harness.WaitForAiCompletionStartedAsync(TimeSpan.FromSeconds(2));
+        await harness.DrainAsync();
+
+        Assert.True(harness.Window.IsVisible);
+        harness.ReleaseAiCompletions();
+        await harness.WaitForWindowHiddenAsync(TimeSpan.FromSeconds(5));
+        await harness.WaitForFileContainsAsync(expectedPath, "Captured accounts launch context.", TimeSpan.FromSeconds(5));
+    }
+
+    [AvaloniaFact]
 public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
     {
         using var harness = await MainWindowTestHarness.CreateAsync();
