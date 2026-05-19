@@ -71,6 +71,7 @@ public sealed partial class MainWindow : Window
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private readonly SemaphoreSlim _taskRefreshGate = new(1, 1);
     private readonly ImagePreviewMargin _imagePreviewMargin = new();
+    private readonly PeopleWikiLinkElementGenerator _peopleWikiLinkGenerator = new();
     private readonly TranslateTransform _tasksPanelTransform = new();
     private readonly NoteDirectiveParser _directiveParser = new();
     private readonly List<string> _directOcrSnippets = [];
@@ -348,8 +349,16 @@ public sealed partial class MainWindow : Window
             CancelIdleProcessing();
             UpdateCompletion();
             UpdateContextChip();
+            RefreshPeopleLinkDisplay();
             ScheduleAutosave();
             ScheduleIdleProcessing();
+        };
+        NoteEditor.TextArea.Caret.PositionChanged += (_, _) => RefreshPeopleLinkDisplay();
+        _peopleWikiLinkGenerator.LinkClicked += (_, e) =>
+        {
+            NoteEditor.CaretOffset = Math.Clamp(e.Span.Offset, 0, NoteEditor.Document.TextLength);
+            RefreshPeopleLinkDisplay();
+            NoteEditor.Focus();
         };
         NoteEditor.TextArea.AddHandler(KeyDownEvent, OnEditorKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         NoteEditor.TextArea.CommandBindings.Add(new RoutedCommandBinding(
@@ -371,6 +380,7 @@ public sealed partial class MainWindow : Window
         NoteEditor.Options.EnableEmailHyperlinks = true;
         ApplyEditorTheme();
         NoteEditor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizingTransformer());
+        NoteEditor.TextArea.TextView.ElementGenerators.Add(_peopleWikiLinkGenerator);
         NoteEditor.TextArea.LeftMargins.Insert(0, _imagePreviewMargin);
         DragDrop.SetAllowDrop(NoteEditor, true);
         DragDrop.AddDragOverHandler(NoteEditor, OnEditorDragOver);
@@ -3095,24 +3105,29 @@ public sealed partial class MainWindow : Window
                 || entity.Name.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase)
                 || entity.Aliases.Any(alias => alias.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase)))
             .Take(8)
+            .Select(entity => (Entity: entity, DisplayName: GetPersonCompletionDisplayName(entity.Name)))
             .Select(entity => new CompletionSuggestion(
-                $"@{entity.Name}",
-                entity.ToWikiLink(),
+                $"@{entity.DisplayName}",
+                ObsidianLinkBuilder.FormatWikiLink(entity.Entity.LinkPath, entity.DisplayName),
                 query.ReplacementStart,
                 query.ReplacementLength,
                 CompletionKind.Person,
-                entity.Name))
+                entity.DisplayName))
             .ToList();
 
-        if (normalizedSearch.Length >= 2 && !suggestions.Any(suggestion => suggestion.DisplayText.Equals($"@{normalizedSearch}", StringComparison.OrdinalIgnoreCase)))
+        if (normalizedSearch.Length >= 2)
         {
-            suggestions.Add(new CompletionSuggestion(
-                $"Create @{normalizedSearch}",
-                normalizedSearch,
-                query.ReplacementStart,
-                query.ReplacementLength,
-                CompletionKind.CreatePerson,
-                normalizedSearch));
+            var displayName = GetPersonCompletionDisplayName(normalizedSearch);
+            if (!suggestions.Any(suggestion => suggestion.DisplayText.Equals($"@{displayName}", StringComparison.OrdinalIgnoreCase)))
+            {
+                suggestions.Add(new CompletionSuggestion(
+                    $"Create @{displayName}",
+                    displayName,
+                    query.ReplacementStart,
+                    query.ReplacementLength,
+                    CompletionKind.CreatePerson,
+                    displayName));
+            }
         }
 
         return suggestions;
@@ -3130,8 +3145,9 @@ public sealed partial class MainWindow : Window
         {
             try
             {
-                var entity = await _vaultEntityStore.EnsureAsync(VaultEntityKind.Person, suggestion.Payload ?? suggestion.InsertionText, _windowClosed.Token);
-                insertionText = entity.ToWikiLink();
+                var displayName = suggestion.Payload ?? suggestion.InsertionText;
+                var entity = await _vaultEntityStore.EnsureAsync(VaultEntityKind.Person, displayName, _windowClosed.Token);
+                insertionText = ObsidianLinkBuilder.FormatWikiLink(entity.LinkPath, displayName);
                 await RefreshIndexesAsync(force: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
@@ -3147,6 +3163,13 @@ public sealed partial class MainWindow : Window
         NoteEditor.CaretOffset = suggestion.ReplacementStart + insertionText.Length;
         HideCompletion();
         NoteEditor.Focus();
+    }
+
+    internal static string GetPersonCompletionDisplayName(string name)
+    {
+        return name.Any(char.IsUpper)
+            ? name
+            : PersonDisplayNameFormatter.ToTitleCase(name);
     }
 
     private void ShowCompletion(IReadOnlyList<CompletionSuggestion> suggestions)
@@ -3691,6 +3714,12 @@ public sealed partial class MainWindow : Window
         var status = NoteEditorStatus.FromText(NoteEditor.Document.Text, NoteEditor.CaretOffset);
         WordCountText.Text = $"WORDS {status.WordCount}";
         CursorPositionText.Text = $"LINE {status.Line}, COL {status.Column}";
+    }
+
+    private void RefreshPeopleLinkDisplay()
+    {
+        _peopleWikiLinkGenerator.SetActiveRange(NoteEditor.CaretOffset, NoteEditor.SelectionStart, NoteEditor.SelectionLength);
+        NoteEditor.TextArea.TextView.Redraw();
     }
 
     private void UpdateCurrentNoteFooter()

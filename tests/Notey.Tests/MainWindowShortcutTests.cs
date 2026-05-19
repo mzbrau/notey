@@ -41,6 +41,15 @@ public sealed class MainWindowShortcutTests
         Assert.Equal(expected, MainWindow.IsAssistantSendShortcut(key, modifiers));
     }
 
+    [Theory]
+    [InlineData("james simpson", "James Simpson")]
+    [InlineData("iOS Team", "iOS Team")]
+    [InlineData("Jane \"JJ\" Doe", "Jane \"JJ\" Doe")]
+    public void GetPersonCompletionDisplayName_title_cases_lowercase_without_rewriting_intentional_casing(string input, string expected)
+    {
+        Assert.Equal(expected, MainWindow.GetPersonCompletionDisplayName(input));
+    }
+
     [Fact]
     public void FormatAssistantResult_shows_full_replace_all_text()
     {
