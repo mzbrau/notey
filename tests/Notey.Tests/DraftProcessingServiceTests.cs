@@ -7,6 +7,7 @@ using Notey.Core.Configuration;
 using Notey.Ocr;
 using Notey.Vault.Abstractions;
 using Notey.Vault.Documents;
+using Notey.Vault.Linking;
 using Notey.Vault.Notes;
 
 namespace Notey.Tests;
@@ -817,6 +818,61 @@ public sealed class DraftProcessingServiceTests : IDisposable
         Assert.Contains("Return the canonical known People name when a match is likely.", request.Prompt, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ProcessOcrSnippetAsync_limits_known_people_prompt_size()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        for (var i = 1; i <= 130; i++)
+        {
+            await WriteFileAsync(Path.Combine(rootPath, "People", $"Person{i:D3}.md"), $$"""
+                ---
+                title: Person{{i:D3}}
+                aliases:
+                  - Alias one for person {{i:D3}}
+                  - Alias two for person {{i:D3}}
+                ---
+                """);
+        }
+
+        var aiProvider = new RecordingAiProvider("""{ "body": "Processed." }""");
+        var service = CreateService(rootPath, aiProvider);
+
+        await service.ProcessOcrSnippetAsync("Met with people", "Existing note context", cancellationToken);
+
+        var request = Assert.Single(aiProvider.Requests);
+        Assert.Contains("- ...and ", request.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("- Person130", request.Prompt, StringComparison.Ordinal);
+
+        var sectionStart = request.Prompt.IndexOf("Known People for matching:", StringComparison.Ordinal);
+        var sectionEnd = request.Prompt.IndexOf("Known People matching rules:", StringComparison.Ordinal);
+        Assert.True(sectionStart >= 0 && sectionEnd > sectionStart);
+        var section = request.Prompt[sectionStart..sectionEnd];
+        var listedPeopleCount = section
+            .Split('\n')
+            .Count(static line => line.StartsWith("- ", StringComparison.Ordinal));
+        Assert.InRange(listedPeopleCount, 1, 101);
+    }
+
+    [Fact]
+    public async Task ProcessOcrSnippetAsync_caches_known_people_prompt_section_for_subsequent_requests()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var rootPath = CreateTempDirectory();
+        var entityStore = new CountingVaultEntityStore(
+            [
+                new VaultEntity(VaultEntityKind.Person, "James Simpson", Path.Combine(rootPath, "People", "James Simpson.md"), "People/James Simpson", ["Jim Simpson"])
+            ]);
+        var aiProvider = new RecordingAiProvider("""{ "body": "Processed." }""");
+        var service = CreateService(rootPath, aiProvider, vaultEntityStore: entityStore);
+
+        await service.ProcessOcrSnippetAsync("First OCR text", "Existing note context", cancellationToken);
+        await service.ProcessOcrSnippetAsync("Second OCR text", "Existing note context", cancellationToken);
+
+        Assert.Equal(1, entityStore.GetAllAsyncCallCount);
+        Assert.Equal(2, aiProvider.Requests.Count);
+    }
+
     private DraftProcessingService CreateService(string rootPath, string aiResponse)
     {
         return CreateService(rootPath, new RecordingAiProvider(aiResponse));
@@ -825,7 +881,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
     private DraftProcessingService CreateService(
         string rootPath,
         IAiProvider aiProvider,
-        ITesseractOcrEngine? ocrEngine = null)
+        ITesseractOcrEngine? ocrEngine = null,
+        TimeProvider? overrideTimeProvider = null,
+        IVaultEntityStore? vaultEntityStore = null)
     {
         var options = new NoteyOptions
         {
@@ -839,8 +897,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
             new FileSystemDocumentStoreIndex(workspace),
             new AiProviderRegistry([aiProvider], "default"),
             ocrEngine ?? new RecordingOcrEngine(),
-            new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)),
-            NullLogger<DraftProcessingService>.Instance);
+            overrideTimeProvider ?? new FixedTimeProvider(new DateTimeOffset(2026, 5, 13, 12, 0, 0, TimeSpan.Zero)),
+            NullLogger<DraftProcessingService>.Instance,
+            vaultEntityStore: vaultEntityStore);
     }
 
     private DraftProcessingService CreateServiceWithoutAi(string rootPath)
@@ -944,6 +1003,22 @@ public sealed class DraftProcessingServiceTests : IDisposable
         public ValueTask<AiTextResponse> CompleteTextAsync(AiTextRequest request, CancellationToken cancellationToken = default)
         {
             throw new AiProviderException("AI provider 'default' has no configured base URL.");
+        }
+    }
+
+    private sealed class CountingVaultEntityStore(IReadOnlyList<VaultEntity> entities) : IVaultEntityStore
+    {
+        public int GetAllAsyncCallCount { get; private set; }
+
+        public Task<IReadOnlyList<VaultEntity>> GetAllAsync(VaultEntityKind kind, CancellationToken cancellationToken = default)
+        {
+            GetAllAsyncCallCount++;
+            return Task.FromResult(entities);
+        }
+
+        public Task<VaultEntity> EnsureAsync(VaultEntityKind kind, string name, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 
