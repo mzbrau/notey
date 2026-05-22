@@ -3,6 +3,7 @@ using Notey.App.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Notey.App.Diagnostics;
+using Velopack;
 
 namespace Notey.App;
 
@@ -11,6 +12,8 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        VelopackApp.Build().Run();
+
         if (DiagnosticsCommand.TryParse(args, out var diagnosticsPath))
         {
             ExportDiagnosticsAsync(args, diagnosticsPath).GetAwaiter().GetResult();

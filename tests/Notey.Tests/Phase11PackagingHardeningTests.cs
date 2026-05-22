@@ -138,6 +138,37 @@ public sealed class Phase11PackagingHardeningTests
     }
 
     [Fact]
+    public void MinVer_versioning_is_configured_for_v_prefixed_release_tags()
+    {
+        var root = FindRepoRoot();
+        var propsPath = Path.Combine(root, "Directory.Build.props");
+        var appProjectPath = Path.Combine(root, "src", "Notey.App", "Notey.App.csproj");
+
+        var props = XDocument.Load(propsPath);
+        var properties = props.Descendants("PropertyGroup").Elements()
+            .ToDictionary(static element => element.Name.LocalName, static element => element.Value);
+        var minVerReference = props.Descendants("PackageReference")
+            .Single(static element => string.Equals((string?)element.Attribute("Include"), "MinVer", StringComparison.Ordinal));
+        var appProject = File.ReadAllText(appProjectPath);
+
+        Assert.Equal("v", properties["MinVerTagPrefix"]);
+        Assert.Equal("all", (string?)minVerReference.Attribute("PrivateAssets"));
+        Assert.DoesNotContain("<Version>0.1.0</Version>", appProject, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void App_registers_Velopack_startup_hook_without_update_prompting()
+    {
+        var root = FindRepoRoot();
+        var appProject = File.ReadAllText(Path.Combine(root, "src", "Notey.App", "Notey.App.csproj"));
+        var program = File.ReadAllText(Path.Combine(root, "src", "Notey.App", "Program.cs"));
+
+        Assert.Contains("<PackageReference Include=\"Velopack\"", appProject, StringComparison.Ordinal);
+        Assert.Contains("VelopackApp.Build().Run();", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("UpdateManager", program, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Docusaurus_docs_have_frontmatter_and_category_files_are_valid_json()
     {
         var docsRoot = Path.Combine(FindRepoRoot(), "docs");
@@ -194,6 +225,55 @@ public sealed class Phase11PackagingHardeningTests
         Assert.Contains("[System.IO.Path]::IsPathRooted($OutputPath)", publishScript, StringComparison.Ordinal);
         Assert.Contains("-p:PublishProfile=\"$publishProfile\"", publishScript, StringComparison.Ordinal);
         Assert.DoesNotContain("-p:PublishSingleFile=true", publishScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Release_workflow_builds_tests_packages_and_publishes_v_tag_releases()
+    {
+        var workflow = File.ReadAllText(Path.Combine(FindRepoRoot(), ".github", "workflows", "release.yml"));
+
+        Assert.Contains("tags:", workflow, StringComparison.Ordinal);
+        Assert.Contains("'v*'", workflow, StringComparison.Ordinal);
+        Assert.Contains("contents: write", workflow, StringComparison.Ordinal);
+        Assert.Contains("fetch-depth: 0", workflow, StringComparison.Ordinal);
+        Assert.Contains("fetch-tags: true", workflow, StringComparison.Ordinal);
+        Assert.Contains("git fetch origin main:refs/remotes/origin/main", workflow, StringComparison.Ordinal);
+        Assert.Contains("git merge-base --is-ancestor", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet restore Notey.slnx", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet msbuild src/Notey.App/Notey.App.csproj -target:MinVer -getProperty:MinVerVersion", workflow, StringComparison.Ordinal);
+        Assert.Contains("Tag version '$tagVersion' does not match MinVer version '$minVerVersion'.", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet build Notey.slnx --configuration Release --no-restore", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet test Notey.slnx --configuration Release --no-build", workflow, StringComparison.Ordinal);
+        Assert.Contains("scripts/publish-windows.ps1", workflow, StringComparison.Ordinal);
+        Assert.Contains("scripts/package-windows.ps1", workflow, StringComparison.Ordinal);
+        Assert.Contains("\"upload\", \"github\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("--merge", workflow, StringComparison.Ordinal);
+        Assert.Contains("--pre", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/upload-artifact", workflow, StringComparison.Ordinal);
+        Assert.Contains("cancel-in-progress: false", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Windows_packaging_script_uses_Velopack_installer_assets()
+    {
+        var script = File.ReadAllText(Path.Combine(FindRepoRoot(), "scripts", "package-windows.ps1"));
+
+        Assert.Contains("[string] $PackageId = \"Notey\"", script, StringComparison.Ordinal);
+        Assert.Contains("[string] $MainExe = \"Notey.exe\"", script, StringComparison.Ordinal);
+        Assert.Contains("[switch] $Prerelease", script, StringComparison.Ordinal);
+        Assert.Contains("Test-PreviousVelopackReleaseExists", script, StringComparison.Ordinal);
+        Assert.Contains("RELEASES.$Channel.json", script, StringComparison.Ordinal);
+        Assert.Contains("\"download\", \"github\"", script, StringComparison.Ordinal);
+        Assert.Contains("No previous Velopack GitHub release assets were found.", script, StringComparison.Ordinal);
+        Assert.Contains("Velopack packaging failed with exit code $LASTEXITCODE.", script, StringComparison.Ordinal);
+        Assert.Contains("Velopack previous-release download failed with exit code $LASTEXITCODE.", script, StringComparison.Ordinal);
+        Assert.Contains("vpk pack", script, StringComparison.Ordinal);
+        Assert.Contains("--packId $PackageId", script, StringComparison.Ordinal);
+        Assert.Contains("--packVersion $Version", script, StringComparison.Ordinal);
+        Assert.Contains("--packDir $publishPathResolved", script, StringComparison.Ordinal);
+        Assert.Contains("--mainExe $MainExe", script, StringComparison.Ordinal);
+        Assert.Contains("--runtime $RuntimeIdentifier", script, StringComparison.Ordinal);
+        Assert.Contains("--channel win", script, StringComparison.Ordinal);
     }
 
     private static string CreateTempDirectory()
