@@ -17,78 +17,78 @@ namespace Notey.Tests;
 public sealed class MainWindowUiFlowTests
 {
     [AvaloniaFact]
-public async Task Toolbar_exposes_import_button()
-{
-    using var harness = await MainWindowTestHarness.CreateAsync();
-
-    Assert.NotNull(harness.Find<Button>("ImportButton"));
-}
-
-[AvaloniaFact]
-public async Task Topic_completion_scopes_to_nearest_dynamic_context_and_shows_target_icons()
-{
-    using var harness = await MainWindowTestHarness.CreateAsync();
-    Directory.CreateDirectory(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery"));
-    await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "roadmap.md"), "# Roadmap");
-    await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery", "accounts.md"), "# Accounts");
-
-    await harness.SetEditorTextAsync("""
-        /customer Microsoft
-        /topic 
-        """);
-
-    var items = await WaitForCompletionItemsAsync(harness, TimeSpan.FromSeconds(2));
-    Assert.Contains(items, static item => item.Contains("📄 roadmap", StringComparison.Ordinal)
-        && item.Contains("Notes/Customers/Microsoft/roadmap.md", StringComparison.Ordinal));
-    Assert.Contains(items, static item => item.Contains("📁 Discovery", StringComparison.Ordinal)
-        && item.Contains("Notes/Customers/Microsoft/Discovery", StringComparison.Ordinal));
-    Assert.DoesNotContain(items, static item => item.Contains("Notes/accounts.md", StringComparison.Ordinal));
-    Assert.True(harness.Find<Border>("CompletionPanel").Margin.Top > 72);
-}
-
-[AvaloniaFact]
-public async Task Open_recent_note_setup_gate_is_not_reentrant()
-{
-    var setupWorkflow = new BlockingSetupWorkflow();
-    using var harness = await MainWindowTestHarness.CreateSetupRequiredWithoutShowingAsync(setupWorkflow);
-
-    var first = harness.Window.OpenRecentFinalNoteAsync();
-    await setupWorkflow.WaitForRunAsync();
-    var second = harness.Window.OpenRecentFinalNoteAsync();
-
-    await second.WaitAsync(TimeSpan.FromSeconds(2));
-    Assert.Equal(1, setupWorkflow.InitialSetupCalls);
-
-    setupWorkflow.Complete(SetupWorkflowResult.Cancelled("Setup cancelled."));
-    await first.WaitAsync(TimeSpan.FromSeconds(2));
-    Assert.Empty(harness.RecentNoteChooser.LastRecentNotes);
-}
-
-private static async Task<IReadOnlyList<string>> WaitForCompletionItemsAsync(
-    MainWindowTestHarness harness,
-    TimeSpan timeout)
-{
-    var cancellationToken = TestContext.Current.CancellationToken;
-    var stopwatch = Stopwatch.StartNew();
-    while (stopwatch.Elapsed < timeout)
+    public async Task Toolbar_exposes_import_button()
     {
-        await harness.DrainAsync();
-        var list = harness.Find<ListBox>("CompletionList");
-        if (list.ItemsSource is IEnumerable source)
-        {
-            var items = source.Cast<object>().Select(static item => item.ToString() ?? string.Empty).ToArray();
-            if (items.Length > 0)
-            {
-                return items;
-            }
-        }
+        using var harness = await MainWindowTestHarness.CreateAsync();
 
-        await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        Assert.NotNull(harness.Find<Button>("ImportButton"));
     }
 
-    await harness.DrainAsync();
-    return [];
-}
+    [AvaloniaFact]
+    public async Task Topic_completion_scopes_to_nearest_dynamic_context_and_shows_target_icons()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        Directory.CreateDirectory(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery"));
+        await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "roadmap.md"), "# Roadmap");
+        await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery", "accounts.md"), "# Accounts");
+
+        await harness.SetEditorTextAsync("""
+            /customer Microsoft
+            /topic 
+            """);
+
+        var items = await WaitForCompletionItemsAsync(harness, TimeSpan.FromSeconds(2));
+        Assert.Contains(items, static item => item.Contains("📄 roadmap", StringComparison.Ordinal)
+            && item.Contains("Notes/Customers/Microsoft/roadmap.md", StringComparison.Ordinal));
+        Assert.Contains(items, static item => item.Contains("📁 Discovery", StringComparison.Ordinal)
+            && item.Contains("Notes/Customers/Microsoft/Discovery", StringComparison.Ordinal));
+        Assert.DoesNotContain(items, static item => item.Contains("Notes/accounts.md", StringComparison.Ordinal));
+        Assert.True(harness.Find<Border>("CompletionPanel").Margin.Top > 72);
+    }
+
+    [AvaloniaFact]
+    public async Task Open_recent_note_setup_gate_is_not_reentrant()
+    {
+        var setupWorkflow = new BlockingSetupWorkflow();
+        using var harness = await MainWindowTestHarness.CreateSetupRequiredWithoutShowingAsync(setupWorkflow);
+
+        var first = harness.Window.OpenRecentFinalNoteAsync();
+        await setupWorkflow.WaitForRunAsync();
+        var second = harness.Window.OpenRecentFinalNoteAsync();
+
+        await second.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(1, setupWorkflow.InitialSetupCalls);
+
+        setupWorkflow.Complete(SetupWorkflowResult.Cancelled("Setup cancelled."));
+        await first.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Empty(harness.RecentNoteChooser.LastRecentNotes);
+    }
+
+    private static async Task<IReadOnlyList<string>> WaitForCompletionItemsAsync(
+        MainWindowTestHarness harness,
+        TimeSpan timeout)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            await harness.DrainAsync();
+            var list = harness.Find<ListBox>("CompletionList");
+            if (list.ItemsSource is IEnumerable source)
+            {
+                var items = source.Cast<object>().Select(static item => item.ToString() ?? string.Empty).ToArray();
+                if (items.Length > 0)
+                {
+                    return items;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        }
+
+        await harness.DrainAsync();
+        return [];
+    }
 
 [AvaloniaFact]
 public async Task Close_hides_immediately_in_tray_mode_and_processes_draft_in_background()

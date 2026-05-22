@@ -3142,10 +3142,12 @@ public sealed partial class MainWindow : Window
         if (string.Equals(query.CommandName, "topic", StringComparison.OrdinalIgnoreCase))
         {
             var context = ResolveTopicSuggestionContext(text, caretOffset);
-            var topics = await _documentStoreIndex.GetTopicTargetSuggestionsAsync(context, _windowClosed.Token);
+            var topics = await _documentStoreIndex.GetTopicTargetSuggestionsAsync(
+                context,
+                _windowClosed.Token,
+                query.SearchText,
+                10);
             return topics
-                .Where(topic => topic.Title.Contains(query.SearchText, StringComparison.OrdinalIgnoreCase))
-                .Take(10)
                 .Select(topic => new CompletionSuggestion(
                     $"{(topic.IsFolder ? "📁" : "📄")} {topic.Title}  {topic.RelativePath}",
                     FormatTopicInsertion(topic),

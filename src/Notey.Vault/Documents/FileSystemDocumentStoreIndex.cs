@@ -88,8 +88,13 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
 
     public async Task<IReadOnlyList<VaultTopicSuggestion>> GetTopicTargetSuggestionsAsync(
         VaultTopicSuggestionContext? context = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? searchText = null,
+        int? maxResults = null)
     {
+        var hasSearchText = !string.IsNullOrWhiteSpace(searchText);
+        var normalizedSearchText = hasSearchText ? searchText!.Trim() : string.Empty;
+        var normalizedMaxResults = maxResults is > 0 ? maxResults.Value : int.MaxValue;
         var paths = workspace.GetPaths();
         if (!Directory.Exists(paths.NotesPath))
         {
@@ -109,8 +114,12 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
                         : suggestion.RelativePath;
                     return new VaultTopicSuggestion(suggestion.Title, suggestion.FilePath, relativePath, kind);
                 })
+                .Where(suggestion => !hasSearchText
+                    || suggestion.Title.Contains(normalizedSearchText, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
-            return DisambiguateTopicSuggestions(globalSuggestions);
+            return DisambiguateTopicSuggestions(globalSuggestions)
+                .Take(normalizedMaxResults)
+                .ToArray();
         }
 
         var basePath = await ResolveDynamicContextFolderAsync(context, cancellationToken);
@@ -119,7 +128,14 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
             return [];
         }
 
-        var suggestions = EnumerateTopicTargetSuggestions(paths, basePath, cancellationToken).ToArray();
+        var suggestions = EnumerateTopicTargetSuggestions(
+                paths,
+                basePath,
+                normalizedSearchText,
+                hasSearchText,
+                normalizedMaxResults,
+                cancellationToken)
+            .ToArray();
         return DisambiguateTopicSuggestions(suggestions);
     }
 
@@ -212,9 +228,13 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
     private static IEnumerable<VaultTopicSuggestion> EnumerateTopicTargetSuggestions(
         VaultPaths paths,
         string basePath,
+        string searchText,
+        bool hasSearchText,
+        int maxResults,
         CancellationToken cancellationToken)
     {
         var stack = new Stack<string>();
+        var resultCount = 0;
         stack.Push(basePath);
         while (stack.Count > 0)
         {
@@ -230,11 +250,20 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
                     continue;
                 }
 
-                yield return new VaultTopicSuggestion(
-                    Path.GetFileName(childDirectory),
-                    childDirectory,
-                    GetRelativePath(paths, childDirectory),
-                    VaultTopicSuggestionKind.Folder);
+                var title = Path.GetFileName(childDirectory);
+                if (!hasSearchText || title.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return new VaultTopicSuggestion(
+                        title,
+                        childDirectory,
+                        GetRelativePath(paths, childDirectory),
+                        VaultTopicSuggestionKind.Folder);
+                    resultCount++;
+                    if (resultCount >= maxResults)
+                    {
+                        yield break;
+                    }
+                }
                 stack.Push(childDirectory);
             }
 
@@ -247,11 +276,20 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
                     continue;
                 }
 
-                yield return new VaultTopicSuggestion(
-                    Path.GetFileNameWithoutExtension(filePath),
-                    filePath,
-                    GetRelativePath(paths, filePath),
-                    VaultTopicSuggestionKind.File);
+                var title = Path.GetFileNameWithoutExtension(filePath);
+                if (!hasSearchText || title.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return new VaultTopicSuggestion(
+                        title,
+                        filePath,
+                        GetRelativePath(paths, filePath),
+                        VaultTopicSuggestionKind.File);
+                    resultCount++;
+                    if (resultCount >= maxResults)
+                    {
+                        yield break;
+                    }
+                }
             }
         }
     }

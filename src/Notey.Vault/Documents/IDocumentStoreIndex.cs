@@ -8,7 +8,9 @@ public interface IDocumentStoreIndex
 
     Task<IReadOnlyList<VaultTopicSuggestion>> GetTopicTargetSuggestionsAsync(
         VaultTopicSuggestionContext? context = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? searchText = null,
+        int? maxResults = null);
 
     Task<IReadOnlyList<VaultDynamicValueSuggestion>> GetDynamicValueSuggestionsAsync(
         string commandName,
