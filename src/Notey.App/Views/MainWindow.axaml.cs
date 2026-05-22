@@ -3069,7 +3069,17 @@ public sealed partial class MainWindow : Window
         ApplyEdit(new MarkdownTextEdit(selectionStart, NoteEditor.SelectionLength, replacementText, caretOffset, 0, caretOffset));
     }
 
-    private async void UpdateCompletion()
+    internal Task ForceCompletionRefreshAsync()
+    {
+        return UpdateCompletionAsync();
+    }
+
+    private void UpdateCompletion()
+    {
+        _ = UpdateCompletionAsync();
+    }
+
+    private async Task UpdateCompletionAsync()
     {
         if (_suppressedCompletionRevision is { } suppressedRevision)
         {
@@ -3381,11 +3391,26 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            var top = visualPosition.Y - textView.ScrollOffset.Y + CompletionPanelVerticalGap;
+            // Convert line-bottom from TextView coordinate space to the parent container's space.
+            // TranslatePoint accounts for all layout offsets (TextEditor borders, padding, etc.)
+            // so the dropdown is placed below the caret line rather than on top of it.
+            var viewportPoint = new Point(0, visualPosition.Y - textView.ScrollOffset.Y);
+            double lineBottomInParent;
+            if (CompletionPanel.Parent is Visual parentVisual)
+            {
+                var translated = textView.TranslatePoint(viewportPoint, parentVisual);
+                lineBottomInParent = translated.HasValue ? translated.Value.Y : viewportPoint.Y;
+            }
+            else
+            {
+                lineBottomInParent = viewportPoint.Y;
+            }
+
+            var top = lineBottomInParent + CompletionPanelVerticalGap;
             var editorHeight = NoteEditor.Bounds.Height;
             if (editorHeight > 0 && top + estimatedPanelHeight > editorHeight)
             {
-                top = visualPosition.Y - textView.ScrollOffset.Y - estimatedPanelHeight - CompletionPanelVerticalGap;
+                top = lineBottomInParent - estimatedPanelHeight - CompletionPanelVerticalGap;
             }
 
             CompletionPanel.Margin = new Thickness(CompletionPanelFallbackLeft, Math.Max(CompletionPanelVerticalGap, top), 0, 0);

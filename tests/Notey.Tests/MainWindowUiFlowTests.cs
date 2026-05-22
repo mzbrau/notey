@@ -32,10 +32,7 @@ public sealed class MainWindowUiFlowTests
         await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Very Long Roadmap Review.md"), "# Roadmap");
         await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery", "accounts.md"), "# Accounts");
 
-        await harness.SetEditorTextAsync("""
-            /customer Microsoft
-            /topic
-            """);
+        await harness.SetEditorTextAsync("/customer Microsoft\n/topic ");
 
         var items = await WaitForCompletionItemsAsync(harness, TimeSpan.FromSeconds(2));
         Assert.Contains(items, static item => item.Contains("📄 Very Long Roadmap Review", StringComparison.Ordinal)
