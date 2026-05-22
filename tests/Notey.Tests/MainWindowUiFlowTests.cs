@@ -575,6 +575,94 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
             .Single(button => string.Equals(ToolTip.GetTip(button)?.ToString(), tooltip, StringComparison.Ordinal));
     }
 
+    [AvaloniaFact]
+    public async Task New_task_shortcut_opens_add_task_form()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+
+        Assert.False(harness.Find<Border>("AddTaskPanel").IsVisible);
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.T,
+            KeyModifiers = KeyModifiers.Control,
+            Source = harness.Editor.TextArea
+        };
+        harness.Editor.TextArea.RaiseEvent(args);
+        await harness.DrainAsync();
+
+        Assert.True(harness.Find<Border>("AddTaskPanel").IsVisible);
+        Assert.True(args.Handled);
+    }
+
+    [AvaloniaFact]
+    public async Task Enter_in_new_task_textbox_creates_task()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var dueDate = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+
+        harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+
+        harness.Find<TextBox>("NewTaskTextBox").Text = "Enter key task";
+        harness.Find<DatePicker>("NewTaskDueDatePicker").SelectedDate = ToPickerDate(dueDate, harness.LocalNow.Offset);
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Enter,
+            KeyModifiers = KeyModifiers.None,
+            Source = harness.Find<TextBox>("NewTaskTextBox")
+        };
+        harness.Find<TextBox>("NewTaskTextBox").RaiseEvent(args);
+
+        var tasksPath = Path.Combine(harness.RootPath, "Notes", "tasks.md");
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Enter key task (due: {dueDate:yyyy-MM-dd})", TimeSpan.FromSeconds(2));
+        await harness.DrainAsync();
+        Assert.False(harness.Find<Border>("AddTaskPanel").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task Tomorrow_button_sets_date_to_tomorrow()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var today = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        var tomorrow = today.AddDays(1);
+
+        harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+
+        harness.Find<Button>("TomorrowButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+
+        var picker = harness.Find<DatePicker>("NewTaskDueDatePicker");
+        Assert.Equal(tomorrow, DateOnly.FromDateTime(picker.SelectedDate!.Value.DateTime));
+    }
+
+    [AvaloniaFact]
+    public async Task Next_week_button_sets_date_to_friday_of_next_week()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var today = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+
+        var daysUntilNextMonday = ((int)DayOfWeek.Monday - (int)today.DayOfWeek + 7) % 7;
+        if (daysUntilNextMonday == 0) daysUntilNextMonday = 7;
+        var fridayOfNextWeek = today.AddDays(daysUntilNextMonday + 4);
+
+        harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+
+        harness.Find<Button>("NextWeekButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await harness.DrainAsync();
+
+        var picker = harness.Find<DatePicker>("NewTaskDueDatePicker");
+        Assert.Equal(fridayOfNextWeek, DateOnly.FromDateTime(picker.SelectedDate!.Value.DateTime));
+        Assert.Equal(DayOfWeek.Friday, fridayOfNextWeek.DayOfWeek);
+    }
+
+
+
     private static Button FindSectionButton(Control root, string title)
     {
         return root.GetVisualDescendants()
