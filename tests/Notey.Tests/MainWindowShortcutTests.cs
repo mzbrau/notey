@@ -53,6 +53,24 @@ public sealed class MainWindowShortcutTests
     }
 
     [Theory]
+    [InlineData(1180, 96, 920)]
+    [InlineData(820, 96, 700)]
+    [InlineData(420, 96, 360)]
+    public void CalculateCompletionPanelWidth_uses_available_editor_width(double editorWidth, double leftOffset, double expected)
+    {
+        Assert.Equal(expected, MainWindow.CalculateCompletionPanelWidth(editorWidth, leftOffset));
+    }
+
+    [Theory]
+    [InlineData(1, 280, 58)]
+    [InlineData(3, 280, 142)]
+    [InlineData(10, 280, 280)]
+    public void EstimateCompletionPanelHeight_uses_suggestion_count_before_flipping(int suggestionCount, double maxHeight, double expected)
+    {
+        Assert.Equal(expected, MainWindow.EstimateCompletionPanelHeight(suggestionCount, maxHeight));
+    }
+
+    [Theory]
     [InlineData("james simpson", "James Simpson")]
     [InlineData("iOS Team", "iOS Team")]
     [InlineData("Jane \"JJ\" Doe", "Jane \"JJ\" Doe")]

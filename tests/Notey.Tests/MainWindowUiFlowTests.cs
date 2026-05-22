@@ -29,21 +29,35 @@ public sealed class MainWindowUiFlowTests
     {
         using var harness = await MainWindowTestHarness.CreateAsync();
         Directory.CreateDirectory(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery"));
-        await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "roadmap.md"), "# Roadmap");
+        await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Very Long Roadmap Review.md"), "# Roadmap");
         await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery", "accounts.md"), "# Accounts");
 
         await harness.SetEditorTextAsync("""
             /customer Microsoft
-            /topic 
+            /topic
             """);
 
         var items = await WaitForCompletionItemsAsync(harness, TimeSpan.FromSeconds(2));
-        Assert.Contains(items, static item => item.Contains("📄 roadmap", StringComparison.Ordinal)
-            && item.Contains("Notes/Customers/Microsoft/roadmap.md", StringComparison.Ordinal));
+        Assert.Contains(items, static item => item.Contains("📄 Very Long Roadmap Review", StringComparison.Ordinal)
+            && item.Contains("Notes/Customers/Microsoft/Very Long Roadmap Review.md", StringComparison.Ordinal));
         Assert.Contains(items, static item => item.Contains("📁 Discovery", StringComparison.Ordinal)
             && item.Contains("Notes/Customers/Microsoft/Discovery", StringComparison.Ordinal));
         Assert.DoesNotContain(items, static item => item.Contains("Notes/accounts.md", StringComparison.Ordinal));
-        Assert.True(harness.Find<Border>("CompletionPanel").Margin.Top > 72);
+        Assert.True(harness.Find<Border>("CompletionPanel").Width >= 640);
+        Assert.True(harness.Find<Border>("CompletionPanel").Margin.Top > 0);
+    }
+
+    [AvaloniaFact]
+    public async Task Slash_command_completion_uses_wide_shared_dropdown()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+
+        await harness.SetEditorTextAsync("/tas");
+
+        var items = await WaitForCompletionItemsAsync(harness, TimeSpan.FromSeconds(2));
+        Assert.Contains(items, static item => item.Contains("/task", StringComparison.Ordinal));
+        Assert.True(harness.Find<Border>("CompletionPanel").Width >= 640);
+        Assert.True(harness.Find<Border>("CompletionPanel").Margin.Top > 0);
     }
 
     [AvaloniaFact]
@@ -89,6 +103,67 @@ public sealed class MainWindowUiFlowTests
         await harness.DrainAsync();
         return [];
     }
+
+[AvaloniaFact]
+public async Task Assistant_prompt_enter_submits_request()
+{
+    using var harness = await MainWindowTestHarness.CreateAsync();
+    var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
+    prompt.Text = "Summarize this note.";
+
+    var args = new KeyEventArgs
+    {
+        RoutedEvent = InputElement.KeyDownEvent,
+        Key = Key.Enter,
+        KeyModifiers = KeyModifiers.None,
+        Source = prompt
+    };
+    prompt.RaiseEvent(args);
+
+    await WaitForAssistantRequestAsync(harness, TimeSpan.FromSeconds(2));
+    Assert.True(args.Handled);
+    Assert.NotNull(harness.LastAiRequest);
+}
+
+[AvaloniaFact]
+public async Task Assistant_prompt_shift_enter_keeps_multiline_behavior()
+{
+    using var harness = await MainWindowTestHarness.CreateAsync();
+    var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
+    prompt.Text = "Line one";
+
+    var args = new KeyEventArgs
+    {
+        RoutedEvent = InputElement.KeyDownEvent,
+        Key = Key.Enter,
+        KeyModifiers = KeyModifiers.Shift,
+        Source = prompt
+    };
+    prompt.RaiseEvent(args);
+    await harness.DrainAsync();
+
+    Assert.False(args.Handled);
+    Assert.Null(harness.LastAiRequest);
+}
+
+private static async Task WaitForAssistantRequestAsync(MainWindowTestHarness harness, TimeSpan timeout)
+{
+    var cancellationToken = TestContext.Current.CancellationToken;
+    var stopwatch = Stopwatch.StartNew();
+    while (stopwatch.Elapsed < timeout)
+    {
+        await harness.DrainAsync();
+        if (harness.LastAiRequest is not null)
+        {
+            return;
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+    }
+
+    await harness.DrainAsync();
+    Assert.NotNull(harness.LastAiRequest);
+}
 
 [AvaloniaFact]
 public async Task Close_hides_immediately_in_tray_mode_and_processes_draft_in_background()
