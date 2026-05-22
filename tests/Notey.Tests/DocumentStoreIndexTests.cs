@@ -66,6 +66,48 @@ public sealed class DocumentStoreIndexTests : IDisposable
         Assert.Equal(["Atlassian", "Microsoft"], suggestions.Select(static suggestion => suggestion.Value));
     }
 
+    [Fact]
+    public async Task GetTopicTargetSuggestionsAsync_scopes_recursively_under_dynamic_context()
+    {
+        var rootPath = CreateTempDirectory();
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Products", "Widget", "Discovery"));
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Products", "Widget", "Meetings"));
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Products", "Widget", "roadmap.assets"));
+        await WriteAsync(rootPath, "Notes/Products/Widget/roadmap.md", "# Roadmap");
+        await WriteAsync(rootPath, "Notes/Products/Widget/Discovery/accounts.md", "# Accounts");
+        await WriteAsync(rootPath, "Notes/Products/Widget/Meetings/2026-05-13.md", "# Meeting");
+        await WriteAsync(rootPath, "Notes/Products/Widget/tasks.md", "# Tasks");
+        var index = CreateIndex(rootPath);
+
+        var suggestions = await index.GetTopicTargetSuggestionsAsync(new VaultTopicSuggestionContext("product", "Widget"));
+
+        Assert.Equal(
+            [
+                "File:Notes/Products/Widget/Discovery/accounts.md",
+                "Folder:Notes/Products/Widget/Discovery",
+                "File:Notes/Products/Widget/roadmap.md"
+            ],
+            suggestions.Select(static suggestion => $"{suggestion.Kind}:{suggestion.RelativePath}"));
+    }
+
+    [Fact]
+    public async Task GetTopicTargetSuggestionsAsync_preserves_global_topic_fallback()
+    {
+        var rootPath = CreateTempDirectory();
+        await WriteAsync(rootPath, "Notes/accounts.md", "# Accounts");
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Topics", "Roadmap"));
+        var index = CreateIndex(rootPath);
+
+        var suggestions = await index.GetTopicTargetSuggestionsAsync();
+
+        Assert.Contains(suggestions, static suggestion => suggestion.Kind == VaultTopicSuggestionKind.File
+            && suggestion.Title == "accounts"
+            && suggestion.RelativePath == "Notes/accounts.md");
+        Assert.Contains(suggestions, static suggestion => suggestion.Kind == VaultTopicSuggestionKind.Folder
+            && suggestion.Title == "Roadmap"
+            && suggestion.RelativePath == "Notes/Topics/Roadmap");
+    }
+
     private static FileSystemDocumentStoreIndex CreateIndex(string rootPath)
     {
         return new FileSystemDocumentStoreIndex(new FileSystemVaultWorkspace(new NoteyOptions
