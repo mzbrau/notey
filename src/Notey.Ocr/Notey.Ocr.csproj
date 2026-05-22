@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="TesseractOCR" Version="5.5.2" />
+    <PackageReference Update="MinVer" Version="7.0.0" />
   </ItemGroup>
 
   <ItemGroup>
