@@ -128,6 +128,17 @@ public sealed class SettingsWindow : Window
                                     CreateField("OCR language", _ocrLanguageInput),
                                     CreateWarning("OCR path changes are saved immediately but may require restart before running existing services."),
                                 ]),
+                                CreateSection("Shortcuts", [
+                                    CreateWarning("On macOS, Ctrl = ⌘. The open-note hotkey is configurable in the Window section above."),
+                                    CreateShortcutRow("Ctrl+T", "New task"),
+                                    CreateShortcutRow("Ctrl+R", "Open recent note"),
+                                    CreateShortcutRow("Ctrl+B", "Bold"),
+                                    CreateShortcutRow("Ctrl+I", "Italic"),
+                                    CreateShortcutRow("Ctrl+Alt+T", "Format tables"),
+                                    CreateShortcutRow("Tab / Shift+Tab", "Indent / Unindent list item"),
+                                    CreateShortcutRow("Ctrl+V", "Paste (with format conversion)"),
+                                    CreateShortcutRow("Enter", "Smart new list item in editor"),
+                                ]),
                             }
                         }
                     }
@@ -196,6 +207,31 @@ public sealed class SettingsWindow : Window
                     FontWeight = FontWeight.SemiBold
                 },
                 input.WithColumn(1)
+            }
+        };
+    }
+
+    private static Control CreateShortcutRow(string keys, string description)
+    {
+        return new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("190,*"),
+            ColumnSpacing = 12,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = keys,
+                    Foreground = Brush.Parse("#8C909F"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontWeight = FontWeight.SemiBold
+                },
+                new TextBlock
+                {
+                    Text = description,
+                    Foreground = Brush.Parse("#C2C6D6"),
+                    VerticalAlignment = VerticalAlignment.Center
+                }.WithColumn(1)
             }
         };
     }

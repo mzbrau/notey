@@ -469,6 +469,26 @@ public sealed partial class MainWindow : Window
                 e.Handled = true;
             }
         };
+
+        NewTaskTextBox.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+            {
+                await AddTaskFromPanelAsync();
+                e.Handled = true;
+            }
+        };
+
+        TomorrowButton.Click += (_, _) =>
+        {
+            var tomorrow = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime).AddDays(1);
+            NewTaskDueDatePicker.SelectedDate = ToPickerDate(tomorrow);
+        };
+
+        NextWeekButton.Click += (_, _) =>
+        {
+            NewTaskDueDatePicker.SelectedDate = ToPickerDate(CalculateFridayOfNextWeek(_timeProvider));
+        };
     }
 
     private void ConfigureAssistantPanel()
@@ -1058,6 +1078,7 @@ public sealed partial class MainWindow : Window
         {
             _tasksPanelVisible = false;
             _taskRefreshTimer.Stop();
+            AddTaskPanel.IsVisible = false;
             await AnimateTasksPanelAsync(0, GetTasksPanelWidth());
             TasksPanel.IsVisible = false;
             TasksPanelResizeHandle.IsVisible = false;
@@ -1111,6 +1132,30 @@ public sealed partial class MainWindow : Window
             NewTaskDueDatePicker.SelectedDate = ToPickerDate(DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime));
             NewTaskTextBox.Focus();
         }
+    }
+
+    private async Task OpenAddTaskPanelAsync()
+    {
+        if (!_tasksPanelVisible)
+        {
+            await ShowTasksPanelAsync();
+        }
+
+        if (!AddTaskPanel.IsVisible)
+        {
+            AddTaskPanel.IsVisible = true;
+            NewTaskDueDatePicker.SelectedDate = ToPickerDate(DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime));
+        }
+
+        NewTaskTextBox.Focus();
+    }
+
+    private static DateOnly CalculateFridayOfNextWeek(TimeProvider timeProvider)
+    {
+        var today = DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime);
+        var daysUntilNextMonday = ((int)DayOfWeek.Monday - (int)today.DayOfWeek + 7) % 7;
+        if (daysUntilNextMonday == 0) daysUntilNextMonday = 7;
+        return today.AddDays(daysUntilNextMonday + 4);
     }
 
     private async Task AddTaskFromPanelAsync()
@@ -2601,13 +2646,18 @@ public sealed partial class MainWindow : Window
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        if (!IsOpenRecentDialogShortcut(e.Key, e.KeyModifiers))
+        if (IsOpenRecentDialogShortcut(e.Key, e.KeyModifiers))
         {
+            _ = OpenRecentFinalNoteAsync();
+            e.Handled = true;
             return;
         }
 
-        _ = OpenRecentFinalNoteAsync();
-        e.Handled = true;
+        if (IsNewTaskShortcut(e.Key, e.KeyModifiers))
+        {
+            _ = OpenAddTaskPanelAsync();
+            e.Handled = true;
+        }
     }
 
     private bool TryHandleCompletionKey(KeyEventArgs e)
@@ -4033,6 +4083,11 @@ public sealed partial class MainWindow : Window
     internal static bool IsOpenRecentDialogShortcut(Key key, KeyModifiers modifiers)
     {
         return key == Key.R && IsCommandModifier(modifiers);
+    }
+
+    internal static bool IsNewTaskShortcut(Key key, KeyModifiers modifiers)
+    {
+        return key == Key.T && IsCommandModifier(modifiers);
     }
 
     internal static bool IsFormatTablesShortcut(Key key, KeyModifiers modifiers)
