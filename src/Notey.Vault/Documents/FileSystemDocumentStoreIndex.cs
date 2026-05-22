@@ -1,4 +1,5 @@
 using Notey.Vault.Abstractions;
+using Notey.Vault.Linking;
 
 namespace Notey.Vault.Documents;
 
@@ -85,6 +86,59 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
         return Task.FromResult<IReadOnlyList<VaultDocumentSuggestion>>(suggestions);
     }
 
+    public async Task<IReadOnlyList<VaultTopicSuggestion>> GetTopicTargetSuggestionsAsync(
+        VaultTopicSuggestionContext? context = null,
+        CancellationToken cancellationToken = default,
+        string? searchText = null,
+        int? maxResults = null)
+    {
+        var hasSearchText = !string.IsNullOrWhiteSpace(searchText);
+        var normalizedSearchText = hasSearchText ? searchText!.Trim() : string.Empty;
+        var normalizedMaxResults = maxResults is > 0 ? maxResults.Value : int.MaxValue;
+        var paths = workspace.GetPaths();
+        if (!Directory.Exists(paths.NotesPath))
+        {
+            return [];
+        }
+
+        if (context is null)
+        {
+            var globalSuggestions = (await GetTopicSuggestionsAsync(cancellationToken))
+                .Select(suggestion =>
+                {
+                    var kind = Directory.Exists(suggestion.FilePath)
+                        ? VaultTopicSuggestionKind.Folder
+                        : VaultTopicSuggestionKind.File;
+                    var relativePath = kind == VaultTopicSuggestionKind.File
+                        ? GetRelativePath(paths, suggestion.FilePath)
+                        : suggestion.RelativePath;
+                    return new VaultTopicSuggestion(suggestion.Title, suggestion.FilePath, relativePath, kind);
+                })
+                .Where(suggestion => !hasSearchText
+                    || suggestion.Title.Contains(normalizedSearchText, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            return DisambiguateTopicSuggestions(globalSuggestions)
+                .Take(normalizedMaxResults)
+                .ToArray();
+        }
+
+        var basePath = await ResolveDynamicContextFolderAsync(context, cancellationToken);
+        if (basePath is null || !Directory.Exists(basePath))
+        {
+            return [];
+        }
+
+        var suggestions = EnumerateTopicTargetSuggestions(
+                paths,
+                basePath,
+                normalizedSearchText,
+                hasSearchText,
+                normalizedMaxResults,
+                cancellationToken)
+            .ToArray();
+        return DisambiguateTopicSuggestions(suggestions);
+    }
+
     public async Task<IReadOnlyList<VaultDynamicValueSuggestion>> GetDynamicValueSuggestionsAsync(
         string commandName,
         CancellationToken cancellationToken = default)
@@ -146,6 +200,121 @@ public sealed class FileSystemDocumentStoreIndex(IVaultWorkspace workspace) : ID
         }
 
         return normalized;
+    }
+
+    private async Task<string?> ResolveDynamicContextFolderAsync(
+        VaultTopicSuggestionContext context,
+        CancellationToken cancellationToken)
+    {
+        var command = (await GetFolderCommandsAsync(cancellationToken))
+            .FirstOrDefault(candidate => string.Equals(candidate.CommandName, context.CommandName.TrimStart('/'), StringComparison.OrdinalIgnoreCase));
+        if (command is null || !Directory.Exists(command.FolderPath))
+        {
+            return null;
+        }
+
+        var expectedName = ObsidianLinkBuilder.GetSafeFileStem(context.Value);
+        var exactDirectory = Directory
+            .EnumerateDirectories(command.FolderPath, "*", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(directory =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return string.Equals(Path.GetFileName(directory), expectedName, StringComparison.OrdinalIgnoreCase);
+            });
+
+        return exactDirectory ?? Path.Combine(command.FolderPath, expectedName);
+    }
+
+    private static IEnumerable<VaultTopicSuggestion> EnumerateTopicTargetSuggestions(
+        VaultPaths paths,
+        string basePath,
+        string searchText,
+        bool hasSearchText,
+        int maxResults,
+        CancellationToken cancellationToken)
+    {
+        var stack = new Stack<string>();
+        var resultCount = 0;
+        stack.Push(basePath);
+        while (stack.Count > 0)
+        {
+            var directory = stack.Pop();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            foreach (var childDirectory in Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly)
+                .OrderBy(static child => child, StringComparer.OrdinalIgnoreCase))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (IsOperationalFolder(childDirectory))
+                {
+                    continue;
+                }
+
+                var title = Path.GetFileName(childDirectory);
+                if (!hasSearchText || title.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return new VaultTopicSuggestion(
+                        title,
+                        childDirectory,
+                        GetRelativePath(paths, childDirectory),
+                        VaultTopicSuggestionKind.Folder);
+                    resultCount++;
+                    if (resultCount >= maxResults)
+                    {
+                        yield break;
+                    }
+                }
+                stack.Push(childDirectory);
+            }
+
+            foreach (var filePath in Directory.EnumerateFiles(directory, "*.md", SearchOption.TopDirectoryOnly)
+                .OrderBy(static file => file, StringComparer.OrdinalIgnoreCase))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (IsOperationalMarkdownFile(filePath))
+                {
+                    continue;
+                }
+
+                var title = Path.GetFileNameWithoutExtension(filePath);
+                if (!hasSearchText || title.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return new VaultTopicSuggestion(
+                        title,
+                        filePath,
+                        GetRelativePath(paths, filePath),
+                        VaultTopicSuggestionKind.File);
+                    resultCount++;
+                    if (resultCount >= maxResults)
+                    {
+                        yield break;
+                    }
+                }
+            }
+        }
+    }
+
+    private static IReadOnlyList<VaultTopicSuggestion> DisambiguateTopicSuggestions(IReadOnlyList<VaultTopicSuggestion> suggestions)
+    {
+        return suggestions
+            .GroupBy(static suggestion => suggestion.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .Select(static group => group.First())
+            .OrderBy(static suggestion => suggestion.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static suggestion => suggestion.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static bool IsOperationalFolder(string directory)
+    {
+        var folderName = Path.GetFileName(directory);
+        return ExcludedTopicFolderNames.Contains(folderName)
+            || string.Equals(folderName, "Draft", StringComparison.OrdinalIgnoreCase)
+            || folderName.EndsWith(".assets", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsOperationalMarkdownFile(string filePath)
+    {
+        return string.Equals(Path.GetFileName(filePath), "tasks.md", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsUnderExcludedTopicFolder(VaultPaths paths, string filePath)

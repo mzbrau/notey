@@ -129,7 +129,7 @@
                 MaxHeight="280"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Top"
-                Margin="96,72,0,0">
+                Margin="96,104,0,0">
           <ListBox x:Name="CompletionList"
                    Classes="autocompleteList"
                    MaxHeight="266" />

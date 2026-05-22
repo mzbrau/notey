@@ -420,6 +420,89 @@ public sealed class DraftProcessingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_appends_explicit_topic_file_target()
+    {
+        var rootPath = CreateTempDirectory();
+        var target = Path.Combine(rootPath, "Notes", "Products", "Widget", "roadmap.md");
+        await WriteFileAsync(target, """
+            ---
+            created: 2026-05-01T00:00:00.0000000+00:00
+            topic: "Roadmap"
+            ---
+            Existing roadmap.
+            """);
+        var service = CreateService(rootPath, """{ "body": "New roadmap note.", "tags": [{ "name": "launch", "confidence": 0.82 }] }""");
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /product Widget
+            /topic Roadmap @ Notes/Products/Widget/roadmap.md
+
+            Raw.
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var content = await File.ReadAllTextAsync(target);
+        Assert.Contains("Existing roadmap.", content);
+        Assert.Contains("New roadmap note.", content);
+        Assert.Contains("topic: \"Roadmap\"", content);
+        Assert.Contains("product: \"Widget\"", content);
+        Assert.Contains("  - \"launch\"", content);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_creates_note_inside_explicit_topic_folder_target()
+    {
+        var rootPath = CreateTempDirectory();
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Products", "Widget", "Discovery"));
+        var service = CreateService(rootPath, """{ "filename": "Next Steps", "body": "Discovery follow-up." }""");
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /product Widget
+            /topic Discovery @ Notes/Products/Widget/Discovery/
+
+            Raw.
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        var target = Path.Combine(rootPath, "Notes", "Products", "Widget", "Discovery", "next steps.md");
+        Assert.True(File.Exists(target));
+        var content = await File.ReadAllTextAsync(target);
+        Assert.Contains("Discovery follow-up.", content);
+        Assert.Contains("topic: \"Discovery\"", content);
+        Assert.Contains("product: \"Widget\"", content);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_preserves_legacy_dynamic_topic_route()
+    {
+        var rootPath = CreateTempDirectory();
+        Directory.CreateDirectory(Path.Combine(rootPath, "Notes", "Products"));
+        var service = CreateService(rootPath, """{ "body": "Legacy product topic." }""");
+        var draft = new NoteDraft(
+            Path.Combine(rootPath, "Notes", "Draft", "draft.md"),
+            """
+            /product Widget
+            /topic Roadmap
+
+            Raw.
+            """,
+            new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
+        await WriteFileAsync(draft.FilePath, draft.Content);
+
+        await service.ProcessAsync(draft, draft.Content);
+
+        Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Products", "Widget", "roadmap.md")));
+    }
+
+    [Fact]
     public async Task ProcessAsync_routes_meeting_without_dynamic_folder_under_notes_meetings()
     {
         var rootPath = CreateTempDirectory();

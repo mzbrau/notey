@@ -34,6 +34,17 @@ Inline commands at the start of draft lines control where final notes are writte
 - `/task Follow up // tomorrow` appends to `Notes/tasks.md`.
 - Dynamic commands such as `/customer Microsoft` route into matching first-level `Notes` folders.
 
+When `/topic` follows a dynamic command, its completion list is scoped to the nearest dynamic command above it. For example, after `/product Widget`, `/topic` suggests markdown files and folders under `Notes/Products/Widget`, including nested entries. File suggestions append to the selected file; folder suggestions create or merge a processed note inside that folder.
+
+Selected scoped topics use inline route syntax so Notey can keep the display title separate from the target path:
+
+```markdown
+/product Widget
+/topic Roadmap @ Notes/Products/Widget/roadmap.md
+
+/topic Discovery @ Notes/Products/Widget/Discovery/
+```
+
 People links are stored under `People`. Project and topic *entity* notes are stored at `Notes/Projects/<project>.md` and `Notes/Topics/<topic>.md`; the matching folders created by the setup wizard are used for routing captured notes, not for entity files.
 
 ## Tasks

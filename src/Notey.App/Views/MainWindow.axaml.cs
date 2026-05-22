@@ -14,6 +14,8 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using AvaloniaEdit;
+using AvaloniaEdit.Document;
+using AvaloniaEdit.Rendering;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Notey.AI.Providers;
@@ -353,7 +355,11 @@ public sealed partial class MainWindow : Window
             ScheduleAutosave();
             ScheduleIdleProcessing();
         };
-        NoteEditor.TextArea.Caret.PositionChanged += (_, _) => RefreshPeopleLinkDisplay();
+        NoteEditor.TextArea.Caret.PositionChanged += (_, _) =>
+        {
+            RefreshPeopleLinkDisplay();
+            PositionCompletionPanel();
+        };
         _peopleWikiLinkGenerator.LinkClicked += (_, e) =>
         {
             NoteEditor.CaretOffset = Math.Clamp(e.Span.Offset, 0, NoteEditor.Document.TextLength);
@@ -381,6 +387,7 @@ public sealed partial class MainWindow : Window
         ApplyEditorTheme();
         NoteEditor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizingTransformer());
         NoteEditor.TextArea.TextView.ElementGenerators.Add(_peopleWikiLinkGenerator);
+        NoteEditor.TextArea.TextView.ScrollOffsetChanged += (_, _) => PositionCompletionPanel();
         NoteEditor.TextArea.LeftMargins.Insert(0, _imagePreviewMargin);
         DragDrop.SetAllowDrop(NoteEditor, true);
         DragDrop.AddDragOverHandler(NoteEditor, OnEditorDragOver);
@@ -3081,7 +3088,7 @@ public sealed partial class MainWindow : Window
         if (SlashCommandParameterQuery.TryCreate(text, caretOffset) is { } parameterQuery)
         {
             await RefreshIndexesAsync();
-            ShowCompletion(await BuildParameterSuggestionsAsync(parameterQuery));
+            ShowCompletion(await BuildParameterSuggestionsAsync(parameterQuery, text, caretOffset));
             return;
         }
 
@@ -3117,7 +3124,10 @@ public sealed partial class MainWindow : Window
             .ToArray();
     }
 
-    private async Task<IReadOnlyList<CompletionSuggestion>> BuildParameterSuggestionsAsync(SlashCommandParameterQuery query)
+    private async Task<IReadOnlyList<CompletionSuggestion>> BuildParameterSuggestionsAsync(
+        SlashCommandParameterQuery query,
+        string text,
+        int caretOffset)
     {
         if (query.IsTaskDueDateQuery)
         {
@@ -3131,11 +3141,22 @@ public sealed partial class MainWindow : Window
 
         if (string.Equals(query.CommandName, "topic", StringComparison.OrdinalIgnoreCase))
         {
-            var topics = await _documentStoreIndex.GetTopicSuggestionsAsync(_windowClosed.Token);
+            var context = ResolveTopicSuggestionContext(text, caretOffset);
+            var topics = await _documentStoreIndex.GetTopicTargetSuggestionsAsync(
+                context,
+                _windowClosed.Token,
+                query.SearchText,
+                10);
             return topics
-                .Where(topic => topic.Title.Contains(query.SearchText, StringComparison.OrdinalIgnoreCase))
-                .Take(10)
-                .Select(topic => new CompletionSuggestion(topic.Title, topic.Title, query.ReplacementStart, query.ReplacementLength, CompletionKind.Text))
+                .Select(topic => new CompletionSuggestion(
+                    $"{(topic.IsFolder ? "📁" : "📄")} {topic.Title}  {topic.RelativePath}",
+                    FormatTopicInsertion(topic),
+                    query.ReplacementStart,
+                    query.ReplacementLength,
+                    topic.IsFolder ? CompletionKind.TopicFolder : CompletionKind.TopicFile,
+                    topic.RelativePath,
+                    topic.IsFolder ? "📁" : "📄",
+                    topic.RelativePath))
                 .ToArray();
         }
 
@@ -3181,6 +3202,83 @@ public sealed partial class MainWindow : Window
         }
 
         return suggestions;
+    }
+
+    private VaultTopicSuggestionContext? ResolveTopicSuggestionContext(string text, int caretOffset)
+    {
+        var lineStart = FindLineStart(text, caretOffset);
+        if (lineStart <= 0 || _folderCommands.Count == 0)
+        {
+            return null;
+        }
+
+        var commandNames = _folderCommands
+            .Select(static command => command.CommandName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var lines = text[..lineStart].Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        for (var index = lines.Length - 1; index >= 0; index--)
+        {
+            if (!TryParseSlashCommandLine(lines[index], out var commandName, out var parameter)
+                || !commandNames.Contains(commandName)
+                || string.IsNullOrWhiteSpace(parameter))
+            {
+                continue;
+            }
+
+            return new VaultTopicSuggestionContext(commandName, NormalizeDirectiveParameter(parameter));
+        }
+
+        return null;
+    }
+
+    private static string FormatTopicInsertion(VaultTopicSuggestion topic)
+    {
+        var targetPath = topic.IsFolder ? $"{topic.RelativePath.TrimEnd('/')}/" : topic.RelativePath;
+        return $"{topic.Title} @ {targetPath}";
+    }
+
+    private static int FindLineStart(string text, int caretOffset)
+    {
+        if (caretOffset == 0)
+        {
+            return 0;
+        }
+
+        var lineStart = text.LastIndexOf('\n', caretOffset - 1);
+        return lineStart < 0 ? 0 : lineStart + 1;
+    }
+
+    private static bool TryParseSlashCommandLine(string line, out string commandName, out string parameter)
+    {
+        commandName = string.Empty;
+        parameter = string.Empty;
+
+        var trimmedStart = line.TrimStart();
+        if (!trimmedStart.StartsWith('/'))
+        {
+            return false;
+        }
+
+        var content = trimmedStart[1..];
+        if (content.Length == 0 || char.IsWhiteSpace(content[0]))
+        {
+            return false;
+        }
+
+        var separator = content.IndexOfAny([' ', '\t']);
+        commandName = separator < 0 ? content : content[..separator];
+        if (commandName.Any(static character => !(char.IsLetterOrDigit(character) || character is '-' or '_')))
+        {
+            return false;
+        }
+
+        parameter = separator < 0 ? string.Empty : NormalizeDirectiveParameter(content[(separator + 1)..]);
+        return true;
+    }
+
+    private static string NormalizeDirectiveParameter(string value)
+    {
+        return string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
     private async Task InsertSelectedCompletionAsync()
@@ -3237,6 +3335,61 @@ public sealed partial class MainWindow : Window
         CompletionList.ItemsSource = suggestions;
         CompletionList.SelectedIndex = ResolveCompletionSelectionIndex(suggestions, selectedSuggestion, selectedIndex);
         CompletionPanel.IsVisible = true;
+        PositionCompletionPanel();
+    }
+
+    private void PositionCompletionPanel()
+    {
+        if (!CompletionPanel.IsVisible || NoteEditor.Document is null)
+        {
+            return;
+        }
+
+        const double fallbackLeft = 96;
+        const double fallbackTop = 104;
+        const double verticalGap = 8;
+        const double estimatedPanelHeight = 280;
+
+        try
+        {
+            if (NoteEditor.Bounds.Height <= 0)
+            {
+                CompletionPanel.Margin = new Thickness(fallbackLeft, fallbackTop, 0, 0);
+                return;
+            }
+
+            var textView = NoteEditor.TextArea.TextView;
+            textView.EnsureVisualLines();
+            var caretOffset = Math.Clamp(NoteEditor.CaretOffset, 0, NoteEditor.Document.TextLength);
+            var location = NoteEditor.Document.GetLocation(caretOffset);
+            var visualPosition = textView.GetVisualPosition(
+                new TextViewPosition(location.Line, location.Column),
+                VisualYPosition.LineBottom);
+            if (visualPosition.Y <= 0)
+            {
+                CompletionPanel.Margin = new Thickness(fallbackLeft, fallbackTop, 0, 0);
+                return;
+            }
+
+            var top = visualPosition.Y - textView.ScrollOffset.Y + verticalGap;
+            var editorHeight = NoteEditor.Bounds.Height;
+            var flipped = false;
+            if (editorHeight > 0 && top + estimatedPanelHeight > editorHeight)
+            {
+                top = visualPosition.Y - textView.ScrollOffset.Y - estimatedPanelHeight - verticalGap;
+                flipped = true;
+            }
+
+            CompletionPanel.Margin = new Thickness(fallbackLeft, flipped ? Math.Max(verticalGap, top) : Math.Max(fallbackTop, top), 0, 0);
+        }
+        catch (InvalidOperationException)
+        {
+            CompletionPanel.Margin = new Thickness(fallbackLeft, fallbackTop, 0, 0);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            CompletionPanel.Margin = new Thickness(fallbackLeft, fallbackTop, 0, 0);
+        }
     }
 
     private void HideCompletion()
@@ -4231,7 +4384,9 @@ public sealed partial class MainWindow : Window
         int ReplacementStart,
         int ReplacementLength,
         CompletionKind Kind,
-        string? Payload = null)
+        string? Payload = null,
+        string Icon = "",
+        string DetailText = "")
     {
         public override string ToString()
         {
@@ -4259,6 +4414,8 @@ public sealed partial class MainWindow : Window
     private enum CompletionKind
     {
         Text,
+        TopicFile,
+        TopicFolder,
         Person,
         CreatePerson
     }

@@ -608,6 +608,11 @@ public sealed partial class DraftProcessingService(
         ProcessedNoteAiResult aiResult,
         DateTimeOffset localNow)
     {
+        if (parsed.TopicTarget is not null)
+        {
+            return ResolveExplicitTopicTargetRoute(paths, parsed, aiResult, localNow);
+        }
+
         var title = FirstNonEmpty(parsed.Topic, aiResult.Filename, aiResult.Title, "note");
         var fileStem = ToFileStem(title);
         var primaryDynamic = parsed.DynamicDirectives.FirstOrDefault();
@@ -633,6 +638,61 @@ public sealed partial class DraftProcessingService(
         }
 
         return new ProcessedNoteRoute(Path.Combine(folderPath, $"{fileStem}.md"), AppendIfExists: true);
+    }
+
+    private static ProcessedNoteRoute ResolveExplicitTopicTargetRoute(
+        VaultPaths paths,
+        ParsedNoteDirectives parsed,
+        ProcessedNoteAiResult aiResult,
+        DateTimeOffset localNow)
+    {
+        var target = parsed.TopicTarget ?? throw new ArgumentException("Parsed directives must include a topic target.", nameof(parsed));
+        var targetPath = ResolveVaultTopicTargetPath(paths, target.RelativePath);
+        var kind = target.Kind switch
+        {
+            TopicTargetKind.File => TopicTargetKind.File,
+            TopicTargetKind.Folder => TopicTargetKind.Folder,
+            _ when Directory.Exists(targetPath) => TopicTargetKind.Folder,
+            _ when File.Exists(targetPath) || string.Equals(Path.GetExtension(targetPath), ".md", StringComparison.OrdinalIgnoreCase) => TopicTargetKind.File,
+            _ => TopicTargetKind.Folder
+        };
+
+        if (kind == TopicTargetKind.File)
+        {
+            return new ProcessedNoteRoute(targetPath, AppendIfExists: true);
+        }
+
+        var folderPath = targetPath;
+        if (parsed.IsMeeting)
+        {
+            var meetingTitle = FirstNonEmpty(aiResult.Filename, aiResult.Title, parsed.Topic, "note");
+            var meetingStem = $"{localNow:yyyy-MM-dd} - {ToFileStem(meetingTitle)}";
+            return new ProcessedNoteRoute(Path.Combine(folderPath, "Meetings", $"{meetingStem}.md"), AppendIfExists: false);
+        }
+
+        var title = FirstNonEmpty(aiResult.Filename, aiResult.Title, parsed.Topic, "note");
+        return new ProcessedNoteRoute(Path.Combine(folderPath, $"{ToFileStem(title)}.md"), AppendIfExists: true);
+    }
+
+    private static string ResolveVaultTopicTargetPath(VaultPaths paths, string relativePath)
+    {
+        var normalizedRelativePath = relativePath.Trim().TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(normalizedRelativePath))
+        {
+            throw new InvalidOperationException("Topic route target cannot be empty.");
+        }
+
+        var fullPath = Path.GetFullPath(Path.Combine(paths.RootPath, normalizedRelativePath));
+        var relativeToNotes = Path.GetRelativePath(paths.NotesPath, fullPath);
+        if (relativeToNotes == ".."
+            || relativeToNotes.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            || relativeToNotes.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal)
+            || Path.IsPathFullyQualified(relativeToNotes))
+        {
+            throw new InvalidOperationException("Topic route targets must be inside the Notes folder.");
+        }
+
+        return fullPath;
     }
 
     private async Task<ProcessedNoteMetadata> BuildMetadataAsync(
@@ -995,6 +1055,7 @@ public sealed partial class DraftProcessingService(
         return new ParsedNoteDirectives(
             ReadYamlBoolean(frontmatter, "meeting"),
             ReadYamlScalar(frontmatter, "topic"),
+            null,
             [],
             ReadYamlDynamicDirectives(frontmatter),
             [],

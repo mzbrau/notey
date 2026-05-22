@@ -20,7 +20,8 @@ public sealed class NoteDirectiveParser
         var dynamic = new List<DynamicNoteDirective>();
         var unknown = new List<UnknownNoteDirective>();
         var isMeeting = false;
-        string? topic = null;
+        string? parsedTopic = null;
+        ParsedTopicTarget? topicTarget = null;
 
         for (var index = 0; index < lines.Length; index++)
         {
@@ -39,9 +40,11 @@ public sealed class NoteDirectiveParser
 
             if (string.Equals(commandName, "topic", StringComparison.OrdinalIgnoreCase))
             {
-                if (!string.IsNullOrWhiteSpace(parameter))
+                var parsed = ParseTopicParameter(parameter);
+                if (!string.IsNullOrWhiteSpace(parsed.Title))
                 {
-                    topic = NormalizeParameter(parameter);
+                    parsedTopic = parsed.Title;
+                    topicTarget = parsed.Target;
                     continue;
                 }
 
@@ -83,11 +86,48 @@ public sealed class NoteDirectiveParser
 
         return new ParsedNoteDirectives(
             isMeeting,
-            topic,
+            parsedTopic,
+            topicTarget,
             tasks,
             dynamic,
             unknown,
             NormalizeBody(bodyLines));
+    }
+
+    private static (string Title, ParsedTopicTarget? Target) ParseTopicParameter(string parameter)
+    {
+        var marker = parameter.IndexOf(" @ ", StringComparison.Ordinal);
+        if (marker < 0)
+        {
+            return (NormalizeParameter(parameter), null);
+        }
+
+        var title = NormalizeParameter(parameter[..marker]);
+        var relativePath = parameter[(marker + 3)..].Trim();
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(relativePath))
+        {
+            return (NormalizeParameter(parameter), null);
+        }
+
+        var normalizedPath = NormalizeTopicTargetPath(relativePath);
+        return (title, new ParsedTopicTarget(normalizedPath.Path, normalizedPath.Kind));
+    }
+
+    private static (string Path, TopicTargetKind Kind) NormalizeTopicTargetPath(string relativePath)
+    {
+        var normalized = relativePath.Trim().Replace('\\', '/');
+        var kind = TopicTargetKind.Unknown;
+        if (normalized.EndsWith("/", StringComparison.Ordinal))
+        {
+            kind = TopicTargetKind.Folder;
+            normalized = normalized.TrimEnd('/');
+        }
+        else if (normalized.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = TopicTargetKind.File;
+        }
+
+        return (normalized, kind);
     }
 
     private static bool TryParseCommandLine(string line, out string commandName, out string parameter)
@@ -155,10 +195,20 @@ public sealed class NoteDirectiveParser
 public sealed record ParsedNoteDirectives(
     bool IsMeeting,
     string? Topic,
+    ParsedTopicTarget? TopicTarget,
     IReadOnlyList<NoteTaskDirective> Tasks,
     IReadOnlyList<DynamicNoteDirective> DynamicDirectives,
     IReadOnlyList<UnknownNoteDirective> UnknownDirectives,
     string Body);
+
+public sealed record ParsedTopicTarget(string RelativePath, TopicTargetKind Kind);
+
+public enum TopicTargetKind
+{
+    Unknown,
+    File,
+    Folder
+}
 
 public sealed record NoteTaskDirective(string Text, DateOnly? DueDate);
 

@@ -39,6 +39,37 @@ public sealed class NoteDirectiveParserTests
     }
 
     [Fact]
+    public void Parse_keeps_topic_title_separate_from_file_target()
+    {
+        var parsed = new NoteDirectiveParser().Parse("""
+            /topic Roadmap @ Notes/Products/Widget/roadmap.md
+
+            Body
+            """, []);
+
+        Assert.Equal("Roadmap", parsed.Topic);
+        Assert.NotNull(parsed.TopicTarget);
+        Assert.Equal("Notes/Products/Widget/roadmap.md", parsed.TopicTarget.RelativePath);
+        Assert.Equal(TopicTargetKind.File, parsed.TopicTarget.Kind);
+        Assert.Equal("Body", parsed.Body);
+    }
+
+    [Fact]
+    public void Parse_keeps_topic_title_separate_from_folder_target()
+    {
+        var parsed = new NoteDirectiveParser().Parse("""
+            /topic Discovery @ Notes/Products/Widget/Discovery/
+
+            Body
+            """, []);
+
+        Assert.Equal("Discovery", parsed.Topic);
+        Assert.NotNull(parsed.TopicTarget);
+        Assert.Equal("Notes/Products/Widget/Discovery", parsed.TopicTarget.RelativePath);
+        Assert.Equal(TopicTargetKind.Folder, parsed.TopicTarget.Kind);
+    }
+
+    [Fact]
     public void Parse_preserves_unknown_commands_in_body()
     {
         var parsed = new NoteDirectiveParser().Parse("""
@@ -48,6 +79,15 @@ public sealed class NoteDirectiveParserTests
 
         Assert.Equal("/unknown value\nBody", parsed.Body);
         Assert.Equal("unknown", Assert.Single(parsed.UnknownDirectives).CommandName);
+    }
+
+    [Fact]
+    public void Parse_legacy_topic_has_no_explicit_target()
+    {
+        var parsed = new NoteDirectiveParser().Parse("/topic Accounts", []);
+
+        Assert.Equal("Accounts", parsed.Topic);
+        Assert.Null(parsed.TopicTarget);
     }
 
     [Fact]
