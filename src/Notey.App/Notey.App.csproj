@@ -26,6 +26,7 @@
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
+    <PackageReference Include="Velopack" Version="0.0.1298" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -36,7 +37,6 @@
     <AssemblyName>Notey</AssemblyName>
     <RootNamespace>Notey.App</RootNamespace>
     <ApplicationIcon>Assets\notey.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
     <Authors>Notey contributors</Authors>
     <Description>Minimal taskbar note capture for Obsidian-compatible vaults.</Description>
     <PackageProjectUrl>https://github.com/mzbrau/notey</PackageProjectUrl>
