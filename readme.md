@@ -18,7 +18,16 @@ The app can save screen snips, process screenshots through configurable typed pi
 
 ## Documentation
 
-Project documentation lives in [`docs/`](docs/intro.md) and is written as Docusaurus-compatible markdown.
+Project documentation lives in [`docs/`](docs/intro.md) and is written as Docusaurus-compatible markdown. A Docusaurus v3 site in [`docs-site/`](docs-site/) publishes the docs to GitHub Pages.
+
+### Run the docs site locally
+
+```bash
+cd docs-site
+npm install
+npm start        # dev server at http://localhost:3000/notey/
+npm run build    # production build → docs-site/build/
+```
 
 ## Build and test
 
