@@ -3438,9 +3438,10 @@ public sealed partial class MainWindow : Window
             return 760;
         }
 
-        return availableWidth < CompletionPanelMinWidth
+        var desiredWidth = availableWidth < CompletionPanelMinWidth
             ? Math.Max(360, availableWidth)
             : Math.Min(CompletionPanelMaxWidth, availableWidth);
+        return Math.Min(desiredWidth, availableWidth);
     }
 
     internal static double EstimateCompletionPanelHeight(int suggestionCount, double maxHeight)

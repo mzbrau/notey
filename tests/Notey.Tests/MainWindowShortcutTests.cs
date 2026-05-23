@@ -55,7 +55,7 @@ public sealed class MainWindowShortcutTests
     [Theory]
     [InlineData(1180, 96, 920)]
     [InlineData(820, 96, 700)]
-    [InlineData(420, 96, 360)]
+    [InlineData(420, 96, 300)]
     public void CalculateCompletionPanelWidth_uses_available_editor_width(double editorWidth, double leftOffset, double expected)
     {
         Assert.Equal(expected, MainWindow.CalculateCompletionPanelWidth(editorWidth, leftOffset));

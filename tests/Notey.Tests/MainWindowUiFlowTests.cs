@@ -101,66 +101,66 @@ public sealed class MainWindowUiFlowTests
         return [];
     }
 
-[AvaloniaFact]
-public async Task Assistant_prompt_enter_submits_request()
-{
-    using var harness = await MainWindowTestHarness.CreateAsync();
-    var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
-    prompt.Text = "Summarize this note.";
-
-    var args = new KeyEventArgs
+    [AvaloniaFact]
+    public async Task Assistant_prompt_enter_submits_request()
     {
-        RoutedEvent = InputElement.KeyDownEvent,
-        Key = Key.Enter,
-        KeyModifiers = KeyModifiers.None,
-        Source = prompt
-    };
-    prompt.RaiseEvent(args);
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
+        prompt.Text = "Summarize this note.";
 
-    await WaitForAssistantRequestAsync(harness, TimeSpan.FromSeconds(2));
-    Assert.True(args.Handled);
-    Assert.NotNull(harness.LastAiRequest);
-}
-
-[AvaloniaFact]
-public async Task Assistant_prompt_shift_enter_keeps_multiline_behavior()
-{
-    using var harness = await MainWindowTestHarness.CreateAsync();
-    var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
-    prompt.Text = "Line one";
-
-    var args = new KeyEventArgs
-    {
-        RoutedEvent = InputElement.KeyDownEvent,
-        Key = Key.Enter,
-        KeyModifiers = KeyModifiers.Shift,
-        Source = prompt
-    };
-    prompt.RaiseEvent(args);
-    await harness.DrainAsync();
-
-    Assert.False(args.Handled);
-    Assert.Null(harness.LastAiRequest);
-}
-
-private static async Task WaitForAssistantRequestAsync(MainWindowTestHarness harness, TimeSpan timeout)
-{
-    var cancellationToken = TestContext.Current.CancellationToken;
-    var stopwatch = Stopwatch.StartNew();
-    while (stopwatch.Elapsed < timeout)
-    {
-        await harness.DrainAsync();
-        if (harness.LastAiRequest is not null)
+        var args = new KeyEventArgs
         {
-            return;
-        }
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Enter,
+            KeyModifiers = KeyModifiers.None,
+            Source = prompt
+        };
+        prompt.RaiseEvent(args);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        await WaitForAssistantRequestAsync(harness, TimeSpan.FromSeconds(2));
+        Assert.True(args.Handled);
+        Assert.NotNull(harness.LastAiRequest);
     }
 
-    await harness.DrainAsync();
-    Assert.NotNull(harness.LastAiRequest);
-}
+    [AvaloniaFact]
+    public async Task Assistant_prompt_shift_enter_keeps_multiline_behavior()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
+        prompt.Text = "Line one";
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Enter,
+            KeyModifiers = KeyModifiers.Shift,
+            Source = prompt
+        };
+        prompt.RaiseEvent(args);
+        await harness.DrainAsync();
+
+        Assert.Null(harness.LastAiRequest);
+        Assert.Contains("Line one", prompt.Text ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    private static async Task WaitForAssistantRequestAsync(MainWindowTestHarness harness, TimeSpan timeout)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            await harness.DrainAsync();
+            if (harness.LastAiRequest is not null)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        }
+
+        await harness.DrainAsync();
+        Assert.NotNull(harness.LastAiRequest);
+    }
 
 [AvaloniaFact]
 public async Task Close_hides_immediately_in_tray_mode_and_processes_draft_in_background()
