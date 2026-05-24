@@ -50,6 +50,8 @@ public sealed class AiOptions
 
     public bool StoreApiKeyInPlaintext { get; set; }
 
+    public bool ReasoningModel { get; set; }
+
     public double PersonConfidenceThreshold { get; set; } = 0.85;
 
     public double TagConfidenceThreshold { get; set; } = 0.75;
@@ -72,6 +74,8 @@ public sealed class AiProviderOptions
     public string ModelName { get; set; } = string.Empty;
 
     public int? RequestTimeoutSeconds { get; set; }
+
+    public bool ReasoningModel { get; set; }
 }
 
 public sealed class OcrOptions

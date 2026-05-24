@@ -144,6 +144,50 @@ public sealed class Phase8PipelineStepTests
     }
 
     [Fact]
+    public async Task Open_ai_provider_sends_temperature_and_max_tokens_for_standard_model()
+    {
+        var handler = new RecordingHandler("""
+            { "choices": [{ "message": { "content": "result" } }] }
+            """);
+        var options = new AiOptions
+        {
+            BaseUrl = "https://example.test/v1",
+            ModelName = "gpt-4o",
+            ApiKey = "key",
+            ReasoningModel = false,
+        };
+
+        var provider = Assert.Single(OpenAiCompatibleAiProviderFactory.CreateProviders(options, () => new HttpClient(handler), NullLoggerFactory.Instance));
+        await provider.CompleteTextAsync(new AiTextRequest("Summarize", Temperature: 0.1, MaxTokens: 1024));
+
+        Assert.Contains("\"temperature\"", handler.RequestBody, StringComparison.Ordinal);
+        Assert.Contains("\"max_tokens\"", handler.RequestBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"max_completion_tokens\"", handler.RequestBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Open_ai_provider_omits_temperature_and_uses_max_completion_tokens_for_reasoning_model()
+    {
+        var handler = new RecordingHandler("""
+            { "choices": [{ "message": { "content": "result" } }] }
+            """);
+        var options = new AiOptions
+        {
+            BaseUrl = "https://example.test/v1",
+            ModelName = "o3",
+            ApiKey = "key",
+            ReasoningModel = true,
+        };
+
+        var provider = Assert.Single(OpenAiCompatibleAiProviderFactory.CreateProviders(options, () => new HttpClient(handler), NullLoggerFactory.Instance));
+        await provider.CompleteTextAsync(new AiTextRequest("Summarize", Temperature: 0.1, MaxTokens: 1024));
+
+        Assert.DoesNotContain("\"temperature\"", handler.RequestBody, StringComparison.Ordinal);
+        Assert.Contains("\"max_completion_tokens\"", handler.RequestBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"max_tokens\"", handler.RequestBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Tesseract_step_uses_configured_ocr_options_and_enriches_context()
     {
         var engine = new RecordingOcrEngine(new OcrResult("hello world", "deu", 0.73, ["low confidence"]));
