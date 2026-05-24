@@ -8,7 +8,7 @@ const config: Config = {
   favicon: 'img/favicon.ico',
 
   url: 'https://mzbrau.github.io',
-  baseUrl: '/notey/',
+  baseUrl: '/',
 
   organizationName: 'mzbrau',
   projectName: 'notey',
