@@ -134,6 +134,7 @@ internal sealed class MainWindowTestHarness : IDisposable
     {
         Editor.Document.Text = text;
         Editor.CaretOffset = Editor.Document.TextLength;
+        await Window.ForceCompletionRefreshAsync();
         await DrainAsync();
     }
 

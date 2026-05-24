@@ -48,6 +48,14 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan TasksPanelAnimationDuration = TimeSpan.FromMilliseconds(140);
     private const double TasksPanelMinWidth = 300;
     private const double TasksPanelMaxWidth = 620;
+    private const double CompletionPanelFallbackLeft = 96;
+    private const double CompletionPanelFallbackTop = 104;
+    private const double CompletionPanelMinWidth = 640;
+    private const double CompletionPanelMaxWidth = 920;
+    private const double CompletionPanelEdgePadding = 24;
+    private const double CompletionPanelRowHeight = 42;
+    private const double CompletionPanelVerticalPadding = 16;
+    private const double CompletionPanelVerticalGap = 8;
 
     private readonly NoteyOptions _options;
     private readonly INoteDraftStore _noteDraftStore;
@@ -506,14 +514,18 @@ public sealed partial class MainWindow : Window
         AssistantPanelResizeHandle.PointerReleased += OnAssistantPanelResizeHandlePointerReleased;
         SetAssistantPanelHeight(AssistantPanel.Height);
         UpdateAssistantButtons();
-        AssistantPromptTextBox.KeyDown += async (_, e) =>
+        AssistantPromptTextBox.AddHandler(KeyDownEvent, OnAssistantPromptKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+    }
+
+    private async void OnAssistantPromptKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (!IsAssistantSendShortcut(e.Key, e.KeyModifiers))
         {
-            if (IsAssistantSendShortcut(e.Key, e.KeyModifiers))
-            {
-                e.Handled = true;
-                await SendAssistantPromptAsync();
-            }
-        };
+            return;
+        }
+
+        e.Handled = true;
+        await SendAssistantPromptAsync();
     }
 
     private void OnAssistantPanelResizeHandlePointerPressed(object? sender, PointerPressedEventArgs e)
@@ -3057,7 +3069,17 @@ public sealed partial class MainWindow : Window
         ApplyEdit(new MarkdownTextEdit(selectionStart, NoteEditor.SelectionLength, replacementText, caretOffset, 0, caretOffset));
     }
 
-    private async void UpdateCompletion()
+    internal Task ForceCompletionRefreshAsync()
+    {
+        return UpdateCompletionAsync();
+    }
+
+    private void UpdateCompletion()
+    {
+        _ = UpdateCompletionAsync();
+    }
+
+    private async Task UpdateCompletionAsync()
     {
         if (_suppressedCompletionRevision is { } suppressedRevision)
         {
@@ -3345,16 +3367,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        const double fallbackLeft = 96;
-        const double fallbackTop = 104;
-        const double verticalGap = 8;
-        const double estimatedPanelHeight = 280;
+        CompletionPanel.Width = CalculateCompletionPanelWidth(NoteEditor.Bounds.Width, CompletionPanelFallbackLeft);
+        var estimatedPanelHeight = EstimateCompletionPanelHeight(_completionSuggestions.Count, CompletionPanel.MaxHeight);
 
         try
         {
             if (NoteEditor.Bounds.Height <= 0)
             {
-                CompletionPanel.Margin = new Thickness(fallbackLeft, fallbackTop, 0, 0);
+                CompletionPanel.Margin = new Thickness(CompletionPanelFallbackLeft, CompletionPanelFallbackTop, 0, 0);
                 return;
             }
 
@@ -3367,29 +3387,74 @@ public sealed partial class MainWindow : Window
                 VisualYPosition.LineBottom);
             if (visualPosition.Y <= 0)
             {
-                CompletionPanel.Margin = new Thickness(fallbackLeft, fallbackTop, 0, 0);
+                CompletionPanel.Margin = new Thickness(CompletionPanelFallbackLeft, CompletionPanelFallbackTop, 0, 0);
                 return;
             }
 
-            var top = visualPosition.Y - textView.ScrollOffset.Y + verticalGap;
-            var editorHeight = NoteEditor.Bounds.Height;
-            var flipped = false;
-            if (editorHeight > 0 && top + estimatedPanelHeight > editorHeight)
+            // Convert line-bottom from TextView coordinate space to the parent container's space.
+            // TranslatePoint accounts for all layout offsets (TextEditor borders, padding, etc.)
+            // so the dropdown is placed below the caret line rather than on top of it.
+            var viewportPoint = new Point(0, visualPosition.Y - textView.ScrollOffset.Y);
+            double lineBottomInParent;
+            if (CompletionPanel.Parent is Visual parentVisual)
             {
-                top = visualPosition.Y - textView.ScrollOffset.Y - estimatedPanelHeight - verticalGap;
-                flipped = true;
+                var translated = textView.TranslatePoint(viewportPoint, parentVisual);
+                lineBottomInParent = translated.HasValue ? translated.Value.Y : viewportPoint.Y;
+            }
+            else
+            {
+                lineBottomInParent = viewportPoint.Y;
             }
 
-            CompletionPanel.Margin = new Thickness(fallbackLeft, flipped ? Math.Max(verticalGap, top) : Math.Max(fallbackTop, top), 0, 0);
+            var top = lineBottomInParent + CompletionPanelVerticalGap;
+            var editorHeight = NoteEditor.Bounds.Height;
+            if (editorHeight > 0 && top + estimatedPanelHeight > editorHeight)
+            {
+                top = lineBottomInParent - estimatedPanelHeight - CompletionPanelVerticalGap;
+            }
+
+            CompletionPanel.Margin = new Thickness(CompletionPanelFallbackLeft, Math.Max(CompletionPanelVerticalGap, top), 0, 0);
         }
         catch (InvalidOperationException)
         {
-            CompletionPanel.Margin = new Thickness(fallbackLeft, fallbackTop, 0, 0);
+            CompletionPanel.Margin = new Thickness(CompletionPanelFallbackLeft, CompletionPanelFallbackTop, 0, 0);
         }
         catch (ArgumentOutOfRangeException)
         {
-            CompletionPanel.Margin = new Thickness(fallbackLeft, fallbackTop, 0, 0);
+            CompletionPanel.Margin = new Thickness(CompletionPanelFallbackLeft, CompletionPanelFallbackTop, 0, 0);
         }
+    }
+
+    internal static double CalculateCompletionPanelWidth(double editorWidth, double leftOffset)
+    {
+        if (editorWidth <= 0)
+        {
+            return 760;
+        }
+
+        var availableWidth = editorWidth - leftOffset - CompletionPanelEdgePadding;
+        if (availableWidth <= 0)
+        {
+            return 760;
+        }
+
+        var desiredWidth = availableWidth < CompletionPanelMinWidth
+            ? Math.Max(360, availableWidth)
+            : Math.Min(CompletionPanelMaxWidth, availableWidth);
+        return Math.Min(desiredWidth, availableWidth);
+    }
+
+    internal static double EstimateCompletionPanelHeight(int suggestionCount, double maxHeight)
+    {
+        if (suggestionCount <= 0)
+        {
+            return 0;
+        }
+
+        var desiredHeight = CompletionPanelVerticalPadding + (CompletionPanelRowHeight * suggestionCount);
+        return maxHeight > 0 && !double.IsNaN(maxHeight)
+            ? Math.Min(maxHeight, desiredHeight)
+            : desiredHeight;
     }
 
     private void HideCompletion()

@@ -125,7 +125,7 @@
         <Border x:Name="CompletionPanel"
                 Classes="autocompletePanel"
                 IsVisible="False"
-                Width="360"
+                Width="760"
                 MaxHeight="280"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Top"

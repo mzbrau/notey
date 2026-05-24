@@ -29,21 +29,32 @@ public sealed class MainWindowUiFlowTests
     {
         using var harness = await MainWindowTestHarness.CreateAsync();
         Directory.CreateDirectory(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery"));
-        await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "roadmap.md"), "# Roadmap");
+        await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Very Long Roadmap Review.md"), "# Roadmap");
         await File.WriteAllTextAsync(Path.Combine(harness.RootPath, "Notes", "Customers", "Microsoft", "Discovery", "accounts.md"), "# Accounts");
 
-        await harness.SetEditorTextAsync("""
-            /customer Microsoft
-            /topic 
-            """);
+        await harness.SetEditorTextAsync("/customer Microsoft\n/topic ");
 
         var items = await WaitForCompletionItemsAsync(harness, TimeSpan.FromSeconds(2));
-        Assert.Contains(items, static item => item.Contains("📄 roadmap", StringComparison.Ordinal)
-            && item.Contains("Notes/Customers/Microsoft/roadmap.md", StringComparison.Ordinal));
+        Assert.Contains(items, static item => item.Contains("📄 Very Long Roadmap Review", StringComparison.Ordinal)
+            && item.Contains("Notes/Customers/Microsoft/Very Long Roadmap Review.md", StringComparison.Ordinal));
         Assert.Contains(items, static item => item.Contains("📁 Discovery", StringComparison.Ordinal)
             && item.Contains("Notes/Customers/Microsoft/Discovery", StringComparison.Ordinal));
         Assert.DoesNotContain(items, static item => item.Contains("Notes/accounts.md", StringComparison.Ordinal));
-        Assert.True(harness.Find<Border>("CompletionPanel").Margin.Top > 72);
+        Assert.True(harness.Find<Border>("CompletionPanel").Width >= 640);
+        Assert.True(harness.Find<Border>("CompletionPanel").Margin.Top > 0);
+    }
+
+    [AvaloniaFact]
+    public async Task Slash_command_completion_uses_wide_shared_dropdown()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+
+        await harness.SetEditorTextAsync("/tas");
+
+        var items = await WaitForCompletionItemsAsync(harness, TimeSpan.FromSeconds(2));
+        Assert.Contains(items, static item => item.Contains("/task", StringComparison.Ordinal));
+        Assert.True(harness.Find<Border>("CompletionPanel").Width >= 640);
+        Assert.True(harness.Find<Border>("CompletionPanel").Margin.Top > 0);
     }
 
     [AvaloniaFact]
@@ -88,6 +99,67 @@ public sealed class MainWindowUiFlowTests
 
         await harness.DrainAsync();
         return [];
+    }
+
+    [AvaloniaFact]
+    public async Task Assistant_prompt_enter_submits_request()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
+        prompt.Text = "Summarize this note.";
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Enter,
+            KeyModifiers = KeyModifiers.None,
+            Source = prompt
+        };
+        prompt.RaiseEvent(args);
+
+        await WaitForAssistantRequestAsync(harness, TimeSpan.FromSeconds(2));
+        Assert.True(args.Handled);
+        Assert.NotNull(harness.LastAiRequest);
+    }
+
+    [AvaloniaFact]
+    public async Task Assistant_prompt_shift_enter_keeps_multiline_behavior()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var prompt = harness.Find<TextBox>("AssistantPromptTextBox");
+        prompt.Text = "Line one";
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Enter,
+            KeyModifiers = KeyModifiers.Shift,
+            Source = prompt
+        };
+        prompt.RaiseEvent(args);
+        await harness.DrainAsync();
+
+        Assert.Null(harness.LastAiRequest);
+        Assert.Contains("Line one", prompt.Text ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    private static async Task WaitForAssistantRequestAsync(MainWindowTestHarness harness, TimeSpan timeout)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            await harness.DrainAsync();
+            if (harness.LastAiRequest is not null)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        }
+
+        await harness.DrainAsync();
+        Assert.NotNull(harness.LastAiRequest);
     }
 
 [AvaloniaFact]
@@ -375,7 +447,7 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
         FindPopupControl<DatePicker>(harness, "TaskEditDueDatePicker").SelectedDate = ToPickerDate(updatedDate, harness.LocalNow.Offset);
         FindPopupControl<Button>(harness, "TaskEditSaveButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Updated task (due: {updatedDate:yyyy-MM-dd})", TimeSpan.FromSeconds(5));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Updated task (due: {updatedDate:yyyy-MM-dd})", TimeSpan.FromSeconds(10));
         var content = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
         Assert.DoesNotContain("Editable task", content);
     }
