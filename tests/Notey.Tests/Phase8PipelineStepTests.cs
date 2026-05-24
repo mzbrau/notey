@@ -188,6 +188,40 @@ public sealed class Phase8PipelineStepTests
     }
 
     [Fact]
+    public async Task Open_ai_provider_entry_inherits_reasoning_model_from_global_options()
+    {
+        var handler = new RecordingHandler("""
+            { "choices": [{ "message": { "content": "result" } }] }
+            """);
+        var options = new AiOptions
+        {
+            BaseUrl = "https://example.test/v1",
+            ModelName = "o3",
+            ApiKey = "key",
+            ReasoningModel = true,
+            Providers =
+            [
+                new AiProviderOptions
+                {
+                    Id = "custom",
+                    Type = "OpenAiCompatible",
+                    BaseUrl = "https://example.test/v2",
+                    ModelName = "o3-mini",
+                    ReasoningModel = null,
+                },
+            ],
+        };
+
+        var providers = OpenAiCompatibleAiProviderFactory.CreateProviders(options, () => new HttpClient(handler), NullLoggerFactory.Instance);
+        var provider = Assert.Single(providers, static candidate => candidate.Id == "custom");
+        await provider.CompleteTextAsync(new AiTextRequest("Summarize", Temperature: 0.1, MaxTokens: 1024));
+
+        Assert.DoesNotContain("\"temperature\"", handler.RequestBody, StringComparison.Ordinal);
+        Assert.Contains("\"max_completion_tokens\"", handler.RequestBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"max_tokens\"", handler.RequestBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Tesseract_step_uses_configured_ocr_options_and_enriches_context()
     {
         var engine = new RecordingOcrEngine(new OcrResult("hello world", "deu", 0.73, ["low confidence"]));
