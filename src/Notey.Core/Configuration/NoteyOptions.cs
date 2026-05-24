@@ -75,7 +75,7 @@ public sealed class AiProviderOptions
 
     public int? RequestTimeoutSeconds { get; set; }
 
-    public bool ReasoningModel { get; set; }
+    public bool? ReasoningModel { get; set; }
 }
 
 public sealed class OcrOptions

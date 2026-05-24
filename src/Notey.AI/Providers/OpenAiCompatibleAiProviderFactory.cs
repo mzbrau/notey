@@ -84,7 +84,7 @@ public static class OpenAiCompatibleAiProviderFactory
             ResolveApiKey(configuredApiKey, environmentVariable),
             environmentVariable,
             string.IsNullOrWhiteSpace(provider.ModelName) ? options.ModelName : provider.ModelName,
-            provider.ReasoningModel);
+            provider.ReasoningModel ?? options.ReasoningModel);
     }
 
     private static string ResolveApiKey(string configuredApiKey, string environmentVariable)

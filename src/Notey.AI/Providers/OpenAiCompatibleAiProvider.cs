@@ -57,16 +57,9 @@ public sealed class OpenAiCompatibleAiProvider(
             ["messages"] = BuildMessages(request),
         };
 
-        if (request.Temperature is not null)
+        if (request.Temperature is not null && !configuration.ReasoningModel)
         {
-            if (configuration.ReasoningModel)
-            {
-                // o1/o3 reasoning models reject temperature values other than 1; omit it entirely.
-            }
-            else
-            {
-                body["temperature"] = request.Temperature;
-            }
+            body["temperature"] = request.Temperature;
         }
 
         if (request.MaxTokens is not null)
