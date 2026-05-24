@@ -60,7 +60,8 @@ public static class OpenAiCompatibleAiProviderFactory
             options.BaseUrl,
             apiKey,
             environmentVariable,
-            options.ModelName);
+            options.ModelName,
+            options.ReasoningModel);
     }
 
     private static OpenAiCompatibleAiProviderConfiguration CreateProviderConfiguration(
@@ -82,7 +83,8 @@ public static class OpenAiCompatibleAiProviderFactory
             string.IsNullOrWhiteSpace(provider.BaseUrl) ? options.BaseUrl : provider.BaseUrl,
             ResolveApiKey(configuredApiKey, environmentVariable),
             environmentVariable,
-            string.IsNullOrWhiteSpace(provider.ModelName) ? options.ModelName : provider.ModelName);
+            string.IsNullOrWhiteSpace(provider.ModelName) ? options.ModelName : provider.ModelName,
+            provider.ReasoningModel);
     }
 
     private static string ResolveApiKey(string configuredApiKey, string environmentVariable)

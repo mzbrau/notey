@@ -59,12 +59,19 @@ public sealed class OpenAiCompatibleAiProvider(
 
         if (request.Temperature is not null)
         {
-            body["temperature"] = request.Temperature;
+            if (configuration.ReasoningModel)
+            {
+                // o1/o3 reasoning models reject temperature values other than 1; omit it entirely.
+            }
+            else
+            {
+                body["temperature"] = request.Temperature;
+            }
         }
 
         if (request.MaxTokens is not null)
         {
-            body["max_tokens"] = request.MaxTokens;
+            body[configuration.ReasoningModel ? "max_completion_tokens" : "max_tokens"] = request.MaxTokens;
         }
 
         if (request.JsonOutput)
@@ -177,4 +184,5 @@ public sealed record OpenAiCompatibleAiProviderConfiguration(
     string BaseUrl,
     string ApiKey,
     string ApiKeyEnvironmentVariable,
-    string ModelName);
+    string ModelName,
+    bool ReasoningModel = false);
