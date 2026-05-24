@@ -140,19 +140,19 @@ interface GalleryItem {
 
 const GALLERY: GalleryItem[] = [
   {
-    src: '/notey/img/table.png',
+    src: '/img/table.png',
     alt: 'Notey markdown table editor',
     caption: 'notey — markdown tables',
     label: 'Smart markdown tables with aligned pipes and Tab navigation between cells.',
   },
   {
-    src: '/notey/img/image-preview.png',
+    src: '/img/image-preview.png',
     alt: 'Notey image preview dialog',
     caption: 'notey — image preview',
     label: 'Preview any embedded image inline with file metadata.',
   },
   {
-    src: '/notey/img/recent-note.png',
+    src: '/img/recent-note.png',
     alt: 'Notey open recent note dialog',
     caption: 'notey — recent notes',
     label: 'Jump back to any recent vault note with a searchable quick-open dialog.',
@@ -176,7 +176,7 @@ export default function Home(): React.ReactElement {
         {/* Logo + wordmark lockup */}
         <div className="hero-logo-lockup">
           <img
-            src="/notey/img/logo.png"
+            src="/img/logo.png"
             alt="Notey logo"
             className="hero-logo"
             width={88}
@@ -198,7 +198,7 @@ export default function Home(): React.ReactElement {
         {/* Hero screenshot */}
         <div className="hero-screenshot reveal">
           <AppScreenshot
-            src="/notey/img/notes.png"
+            src="/img/notes.png"
             alt="Notey main editor showing a topic note with slash commands"
             caption="notey — editor"
           />
@@ -235,7 +235,7 @@ export default function Home(): React.ReactElement {
             <div className="screenshots-feature-row">
               <div className="reveal-left">
                 <AppScreenshot
-                  src="/notey/img/slash-command.png"
+                  src="/img/slash-command.png"
                   alt="Notey slash command autocomplete showing /customer with dropdown options"
                   caption="notey — slash commands"
                 />
@@ -261,7 +261,7 @@ export default function Home(): React.ReactElement {
             <div className="screenshots-feature-row reverse">
               <div className="reveal-right">
                 <AppScreenshot
-                  src="/notey/img/meeting.png"
+                  src="/img/meeting.png"
                   alt="Notey meeting note showing AI-formatted attendees, action items, and decisions"
                   caption="notey — meeting notes"
                 />
@@ -286,7 +286,7 @@ export default function Home(): React.ReactElement {
             <div className="screenshots-feature-row">
               <div className="reveal-left">
                 <AppScreenshot
-                  src="/notey/img/notey-assistant.png"
+                  src="/img/notey-assistant.png"
                   alt="Notey AI assistant proposing table row additions with structured changes preview"
                   caption="notey — AI assistant"
                 />
@@ -311,7 +311,7 @@ export default function Home(): React.ReactElement {
             <div className="screenshots-feature-row reverse">
               <div className="reveal-right">
                 <AppScreenshot
-                  src="/notey/img/tasks.png"
+                  src="/img/tasks.png"
                   alt="Notey task panel showing tasks grouped by This Week, Next Week, and Future"
                   caption="notey — tasks"
                 />

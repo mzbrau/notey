@@ -7,7 +7,7 @@ const config: Config = {
   tagline: 'Minimal note capture for structured, linked Obsidian vaults',
   favicon: 'img/favicon.ico',
 
-  url: 'https://mzbrau.github.io',
+  url: 'https://www.notey-notes.com',
   baseUrl: '/',
 
   organizationName: 'mzbrau',
