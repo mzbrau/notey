@@ -2893,35 +2893,21 @@ public sealed partial class MainWindow : Window
             if (data is not null)
             {
                 var html = await TryGetClipboardHtmlAsync(data);
-                var htmlTableDetected = !string.IsNullOrWhiteSpace(html) && MarkdownTableFormatter.ContainsHtmlTable(html);
-                if (htmlTableDetected && MarkdownTableFormatter.TryConvertHtmlTable(html!, out var htmlTable))
-                {
-                    ReplaceSelection(htmlTable);
-                    return;
-                }
-
                 var rtf = await TryGetClipboardRtfAsync(data);
-                if (!htmlTableDetected
-                    && !string.IsNullOrWhiteSpace(rtf)
-                    && MarkdownTableFormatter.TryConvertRtfTable(rtf, out var rtfTable))
+                var dataText = await data.TryGetTextAsync();
+                var convertedMarkdown = MarkdownClipboardFormatter.TryConvertToMarkdown(html, rtf, dataText, out var structuredHtmlDetected);
+                if (!string.IsNullOrEmpty(convertedMarkdown))
                 {
-                    ReplaceSelection(rtfTable);
+                    ReplaceSelection(convertedMarkdown);
                     return;
                 }
 
-                var dataText = await data.TryGetTextAsync();
                 if (!string.IsNullOrEmpty(dataText))
                 {
-                    if (!htmlTableDetected && MarkdownTableFormatter.TryConvertPlainTextTable(dataText, out var textTable))
-                    {
-                        ReplaceSelection(textTable);
-                        return;
-                    }
-
-                    if (htmlTableDetected || !string.IsNullOrWhiteSpace(rtf))
+                    if (structuredHtmlDetected)
                     {
                         var formatSummary = await GetClipboardFormatSummaryAsync(data);
-                        _logger.LogDebug("Clipboard contained table-like rich data that could not be converted. Formats: {ClipboardFormats}", formatSummary);
+                        _logger.LogDebug("Clipboard contained structured HTML that could not be converted. Formats: {ClipboardFormats}", formatSummary);
                     }
 
                     ReplaceSelection(dataText);
