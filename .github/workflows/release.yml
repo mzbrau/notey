@@ -93,17 +93,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $packageArgs = @(
-            "-Version", $version,
-            "-RuntimeIdentifier", "win-x64",
-            "-PublishPath", "artifacts/publish/Notey-win-x64",
-            "-ReleasePath", "artifacts/release",
-            "-RepoUrl", "https://github.com/${{ github.repository }}",
-            "-GitHubToken", $env:GITHUB_TOKEN
-          )
+          $packageArgs = @{
+            Version = $version
+            RuntimeIdentifier = "win-x64"
+            PublishPath = "artifacts/publish/Notey-win-x64"
+            ReleasePath = "artifacts/release"
+            RepoUrl = "https://github.com/${{ github.repository }}"
+            GitHubToken = $env:GITHUB_TOKEN
+          }
 
           if ($version.Contains("-")) {
-            $packageArgs += "-Prerelease"
+            $packageArgs.Prerelease = $true
           }
 
           ./scripts/package-windows.ps1 @packageArgs
