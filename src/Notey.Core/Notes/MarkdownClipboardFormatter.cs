@@ -147,7 +147,7 @@ public static class MarkdownClipboardFormatter
             builder.Append(indent);
             builder.Append(GetPlainTextMarker(item));
             builder.Append(item.Text);
-            builder.AppendLine();
+            builder.Append('\n');
         }
 
         markdownList = builder.ToString();
@@ -292,7 +292,7 @@ public static class MarkdownClipboardFormatter
                 {
                     "strong" or "b" => $"**{inner}**",
                     "em" or "i" => $"_{inner}_",
-                    "a" when !string.IsNullOrWhiteSpace(element.GetAttribute("href")) => $"[{inner}]({element.GetAttribute("href")})",
+                    "a" when !string.IsNullOrWhiteSpace(element.GetAttribute("href")) => $"[{inner}]({EscapeMarkdownUrl(element.GetAttribute("href")!)})",
                     _ => inner
                 };
                 AppendToken(builder, rendered);
@@ -356,6 +356,14 @@ public static class MarkdownClipboardFormatter
         normalized = ClosingPunctuationSpacingRegex.Replace(normalized, "$1");
         normalized = OpeningPunctuationSpacingRegex.Replace(normalized, "$1");
         return normalized;
+    }
+
+    private static string EscapeMarkdownUrl(string url)
+    {
+        return url
+            .Replace("(", "%28", StringComparison.Ordinal)
+            .Replace(")", "%29", StringComparison.Ordinal)
+            .Replace(" ", "%20", StringComparison.Ordinal);
     }
 
     private static bool TryParsePlainTextListItem(string line, out PlainTextListItem item)

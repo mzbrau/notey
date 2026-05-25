@@ -26,8 +26,8 @@ internal static class ClipboardHtmlUtilities
             return html[startFragment.Value..endFragment.Value];
         }
 
-        var tableStart = html.IndexOf("<table", StringComparison.OrdinalIgnoreCase);
-        return tableStart >= 0 ? html[tableStart..] : html;
+        var firstElement = html.IndexOf('<');
+        return firstElement >= 0 ? html[firstElement..] : html;
     }
 
     internal static string NormalizeWhitespace(string text)
