@@ -641,6 +641,41 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
     }
 
     [AvaloniaFact]
+    public async Task Paste_shortcut_converts_nested_plain_text_list()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+        var clipboard = TopLevel.GetTopLevel(harness.Window)?.Clipboard
+            ?? throw new InvalidOperationException("Clipboard was not available.");
+        await clipboard.SetTextAsync("""
+            • Parent
+                ☐ Child task
+                • Child bullet
+            • Peer
+            """.ReplaceLineEndings("\n"));
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.V,
+            KeyModifiers = KeyModifiers.Control,
+            Source = harness.Editor.TextArea
+        };
+        var expected = """
+            - Parent
+                - [ ] Child task
+                - Child bullet
+            - Peer
+            
+            """.ReplaceLineEndings("\n");
+
+        harness.Editor.TextArea.RaiseEvent(args);
+        await harness.WaitForEditorTextAsync(expected, TimeSpan.FromSeconds(2));
+
+        Assert.True(args.Handled);
+        Assert.Equal(expected, harness.Editor.Document.Text);
+    }
+
+    [AvaloniaFact]
     public async Task Paste_shortcut_does_not_mutate_read_only_editor()
     {
         using var harness = await MainWindowTestHarness.CreateAsync();

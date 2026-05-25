@@ -18,7 +18,6 @@ public static class MarkdownTableFormatter
     private const int MaximumInferredColumnCount = 8;
     private const int MaximumColumnPaddingWidth = 40;
 
-    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
     private static readonly HashSet<string> CommonHeaderNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "name",
@@ -81,7 +80,7 @@ public static class MarkdownTableFormatter
         ArgumentNullException.ThrowIfNull(html);
 
         markdownTable = string.Empty;
-        var fragment = ExtractHtmlFragment(html);
+        var fragment = ClipboardHtmlUtilities.ExtractHtmlFragment(html);
         var normalizedFragment = Regex.Replace(fragment, @"<br\s*/?>", " ", RegexOptions.IgnoreCase);
         var document = new HtmlParser().ParseDocument(normalizedFragment);
         var table = document.QuerySelector("table");
@@ -106,7 +105,7 @@ public static class MarkdownTableFormatter
                 return false;
             }
 
-            rows.Add(cells.Select(static cell => NormalizeClipboardCell(cell.TextContent)).ToList());
+            rows.Add(cells.Select(static cell => ClipboardHtmlUtilities.NormalizeWhitespace(cell.TextContent)).ToList());
         }
 
         return TryBuildMarkdownTable(rows, out markdownTable);
@@ -116,7 +115,7 @@ public static class MarkdownTableFormatter
     {
         ArgumentNullException.ThrowIfNull(html);
 
-        var fragment = ExtractHtmlFragment(html);
+        var fragment = ClipboardHtmlUtilities.ExtractHtmlFragment(html);
         var document = new HtmlParser().ParseDocument(fragment);
         return document.QuerySelector("table") is not null;
     }
@@ -136,7 +135,7 @@ public static class MarkdownTableFormatter
             var rows = new List<IReadOnlyList<string>>();
             foreach (var line in lines)
             {
-                var cells = line.Split('\t').Select(NormalizeClipboardCell).ToList();
+                var cells = line.Split('\t').Select(ClipboardHtmlUtilities.NormalizeWhitespace).ToList();
                 if (cells.Count < 2)
                 {
                     return false;
@@ -231,7 +230,7 @@ public static class MarkdownTableFormatter
 
             if (control.Equals("cell", StringComparison.OrdinalIgnoreCase))
             {
-                currentRow.Add(NormalizeClipboardCell(currentCell.ToString()));
+                currentRow.Add(ClipboardHtmlUtilities.NormalizeWhitespace(currentCell.ToString()));
                 currentCell.Clear();
             }
             else if (control.Equals("row", StringComparison.OrdinalIgnoreCase))
@@ -520,7 +519,7 @@ public static class MarkdownTableFormatter
         markdownTable = string.Empty;
         var cells = text
             .Split('\n', StringSplitOptions.None)
-            .Select(NormalizeClipboardCell)
+            .Select(ClipboardHtmlUtilities.NormalizeWhitespace)
             .ToList();
         TrimEmptyEdges(cells);
 
@@ -1077,51 +1076,10 @@ public static class MarkdownTableFormatter
         return text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
     }
 
-    private static string ExtractHtmlFragment(string html)
-    {
-        if (!html.StartsWith("Version:", StringComparison.OrdinalIgnoreCase))
-        {
-            return html;
-        }
-
-        var startFragment = TryReadCfHtmlOffset(html, "StartFragment:");
-        var endFragment = TryReadCfHtmlOffset(html, "EndFragment:");
-        if (startFragment is not null
-            && endFragment is not null
-            && startFragment.Value >= 0
-            && endFragment.Value > startFragment.Value
-            && endFragment.Value <= html.Length)
-        {
-            return html[startFragment.Value..endFragment.Value];
-        }
-
-        var tableStart = html.IndexOf("<table", StringComparison.OrdinalIgnoreCase);
-        return tableStart >= 0 ? html[tableStart..] : html;
-    }
-
-    private static int? TryReadCfHtmlOffset(string html, string headerName)
-    {
-        var headerStart = html.IndexOf(headerName, StringComparison.OrdinalIgnoreCase);
-        if (headerStart < 0)
-        {
-            return null;
-        }
-
-        var valueStart = headerStart + headerName.Length;
-        var valueEnd = html.IndexOfAny(['\r', '\n'], valueStart);
-        var value = valueEnd < 0 ? html[valueStart..] : html[valueStart..valueEnd];
-        return int.TryParse(value, out var offset) ? offset : null;
-    }
-
     private static bool IsTableCellElement(IElement element)
     {
         return element.LocalName.Equals("td", StringComparison.OrdinalIgnoreCase)
             || element.LocalName.Equals("th", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeClipboardCell(string text)
-    {
-        return WhitespaceRegex.Replace(text.Trim(), " ");
     }
 
     private static string GetLeadingWhitespace(string text)
