@@ -14,6 +14,8 @@ public static class MarkdownClipboardFormatter
     private static readonly Regex UnorderedListMarkerRegex = new(@"^(?<marker>[-*+•◦▪■●○‣])\s+(?<text>.*)$", RegexOptions.Compiled);
     private static readonly Regex OrderedListMarkerRegex = new(@"^(?<marker>(?<number>\d+|[A-Za-z]+)[.)])\s+(?<text>.*)$", RegexOptions.Compiled);
     private static readonly Regex CheckboxTextRegex = new(@"^\[(?<state>[ xX])\]\s*(?<text>.*)$", RegexOptions.Compiled);
+    private static readonly Regex BulletGlyphCellRegex = new(@"^[-*+•◦▪■●○‣]$", RegexOptions.Compiled);
+    private static readonly Regex OrderedNumberCellRegex = new(@"^(\d+|[A-Za-z]+)[.)]$", RegexOptions.Compiled);
 
     public static string? TryConvertToMarkdown(string? html, string? rtf, string? text, out bool structuredHtmlDetected)
     {
@@ -24,6 +26,11 @@ public static class MarkdownClipboardFormatter
             if (MarkdownTableFormatter.ContainsHtmlTable(html))
             {
                 structuredHtmlDetected = true;
+                if (TryConvertHtmlListTable(html, out var htmlListTable))
+                {
+                    return htmlListTable;
+                }
+
                 return MarkdownTableFormatter.TryConvertHtmlTable(html, out var htmlTable) ? htmlTable : null;
             }
 
@@ -42,14 +49,14 @@ public static class MarkdownClipboardFormatter
 
         if (!string.IsNullOrEmpty(text))
         {
-            if (MarkdownTableFormatter.TryConvertPlainTextTable(text, out var textTable))
-            {
-                return textTable;
-            }
-
             if (TryConvertPlainTextList(text, out var textList))
             {
                 return textList;
+            }
+
+            if (MarkdownTableFormatter.TryConvertPlainTextTable(text, out var textTable))
+            {
+                return textTable;
             }
         }
 
@@ -84,6 +91,59 @@ public static class MarkdownClipboardFormatter
         if (lines.Count == 0)
         {
             return false;
+        }
+
+        markdownList = string.Join("\n", lines) + "\n";
+        return true;
+    }
+
+    private static bool TryConvertHtmlListTable(string html, out string markdownList)
+    {
+        markdownList = string.Empty;
+        var fragment = ClipboardHtmlUtilities.ExtractHtmlFragment(html);
+        var normalizedFragment = Regex.Replace(fragment, @"<br\s*/?>", " ", RegexOptions.IgnoreCase);
+        var document = new HtmlParser().ParseDocument(normalizedFragment);
+        var table = document.QuerySelector("table");
+        if (table is null)
+        {
+            return false;
+        }
+
+        var rows = table.QuerySelectorAll("tr")
+            .Select(static row => row.Children
+                .Where(static c => c.LocalName.Equals("td", StringComparison.OrdinalIgnoreCase))
+                .ToList())
+            .Where(static cells => cells.Count > 0)
+            .ToList();
+
+        if (rows.Count < 2 || !rows.All(static cells => cells.Count == 2))
+        {
+            return false;
+        }
+
+        var firstCells = rows
+            .Select(static cells => ClipboardHtmlUtilities.NormalizeWhitespace(cells[0].TextContent))
+            .ToList();
+
+        var allBullets = firstCells.All(c => BulletGlyphCellRegex.IsMatch(c));
+        var allOrdered = !allBullets && firstCells.All(c => OrderedNumberCellRegex.IsMatch(c));
+
+        if (!allBullets && !allOrdered)
+        {
+            return false;
+        }
+
+        var lines = new List<string>(rows.Count);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var itemText = RenderInlineMarkdown(rows[i][1].ChildNodes);
+            if (string.IsNullOrWhiteSpace(itemText))
+            {
+                return false;
+            }
+
+            var marker = allOrdered ? $"{firstCells[i]} " : "- ";
+            lines.Add($"{marker}{itemText}");
         }
 
         markdownList = string.Join("\n", lines) + "\n";

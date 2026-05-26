@@ -104,4 +104,76 @@ public sealed class MarkdownClipboardFormatterTests
         Assert.True(structuredHtmlDetected);
         Assert.Null(markdown);
     }
+
+    [Fact]
+    public void TryConvertToMarkdown_converts_word_tab_separated_bullets_to_list()
+    {
+        var text = "•\tFirst item\n•\tSecond item\n•\tThird item\n";
+
+        var markdown = MarkdownClipboardFormatter.TryConvertToMarkdown(html: null, rtf: null, text, out var structuredHtmlDetected);
+
+        Assert.False(structuredHtmlDetected);
+        Assert.Equal("""
+            - First item
+            - Second item
+            - Third item
+            
+            """.ReplaceLineEndings("\n"), markdown);
+    }
+
+    [Fact]
+    public void TryConvertToMarkdown_converts_word_html_list_layout_table_to_list()
+    {
+        var html = "<table><tr><td>•</td><td>Alpha</td></tr><tr><td>•</td><td>Beta</td></tr><tr><td>•</td><td>Gamma</td></tr></table>";
+
+        var markdown = MarkdownClipboardFormatter.TryConvertToMarkdown(html, rtf: null, text: null, out var structuredHtmlDetected);
+
+        Assert.True(structuredHtmlDetected);
+        Assert.Equal("""
+            - Alpha
+            - Beta
+            - Gamma
+            
+            """.ReplaceLineEndings("\n"), markdown);
+    }
+
+    [Fact]
+    public void TryConvertToMarkdown_converts_word_html_ordered_list_layout_table_to_list()
+    {
+        var html = "<table><tr><td>1.</td><td>First</td></tr><tr><td>2.</td><td>Second</td></tr><tr><td>3.</td><td>Third</td></tr></table>";
+
+        var markdown = MarkdownClipboardFormatter.TryConvertToMarkdown(html, rtf: null, text: null, out var structuredHtmlDetected);
+
+        Assert.True(structuredHtmlDetected);
+        Assert.Equal("""
+            1. First
+            2. Second
+            3. Third
+            
+            """.ReplaceLineEndings("\n"), markdown);
+    }
+
+    [Fact]
+    public void TryConvertToMarkdown_does_not_misidentify_real_html_table_as_list()
+    {
+        var html = "<table><tr><th>Name</th><th>Role</th></tr><tr><td>Alice</td><td>Engineer</td></tr><tr><td>Bob</td><td>Manager</td></tr></table>";
+
+        var markdown = MarkdownClipboardFormatter.TryConvertToMarkdown(html, rtf: null, text: null, out var structuredHtmlDetected);
+
+        Assert.True(structuredHtmlDetected);
+        Assert.NotNull(markdown);
+        Assert.Contains("|", markdown);
+    }
+
+    [Fact]
+    public void TryConvertToMarkdown_does_not_misidentify_tab_delimited_table_as_list()
+    {
+        var text = "Name\tRole\nAlice\tEngineer\nBob\tManager\n";
+
+        var markdown = MarkdownClipboardFormatter.TryConvertToMarkdown(html: null, rtf: null, text, out var structuredHtmlDetected);
+
+        Assert.False(structuredHtmlDetected);
+        Assert.NotNull(markdown);
+        Assert.Contains("|", markdown);
+    }
 }
