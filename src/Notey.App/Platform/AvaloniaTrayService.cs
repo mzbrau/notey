@@ -76,8 +76,8 @@ public sealed class AvaloniaTrayService(ILogger<AvaloniaTrayService> logger) : I
 
     private static WindowIcon? LoadIcon()
     {
-        return LoadIcon("avares://Notey/Assets/notey-tray.png")
-            ?? LoadIcon("avares://Notey/Assets/notey.ico");
+        return LoadIcon("avares://Notey/Assets/notey.ico")
+            ?? LoadIcon("avares://Notey/Assets/notey.png");
     }
 
     private static WindowIcon? LoadIcon(string assetUri)
