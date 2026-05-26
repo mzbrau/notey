@@ -138,21 +138,24 @@ public sealed class Phase11PackagingHardeningTests
     }
 
     [Fact]
-    public void Ocr_project_publishes_windows_native_tesseract_binaries()
+    public void App_project_publishes_windows_native_tesseract_binaries()
     {
-        var projectPath = Path.Combine(FindRepoRoot(), "src", "Notey.Ocr", "Notey.Ocr.csproj");
+        var projectPath = Path.Combine(FindRepoRoot(), "src", "Notey.App", "Notey.App.csproj");
         var xml = XDocument.Load(projectPath);
         var packageReference = xml.Descendants("PackageReference")
             .Single(static element => string.Equals((string?)element.Attribute("Include"), "TesseractOCR", StringComparison.Ordinal));
-        var content = xml.Descendants("Content")
-            .Single(static element => ((string?)element.Attribute("Include"))?.Contains("$(TesseractOcrNativePlatform)", StringComparison.Ordinal) == true);
+        var publishFile = xml.Descendants("ResolvedFileToPublish")
+            .Single(static element => string.Equals((string?)element.Attribute("Include"), "@(TesseractNativeBinary)", StringComparison.Ordinal));
 
         Assert.Equal("true", (string?)packageReference.Attribute("GeneratePathProperty"));
+        Assert.Equal("all", (string?)packageReference.Attribute("PrivateAssets"));
         Assert.Contains("win-x64", xml.ToString(), StringComparison.Ordinal);
         Assert.Contains("win-x86", xml.ToString(), StringComparison.Ordinal);
-        Assert.Contains("$(PkgTesseractOCR)", (string?)content.Attribute("Include"), StringComparison.Ordinal);
-        Assert.Equal(@"$(TesseractOcrNativePlatform)\%(Filename)%(Extension)", (string?)content.Attribute("Link"));
-        Assert.Equal("PreserveNewest", (string?)content.Attribute("CopyToPublishDirectory"));
+        Assert.Contains("ComputeFilesToPublish", xml.ToString(), StringComparison.Ordinal);
+        Assert.Contains("$(PkgTesseractOCR)", xml.ToString(), StringComparison.Ordinal);
+        Assert.Equal(@"$(TesseractOcrNativePlatform)\%(TesseractNativeBinary.Filename)%(TesseractNativeBinary.Extension)", publishFile.Element("RelativePath")?.Value);
+        Assert.Equal("PreserveNewest", publishFile.Element("CopyToPublishDirectory")?.Value);
+        Assert.Equal("true", publishFile.Element("ExcludeFromSingleFile")?.Value);
     }
 
     [Fact]
