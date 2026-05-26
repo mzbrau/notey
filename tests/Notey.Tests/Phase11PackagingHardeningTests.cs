@@ -138,6 +138,24 @@ public sealed class Phase11PackagingHardeningTests
     }
 
     [Fact]
+    public void Ocr_project_publishes_windows_native_tesseract_binaries()
+    {
+        var projectPath = Path.Combine(FindRepoRoot(), "src", "Notey.Ocr", "Notey.Ocr.csproj");
+        var xml = XDocument.Load(projectPath);
+        var packageReference = xml.Descendants("PackageReference")
+            .Single(static element => string.Equals((string?)element.Attribute("Include"), "TesseractOCR", StringComparison.Ordinal));
+        var content = xml.Descendants("Content")
+            .Single(static element => ((string?)element.Attribute("Include"))?.Contains("$(TesseractOcrNativePlatform)", StringComparison.Ordinal) == true);
+
+        Assert.Equal("true", (string?)packageReference.Attribute("GeneratePathProperty"));
+        Assert.Contains("win-x64", xml.ToString(), StringComparison.Ordinal);
+        Assert.Contains("win-x86", xml.ToString(), StringComparison.Ordinal);
+        Assert.Contains("$(PkgTesseractOCR)", (string?)content.Attribute("Include"), StringComparison.Ordinal);
+        Assert.Equal(@"$(TesseractOcrNativePlatform)\%(Filename)%(Extension)", (string?)content.Attribute("Link"));
+        Assert.Equal("PreserveNewest", (string?)content.Attribute("CopyToPublishDirectory"));
+    }
+
+    [Fact]
     public void MinVer_versioning_is_configured_for_v_prefixed_release_tags()
     {
         var root = FindRepoRoot();

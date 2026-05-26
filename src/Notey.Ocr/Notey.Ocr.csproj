@@ -5,7 +5,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="TesseractOCR" Version="5.5.2" />
+    <PackageReference Include="TesseractOCR" Version="5.5.2" GeneratePathProperty="true" />
     <PackageReference Update="MinVer" Version="7.0.0" />
   </ItemGroup>
 
@@ -20,5 +20,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <TesseractOcrNativePlatform Condition="'$(RuntimeIdentifier)' == 'win-x64'">x64</TesseractOcrNativePlatform>
+    <TesseractOcrNativePlatform Condition="'$(RuntimeIdentifier)' == 'win-x86'">x86</TesseractOcrNativePlatform>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TesseractOcrNativePlatform)' != '' and '$(PkgTesseractOCR)' != ''">
+    <Content Include="$(PkgTesseractOCR)\$(TesseractOcrNativePlatform)\*.dll"
+             Link="$(TesseractOcrNativePlatform)\%(Filename)%(Extension)"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 
 </Project>
