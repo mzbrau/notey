@@ -48,7 +48,6 @@
     <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\notey.ico" />
     <AvaloniaResource Include="Assets\notey.png" />
-    <AvaloniaResource Include="Assets\notey-tray.png" />
   </ItemGroup>
 
   <PropertyGroup>
