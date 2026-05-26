@@ -138,6 +138,34 @@ public sealed class Phase11PackagingHardeningTests
     }
 
     [Fact]
+    public void App_project_configures_windows_native_tesseract_binaries_for_publish()
+    {
+        var projectPath = Path.Combine(FindRepoRoot(), "src", "Notey.App", "Notey.App.csproj");
+        var xml = XDocument.Load(projectPath);
+        var packageReference = xml.Descendants("PackageReference")
+            .Single(static element => string.Equals((string?)element.Attribute("Include"), "TesseractOCR", StringComparison.Ordinal));
+        var nativePlatformProperties = xml.Descendants("PropertyGroup")
+            .Elements("TesseractOcrNativePlatform")
+            .ToDictionary(static element => (string?)element.Attribute("Condition"), static element => element.Value);
+        var publishTarget = xml.Descendants("Target")
+            .Single(static element => string.Equals((string?)element.Attribute("Name"), "IncludeTesseractNativeBinariesInPublish", StringComparison.Ordinal));
+        var nativeBinary = publishTarget.Descendants("TesseractNativeBinary").Single();
+        var publishFile = publishTarget.Descendants("ResolvedFileToPublish")
+            .Single(static element => string.Equals((string?)element.Attribute("Include"), "@(TesseractNativeBinary)", StringComparison.Ordinal));
+
+        Assert.Equal("true", (string?)packageReference.Attribute("GeneratePathProperty"));
+        Assert.Equal("all", (string?)packageReference.Attribute("PrivateAssets"));
+        Assert.Equal("x64", nativePlatformProperties["'$(RuntimeIdentifier)' == 'win-x64'"]);
+        Assert.Equal("x86", nativePlatformProperties["'$(RuntimeIdentifier)' == 'win-x86'"]);
+        Assert.Equal("ComputeFilesToPublish", (string?)publishTarget.Attribute("BeforeTargets"));
+        Assert.Equal("'$(TesseractOcrNativePlatform)' != '' and '$(PkgTesseractOCR)' != ''", (string?)publishTarget.Attribute("Condition"));
+        Assert.Equal("$(PkgTesseractOCR)/$(TesseractOcrNativePlatform)/*.dll", (string?)nativeBinary.Attribute("Include"));
+        Assert.Equal(@"$(TesseractOcrNativePlatform)\%(TesseractNativeBinary.Filename)%(TesseractNativeBinary.Extension)", publishFile.Element("RelativePath")?.Value);
+        Assert.Equal("PreserveNewest", publishFile.Element("CopyToPublishDirectory")?.Value);
+        Assert.Equal("true", publishFile.Element("ExcludeFromSingleFile")?.Value);
+    }
+
+    [Fact]
     public void MinVer_versioning_is_configured_for_v_prefixed_release_tags()
     {
         var root = FindRepoRoot();

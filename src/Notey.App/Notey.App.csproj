@@ -26,6 +26,7 @@
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.8" />
+    <PackageReference Include="TesseractOCR" Version="5.5.2" GeneratePathProperty="true" PrivateAssets="all" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
     <PackageReference Update="MinVer" Version="7.0.0" />
   </ItemGroup>
@@ -49,5 +50,23 @@
     <AvaloniaResource Include="Assets\notey.png" />
     <AvaloniaResource Include="Assets\notey-tray.png" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <TesseractOcrNativePlatform Condition="'$(RuntimeIdentifier)' == 'win-x64'">x64</TesseractOcrNativePlatform>
+    <TesseractOcrNativePlatform Condition="'$(RuntimeIdentifier)' == 'win-x86'">x86</TesseractOcrNativePlatform>
+  </PropertyGroup>
+
+  <Target Name="IncludeTesseractNativeBinariesInPublish"
+          BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(TesseractOcrNativePlatform)' != '' and '$(PkgTesseractOCR)' != ''">
+    <ItemGroup>
+      <TesseractNativeBinary Include="$(PkgTesseractOCR)/$(TesseractOcrNativePlatform)/*.dll" />
+      <ResolvedFileToPublish Include="@(TesseractNativeBinary)">
+        <RelativePath>$(TesseractOcrNativePlatform)\%(TesseractNativeBinary.Filename)%(TesseractNativeBinary.Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 
 </Project>
