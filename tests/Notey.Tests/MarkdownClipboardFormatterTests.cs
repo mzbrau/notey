@@ -166,14 +166,36 @@ public sealed class MarkdownClipboardFormatterTests
     }
 
     [Fact]
-    public void TryConvertToMarkdown_does_not_misidentify_tab_delimited_table_as_list()
+    public void TryConvertToMarkdown_converts_word_tab_separated_nested_bullets_to_nested_list()
     {
-        var text = "Name\tRole\nAlice\tEngineer\nBob\tManager\n";
+        var text = "•\tOn\n•\tRo\no\tSlkjf\n•\tstuf\n";
 
         var markdown = MarkdownClipboardFormatter.TryConvertToMarkdown(html: null, rtf: null, text, out var structuredHtmlDetected);
 
         Assert.False(structuredHtmlDetected);
-        Assert.NotNull(markdown);
-        Assert.Contains("|", markdown);
+        Assert.Equal("""
+            - On
+            - Ro
+                - Slkjf
+            - stuf
+            
+            """.ReplaceLineEndings("\n"), markdown);
+    }
+
+    [Fact]
+    public void TryConvertToMarkdown_converts_word_html_list_table_with_sub_bullets_to_nested_list()
+    {
+        var html = "<table><tr><td>•</td><td>On</td></tr><tr><td>•</td><td>Ro</td></tr><tr><td>o</td><td>Slkjf</td></tr><tr><td>•</td><td>stuf</td></tr></table>";
+
+        var markdown = MarkdownClipboardFormatter.TryConvertToMarkdown(html, rtf: null, text: null, out var structuredHtmlDetected);
+
+        Assert.True(structuredHtmlDetected);
+        Assert.Equal("""
+            - On
+            - Ro
+                - Slkjf
+            - stuf
+            
+            """.ReplaceLineEndings("\n"), markdown);
     }
 }

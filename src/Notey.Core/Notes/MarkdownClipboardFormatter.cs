@@ -14,7 +14,7 @@ public static class MarkdownClipboardFormatter
     private static readonly Regex UnorderedListMarkerRegex = new(@"^(?<marker>[-*+•◦▪■●○‣])\s+(?<text>.*)$", RegexOptions.Compiled);
     private static readonly Regex OrderedListMarkerRegex = new(@"^(?<marker>(?<number>\d+|[A-Za-z]+)[.)])\s+(?<text>.*)$", RegexOptions.Compiled);
     private static readonly Regex CheckboxTextRegex = new(@"^\[(?<state>[ xX])\]\s*(?<text>.*)$", RegexOptions.Compiled);
-    private static readonly Regex BulletGlyphCellRegex = new(@"^[-*+•◦▪■●○‣]$", RegexOptions.Compiled);
+    private static readonly Regex BulletGlyphCellRegex = new(@"^[-*+•◦▪■●○‣o]$", RegexOptions.Compiled);
     private static readonly Regex OrderedNumberCellRegex = new(@"^(\d+|[A-Za-z]+)[.)]$", RegexOptions.Compiled);
 
     public static string? TryConvertToMarkdown(string? html, string? rtf, string? text, out bool structuredHtmlDetected)
@@ -142,8 +142,19 @@ public static class MarkdownClipboardFormatter
                 return false;
             }
 
-            var marker = allOrdered ? $"{firstCells[i]} " : "- ";
-            lines.Add($"{marker}{itemText}");
+            string line;
+            if (allOrdered)
+            {
+                line = $"{firstCells[i]} {itemText}";
+            }
+            else
+            {
+                var depth = firstCells[i].Length == 1 ? GetWordBulletGlyphDepth(firstCells[i][0]) : 0;
+                var indent = depth > 0 ? new string(' ', depth * 4) : string.Empty;
+                line = $"{indent}- {itemText}";
+            }
+
+            lines.Add(line);
         }
 
         markdownList = string.Join("\n", lines) + "\n";
@@ -473,6 +484,21 @@ public static class MarkdownClipboardFormatter
             return true;
         }
 
+        // Handle Word sub-bullet characters (e.g. 'o' for level 2) in tab-separated format.
+        if (content.Length >= 3 && content[1] == '\t')
+        {
+            var glyphDepth = GetWordBulletGlyphDepth(content[0]);
+            if (glyphDepth > 0)
+            {
+                var subText = content[2..].Trim();
+                if (!string.IsNullOrWhiteSpace(subText))
+                {
+                    item = PlainTextListItem.Unordered(indent + glyphDepth, subText);
+                    return true;
+                }
+            }
+        }
+
         item = PlainTextListItem.Unordered(0, string.Empty);
         return false;
     }
@@ -553,6 +579,22 @@ public static class MarkdownClipboardFormatter
             PlainTextListKind.Ordered => $"{item.OrderedNumber}. ",
             PlainTextListKind.Task => $"- [{(item.IsChecked ? "x" : " ")}] ",
             _ => "- "
+        };
+    }
+
+    /// <summary>
+    /// Returns the nesting depth for a Word bullet glyph character.
+    /// Word default list levels: • (level 1 / depth 0), o (level 2 / depth 1), ▪/■ (level 3 / depth 2).
+    /// Returns -1 for characters that are not recognised Word bullet glyphs.
+    /// </summary>
+    private static int GetWordBulletGlyphDepth(char glyph)
+    {
+        return glyph switch
+        {
+            '•' or '◦' or '-' or '*' or '+' or '–' or '▶' or '►' => 0,
+            'o' => 1,
+            '▪' or '■' => 2,
+            _ => -1
         };
     }
 
