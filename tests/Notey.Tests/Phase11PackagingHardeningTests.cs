@@ -154,7 +154,9 @@ public sealed class Phase11PackagingHardeningTests
             .Single(static element => string.Equals((string?)element.Attribute("Include"), "@(TesseractNativeBinary)", StringComparison.Ordinal));
 
         Assert.Equal("true", (string?)packageReference.Attribute("GeneratePathProperty"));
-        Assert.Equal("all", (string?)packageReference.Attribute("PrivateAssets"));
+        // PrivateAssets must NOT be "all" — suppressing runtime assets prevents TesseractOCR.dll
+        // from being included in the published single-file bundle.
+        Assert.NotEqual("all", (string?)packageReference.Attribute("PrivateAssets"));
         Assert.Equal("x64", nativePlatformProperties["'$(RuntimeIdentifier)' == 'win-x64'"]);
         Assert.Equal("x86", nativePlatformProperties["'$(RuntimeIdentifier)' == 'win-x86'"]);
         Assert.Equal("ComputeFilesToPublish", (string?)publishTarget.Attribute("BeforeTargets"));
