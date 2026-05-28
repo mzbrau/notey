@@ -1405,7 +1405,7 @@ public sealed partial class MainWindow : Window
             };
             ToolTip.SetTip(moveButton, "Set due today");
             Grid.SetColumn(moveButton, 2);
-            moveButton.Click += async (_, _) => await MoveTaskToThisWeekAsync(task, today);
+            moveButton.Click += async (_, _) => await SetTaskDueDateToTodayAsync(task, today);
             row.Children.Add(moveButton);
         }
 
@@ -1446,7 +1446,7 @@ public sealed partial class MainWindow : Window
                 FontSize = 11
             };
             ToolTip.SetTip(todayButton, "Set due today");
-            todayButton.Click += async (_, _) => await MoveTaskToThisWeekAsync(task, today);
+            todayButton.Click += async (_, _) => await SetTaskDueDateToTodayAsync(task, today);
             dateShiftButtons.Children.Add(todayButton);
         }
         else
@@ -1555,7 +1555,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task MoveTaskToThisWeekAsync(NoteyTask task, DateOnly today)
+    private async Task SetTaskDueDateToTodayAsync(NoteyTask task, DateOnly today)
     {
         try
         {
