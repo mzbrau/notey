@@ -48,7 +48,7 @@ internal static class LocalSettingsPathResolver
             }
         }
 
-        return Path.Combine(AppContext.BaseDirectory);
+        return Path.Combine(AppContext.BaseDirectory, "Notey");
     }
 
     /// <summary>
