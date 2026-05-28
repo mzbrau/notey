@@ -1307,14 +1307,14 @@ public sealed partial class MainWindow : Window
 
         var count = new Border
         {
-            Background = section.Kind == TaskSectionKind.Completed ? Brush.Parse("#1F5F35") : Brush.Parse("#384255"),
+            Background = GetTaskSectionCountBackground(section),
             CornerRadius = new CornerRadius(9),
             MinWidth = 20,
             Height = 20,
             Child = new TextBlock
             {
                 Text = section.Count.ToString(CultureInfo.InvariantCulture),
-                Foreground = Brushes.White,
+                Foreground = section.Count > 0 && section.Kind != TaskSectionKind.Completed ? Brush.Parse("#10131A") : Brushes.White,
                 FontSize = 11,
                 FontWeight = FontWeight.Bold,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
@@ -1344,6 +1344,18 @@ public sealed partial class MainWindow : Window
         }
 
         return container;
+    }
+
+    private static IBrush GetTaskSectionCountBackground(TaskSection section)
+    {
+        if (section.Count == 0)
+        {
+            return Brush.Parse("#384255");
+        }
+
+        return section.Kind == TaskSectionKind.Completed
+            ? Brush.Parse("#1F5F35")
+            : Brush.Parse("#ADC6FF");
     }
 
     private Control CreateTaskRow(NoteyTask task, TaskSectionKind sectionKind, DateOnly today)
@@ -1424,14 +1436,28 @@ public sealed partial class MainWindow : Window
             Spacing = 2,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
-        var previousDayButton = CreateTaskDateShiftButton("M12,17 L6,9 L18,9 Z", "Move task back one day");
-        previousDayButton.IsEnabled = task.DueDate is not null;
-        previousDayButton.Click += async (_, _) => await ShiftTaskDueDateAsync(task, -1);
-        var nextDayButton = CreateTaskDateShiftButton("M12,7 L18,15 L6,15 Z", "Move task forward one day");
-        nextDayButton.IsEnabled = task.DueDate is not null;
-        nextDayButton.Click += async (_, _) => await ShiftTaskDueDateAsync(task, 1);
-        dateShiftButtons.Children.Add(previousDayButton);
-        dateShiftButtons.Children.Add(nextDayButton);
+        if (task.DueDate is null)
+        {
+            var todayButton = new Button
+            {
+                Name = "SetDueTodayButton",
+                Content = "Today",
+                Padding = new Thickness(8, 3),
+                FontSize = 11
+            };
+            ToolTip.SetTip(todayButton, "Set due today");
+            todayButton.Click += async (_, _) => await MoveTaskToThisWeekAsync(task, today);
+            dateShiftButtons.Children.Add(todayButton);
+        }
+        else
+        {
+            var previousDayButton = CreateTaskDateShiftButton("M12,17 L6,9 L18,9 Z", "Move task back one day");
+            previousDayButton.Click += async (_, _) => await ShiftTaskDueDateAsync(task, -1);
+            var nextDayButton = CreateTaskDateShiftButton("M12,7 L18,15 L6,15 Z", "Move task forward one day");
+            nextDayButton.Click += async (_, _) => await ShiftTaskDueDateAsync(task, 1);
+            dateShiftButtons.Children.Add(previousDayButton);
+            dateShiftButtons.Children.Add(nextDayButton);
+        }
         Grid.SetColumn(dateShiftButtons, 4);
         row.Children.Add(dateShiftButtons);
 
