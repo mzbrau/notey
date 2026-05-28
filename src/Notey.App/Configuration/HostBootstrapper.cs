@@ -35,11 +35,14 @@ public static class HostBootstrapper
 
     public static IHost Create(string[] args)
     {
+        LocalSettingsPathResolver.MigrateIfNeeded();
+        var localSettingsPath = LocalSettingsPathResolver.Resolve();
+
         return Host
             .CreateDefaultBuilder(args)
             .ConfigureAppConfiguration(configuration =>
             {
-                configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+                configuration.AddJsonFile(localSettingsPath, optional: true, reloadOnChange: true);
             })
             .UseSerilog((context, _, loggerConfiguration) =>
             {

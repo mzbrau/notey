@@ -163,7 +163,7 @@ public sealed class SettingsWindow : Window
                 },
                 new TextBlock
                 {
-                    Text = "Local machine settings are saved to appsettings.Local.json.",
+                    Text = "Local machine settings are saved to appsettings.Local.json and persist across upgrades.",
                     Foreground = Brush.Parse("#C2C6D6"),
                     TextWrapping = TextWrapping.Wrap
                 }
