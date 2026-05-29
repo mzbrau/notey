@@ -13,6 +13,8 @@ public sealed class NoteyOptions
     public AiOptions Ai { get; set; } = new();
 
     public OcrOptions Ocr { get; set; } = new();
+
+    public SpellcheckOptions Spellcheck { get; set; } = new();
 }
 
 public sealed class UiOptions
@@ -83,4 +85,11 @@ public sealed class OcrOptions
     public string TesseractDataPath { get; set; } = string.Empty;
 
     public string DefaultLanguage { get; set; } = "eng";
+}
+
+public sealed class SpellcheckOptions
+{
+    public bool Enabled { get; set; } = true;
+
+    public string Language { get; set; } = "en-US";
 }

@@ -63,6 +63,11 @@ public sealed class DiagnosticsReportWriter(
             string.Empty,
             $"- Tesseract data path configured: {IsConfigured(options.Ocr.TesseractDataPath)}",
             $"- Default language: {FormatConfigured(options.Ocr.DefaultLanguage)}",
+            string.Empty,
+            "## Editor",
+            string.Empty,
+            $"- Spellcheck enabled: {options.Spellcheck.Enabled}",
+            $"- Spellcheck language: {FormatConfigured(options.Spellcheck.Language)}",
         ]);
 
         await File.WriteAllTextAsync(path, string.Join('\n', lines) + "\n", cancellationToken);

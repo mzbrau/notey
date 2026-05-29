@@ -28,6 +28,7 @@
     <PackageReference Include="System.Drawing.Common" Version="10.0.8" />
     <PackageReference Include="TesseractOCR" Version="5.5.2" GeneratePathProperty="true" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
+    <PackageReference Include="WeCantSpell.Hunspell" Version="7.0.1" />
     <PackageReference Update="MinVer" Version="7.0.0" />
   </ItemGroup>
 
@@ -46,6 +47,7 @@
 
   <ItemGroup>
     <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="Assets\Dictionaries\en-US\*.*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\notey.ico" />
     <AvaloniaResource Include="Assets\notey.png" />
   </ItemGroup>
