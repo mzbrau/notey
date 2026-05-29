@@ -24,6 +24,8 @@ public sealed class SettingsWindow : Window
     private readonly TextBox _aiTimeoutInput = CreateTextBox();
     private readonly TextBox _tesseractDataInput = CreateTextBox();
     private readonly TextBox _ocrLanguageInput = CreateTextBox();
+    private readonly CheckBox _spellcheckEnabledInput = new() { Content = "Enable editor spellcheck" };
+    private readonly TextBox _spellcheckLanguageInput = CreateTextBox();
 
     private SettingsWindow(NoteyOptions options)
     {
@@ -127,6 +129,11 @@ public sealed class SettingsWindow : Window
                                     CreateField("Tesseract data path", _tesseractDataInput),
                                     CreateField("OCR language", _ocrLanguageInput),
                                     CreateWarning("OCR path changes are saved immediately but may require restart before running existing services."),
+                                ]),
+                                CreateSection("Editor", [
+                                    _spellcheckEnabledInput,
+                                    CreateField("Spellcheck language", _spellcheckLanguageInput),
+                                    CreateWarning("Spellcheck currently supports the bundled en-US dictionary."),
                                 ]),
                                 CreateSection("Shortcuts", [
                                     CreateWarning("On macOS, Ctrl = ⌘. The open-note hotkey is configurable in the Window section above."),
@@ -275,6 +282,8 @@ public sealed class SettingsWindow : Window
         _aiTimeoutInput.Text = options.Ai.RequestTimeoutSeconds.ToString();
         _tesseractDataInput.Text = options.Ocr.TesseractDataPath;
         _ocrLanguageInput.Text = options.Ocr.DefaultLanguage;
+        _spellcheckEnabledInput.IsChecked = options.Spellcheck.Enabled;
+        _spellcheckLanguageInput.Text = options.Spellcheck.Language;
     }
 
     private void SaveAndClose()
@@ -321,6 +330,8 @@ public sealed class SettingsWindow : Window
 
         options.Ocr.TesseractDataPath = Trim(_tesseractDataInput.Text);
         options.Ocr.DefaultLanguage = Trim(_ocrLanguageInput.Text);
+        options.Spellcheck.Enabled = _spellcheckEnabledInput.IsChecked == true;
+        options.Spellcheck.Language = Trim(_spellcheckLanguageInput.Text);
 
         return errors;
     }

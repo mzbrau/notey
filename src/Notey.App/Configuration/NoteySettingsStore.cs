@@ -69,6 +69,11 @@ public sealed class NoteySettingsStore(
             {
                 TesseractDataPath = options.Ocr.TesseractDataPath,
                 DefaultLanguage = options.Ocr.DefaultLanguage
+            },
+            Spellcheck = new SpellcheckOptions
+            {
+                Enabled = options.Spellcheck.Enabled,
+                Language = options.Spellcheck.Language
             }
         };
     }
@@ -117,6 +122,12 @@ public sealed class NoteySettingsStore(
         }
 
         ValidateRequired(errors, options.Ocr.DefaultLanguage, "OCR default language is required.");
+        ValidateRequired(errors, options.Spellcheck.Language, "Spellcheck language is required.");
+        if (options.Spellcheck.Enabled
+            && !string.Equals(options.Spellcheck.Language, "en-US", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add("Spellcheck language must be en-US.");
+        }
 
         return errors;
     }
@@ -216,6 +227,7 @@ public sealed class NoteySettingsStore(
         target.Vault = cloned.Vault;
         target.Ai = cloned.Ai;
         target.Ocr = cloned.Ocr;
+        target.Spellcheck = cloned.Spellcheck;
     }
 
     private static bool RequiresRestart(NoteyOptions current, NoteyOptions updated)

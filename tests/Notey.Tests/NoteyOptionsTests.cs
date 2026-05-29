@@ -17,5 +17,7 @@ public sealed class NoteyOptionsTests
         Assert.Equal(120, options.Ai.RequestTimeoutSeconds);
         Assert.False(options.Ai.StoreApiKeyInPlaintext);
         Assert.Equal("eng", options.Ocr.DefaultLanguage);
+        Assert.True(options.Spellcheck.Enabled);
+        Assert.Equal("en-US", options.Spellcheck.Language);
     }
 }

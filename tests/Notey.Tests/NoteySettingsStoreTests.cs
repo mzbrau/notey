@@ -38,6 +38,7 @@ public sealed class NoteySettingsStoreTests
             var updated = NoteySettingsStore.Clone(current);
             updated.Hotkeys.OpenNote = "Ctrl+Shift+N";
             updated.Ui.DefaultWindowWidth = 1000;
+            updated.Spellcheck.Enabled = false;
             var localSettingsPath = Path.Combine(root, "appsettings.Local.json");
             var store = CreateStore(current, localSettingsPath);
 
@@ -47,16 +48,31 @@ public sealed class NoteySettingsStoreTests
             Assert.False(result.RestartRequired);
             Assert.Equal("Ctrl+Shift+N", current.Hotkeys.OpenNote);
             Assert.Equal(1000, current.Ui.DefaultWindowWidth);
+            Assert.False(current.Spellcheck.Enabled);
             using var document = JsonDocument.Parse(json);
             Assert.Equal(
                 "Ctrl+Shift+N",
                 document.RootElement.GetProperty("Notey").GetProperty("Hotkeys").GetProperty("OpenNote").GetString());
+            Assert.False(document.RootElement.GetProperty("Notey").GetProperty("Spellcheck").GetProperty("Enabled").GetBoolean());
             Assert.DoesNotContain(Directory.GetFiles(root), static path => Path.GetFileName(path).EndsWith(".tmp", StringComparison.Ordinal));
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Validate_rejects_unsupported_spellcheck_language()
+    {
+        var options = new NoteyOptions
+        {
+            Spellcheck = new SpellcheckOptions { Enabled = true, Language = "en-GB" }
+        };
+
+        var errors = NoteySettingsStore.Validate(options);
+
+        Assert.Contains(errors, static error => error.Contains("Spellcheck language must be en-US", StringComparison.Ordinal));
     }
 
     [Fact]

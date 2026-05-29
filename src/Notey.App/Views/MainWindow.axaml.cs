@@ -22,6 +22,7 @@ using Notey.AI.Providers;
 using Notey.App.Assistant;
 using Notey.App.Configuration;
 using Notey.App.Editing;
+using Notey.App.Editing.Spellcheck;
 using Notey.App.Imports;
 using Notey.App.Processing;
 using Notey.App.Setup;
@@ -56,6 +57,7 @@ public sealed partial class MainWindow : Window
     private const double CompletionPanelRowHeight = 42;
     private const double CompletionPanelVerticalPadding = 16;
     private const double CompletionPanelVerticalGap = 8;
+    private const int SpellcheckSuggestionLimit = 5;
 
     private readonly NoteyOptions _options;
     private readonly INoteDraftStore _noteDraftStore;
@@ -74,6 +76,7 @@ public sealed partial class MainWindow : Window
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindow> _logger;
     private readonly NoteySettingsStore _settingsStore;
+    private readonly ISpellcheckService _spellcheckService;
     private readonly DispatcherTimer _autosaveTimer;
     private readonly DispatcherTimer _idleProcessingTimer;
     private readonly DispatcherTimer _taskRefreshTimer;
@@ -91,6 +94,7 @@ public sealed partial class MainWindow : Window
     private readonly HashSet<string> _backgroundDrafts = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _backgroundProcessingGate = new();
     private NoteyTask? _currentEditTask;
+    private SpellcheckColorizingTransformer? _spellcheckTransformer;
 
     private NoteDraft? _currentDraft;
     private string? _currentFinalNotePath;
@@ -118,6 +122,7 @@ public sealed partial class MainWindow : Window
     private double _assistantPanelResizeStartHeight;
     private long _revision;
     private long? _suppressedCompletionRevision;
+    private int? _spellcheckContextOffset;
     private HotkeyGesture? _openNoteGesture;
     private IReadOnlyList<VaultEntity> _peopleIndex = [];
     private IReadOnlyList<VaultFolderCommand> _folderCommands = [];
@@ -190,7 +195,8 @@ public sealed partial class MainWindow : Window
         ITaskStore? taskStore = null,
         NoteyAssistantService? assistantService = null,
         FileImportService? fileImportService = null,
-        ISetupWorkflow? setupWorkflow = null)
+        ISetupWorkflow? setupWorkflow = null,
+        ISpellcheckService? spellcheckService = null)
     {
         InitializeComponent();
 
@@ -213,6 +219,7 @@ public sealed partial class MainWindow : Window
         _timeProvider = timeProvider;
         _logger = logger;
         _settingsStore = settingsStore ?? CreateFallbackSettingsStore(options);
+        _spellcheckService = spellcheckService ?? HunspellSpellcheckService.CreateDefault(logger);
         _setupWorkflow = setupWorkflow ?? CreateFallbackSetupWorkflow(
             options,
             _settingsStore,
@@ -394,12 +401,103 @@ public sealed partial class MainWindow : Window
         NoteEditor.Options.EnableEmailHyperlinks = true;
         ApplyEditorTheme();
         NoteEditor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizingTransformer());
+        _spellcheckTransformer = new SpellcheckColorizingTransformer(_spellcheckService)
+        {
+            IsEnabled = IsSpellcheckEnabled()
+        };
+        NoteEditor.TextArea.TextView.LineTransformers.Add(_spellcheckTransformer);
         NoteEditor.TextArea.TextView.ElementGenerators.Add(_peopleWikiLinkGenerator);
         NoteEditor.TextArea.TextView.ScrollOffsetChanged += (_, _) => PositionCompletionPanel();
         NoteEditor.TextArea.LeftMargins.Insert(0, _imagePreviewMargin);
+        ConfigureSpellcheckSuggestions();
         DragDrop.SetAllowDrop(NoteEditor, true);
         DragDrop.AddDragOverHandler(NoteEditor, OnEditorDragOver);
         DragDrop.AddDropHandler(NoteEditor, OnEditorDrop);
+    }
+
+    private void ConfigureSpellcheckSuggestions()
+    {
+        var contextMenu = new ContextMenu();
+        contextMenu.Opening += OnEditorContextMenuOpening;
+        NoteEditor.ContextMenu = contextMenu;
+        NoteEditor.ContextRequested += OnEditorContextRequested;
+    }
+
+    private void OnEditorContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (e.TryGetPosition(NoteEditor, out var point))
+        {
+            _spellcheckContextOffset = GetEditorOffsetFromPoint(point);
+            return;
+        }
+
+        _spellcheckContextOffset = Math.Clamp(NoteEditor.CaretOffset, 0, NoteEditor.Document.TextLength);
+    }
+
+    private void OnEditorContextMenuOpening(object? sender, CancelEventArgs e)
+    {
+        if (sender is not ContextMenu contextMenu)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var items = new List<Control>();
+        if (!NoteEditor.IsReadOnly && IsSpellcheckEnabled() && _spellcheckTransformer is not null)
+        {
+            _spellcheckTransformer.IsEnabled = true;
+            _spellcheckTransformer.Refresh(NoteEditor.Document.Text);
+            var offset = Math.Clamp(_spellcheckContextOffset ?? NoteEditor.CaretOffset, 0, NoteEditor.Document.TextLength);
+            var span = _spellcheckTransformer.FindSpanAtOffset(offset);
+            if (span is not null)
+            {
+                var suggestions = _spellcheckService.GetSuggestions(span.Word, SpellcheckSuggestionLimit);
+                items.AddRange(suggestions.Count == 0
+                    ? [new MenuItem { Header = "No spelling suggestions", IsEnabled = false }]
+                    : suggestions.Select(suggestion => CreateSpellcheckSuggestionMenuItem(span, suggestion)));
+                items.Add(new Separator());
+            }
+        }
+
+        items.AddRange(CreateEditorContextMenuItems());
+        contextMenu.ItemsSource = items;
+    }
+
+    private MenuItem CreateSpellcheckSuggestionMenuItem(SpellcheckSpan span, string suggestion)
+    {
+        var item = new MenuItem { Header = suggestion };
+        item.Click += (_, _) => ApplySpellcheckSuggestion(span, suggestion);
+        return item;
+    }
+
+    private void ApplySpellcheckSuggestion(SpellcheckSpan span, string suggestion)
+    {
+        if (NoteEditor.IsReadOnly
+            || span.Offset < 0
+            || span.EndOffset > NoteEditor.Document.TextLength
+            || !string.Equals(NoteEditor.Document.GetText(span.Offset, span.Length), span.Word, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        NoteEditor.Document.Replace(span.Offset, span.Length, suggestion);
+        NoteEditor.CaretOffset = span.Offset + suggestion.Length;
+        _spellcheckTransformer?.Refresh(NoteEditor.Document.Text);
+        NoteEditor.TextArea.TextView.Redraw();
+        UpdateEditorStatus();
+        UpdateContextChip();
+        ScheduleAutosave();
+    }
+
+    private static IReadOnlyList<MenuItem> CreateEditorContextMenuItems()
+    {
+        return
+        [
+            new MenuItem { Header = "Cut", Command = AvaloniaEdit.ApplicationCommands.Cut },
+            new MenuItem { Header = "Copy", Command = AvaloniaEdit.ApplicationCommands.Copy },
+            new MenuItem { Header = "Paste", Command = AvaloniaEdit.ApplicationCommands.Paste },
+            new MenuItem { Header = "Select all", Command = AvaloniaEdit.ApplicationCommands.SelectAll }
+        ];
     }
 
     private void ConfigureCommands()
@@ -2832,7 +2930,12 @@ public sealed partial class MainWindow : Window
 
     private int GetDropInsertionOffset(DragEventArgs e)
     {
-        var textPosition = NoteEditor.GetPositionFromPoint(e.GetPosition(NoteEditor));
+        return GetEditorOffsetFromPoint(e.GetPosition(NoteEditor));
+    }
+
+    private int GetEditorOffsetFromPoint(Point point)
+    {
+        var textPosition = NoteEditor.GetPositionFromPoint(point);
         if (textPosition is null)
         {
             return NoteEditor.SelectionStart;
@@ -3838,6 +3941,7 @@ public sealed partial class MainWindow : Window
             Width = _options.Ui.DefaultWindowWidth;
             Height = _options.Ui.DefaultWindowHeight;
             _openNoteGesture = TryParseOpenNoteGesture(_options.Hotkeys.OpenNote);
+            RefreshSpellcheckConfiguration();
             if (_setupRequired && !IsSetupRequired())
             {
                 _setupRequired = false;
@@ -4000,6 +4104,24 @@ public sealed partial class MainWindow : Window
     {
         _peopleWikiLinkGenerator.SetActiveRange(NoteEditor.CaretOffset, NoteEditor.SelectionStart, NoteEditor.SelectionLength);
         NoteEditor.TextArea.TextView.Redraw();
+    }
+
+    private void RefreshSpellcheckConfiguration()
+    {
+        if (_spellcheckTransformer is null)
+        {
+            return;
+        }
+
+        _spellcheckTransformer.IsEnabled = IsSpellcheckEnabled();
+        _spellcheckTransformer.Refresh(NoteEditor.Document.Text);
+        NoteEditor.TextArea.TextView.Redraw();
+    }
+
+    private bool IsSpellcheckEnabled()
+    {
+        return _options.Spellcheck.Enabled
+            && string.Equals(_options.Spellcheck.Language, "en-US", StringComparison.OrdinalIgnoreCase);
     }
 
     private void UpdateCurrentNoteFooter()

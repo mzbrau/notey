@@ -1,0 +1,12 @@
+Bundled en-US Hunspell dictionary assets.
+
+Source:
+https://github.com/LibreOffice/dictionaries/tree/master/en
+
+Files:
+- en_US.aff
+- en_US.dic
+- README_en_US.txt
+
+The included README_en_US.txt contains the dictionary copyright,
+license, source, and attribution notices from SCOWL/LibreOffice.
