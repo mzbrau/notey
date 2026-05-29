@@ -23,7 +23,7 @@ public sealed class NoteySettingsStore(
     };
     private readonly ILoggerFactory aiProviderLoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
 
-    public string LocalSettingsPath { get; } = localSettingsPath ?? Path.Combine(AppContext.BaseDirectory, "appsettings.Local.json");
+    public string LocalSettingsPath { get; } = localSettingsPath ?? LocalSettingsPathResolver.Resolve();
 
     public static NoteyOptions Clone(NoteyOptions options)
     {
