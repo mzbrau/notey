@@ -45,28 +45,48 @@ public sealed class LocalSettingsPathResolverTests
         Directory.CreateDirectory(tempRoot);
         try
         {
-            // Simulate by creating a legacy file at a known location and testing the copy logic.
-            // We can't easily override AppContext.BaseDirectory, so we verify the method doesn't throw
-            // when target already exists (no-op case).
-            var targetPath = LocalSettingsPathResolver.Resolve();
-            if (File.Exists(targetPath))
+            var legacyPath = Path.Combine(tempRoot, "legacy", "appsettings.Local.json");
+            var targetPath = Path.Combine(tempRoot, "target", "appsettings.Local.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+            File.WriteAllText(legacyPath, """{"Notey":{}}""");
+
+            LocalSettingsPathResolver.MigrateIfNeeded(legacyPath, targetPath);
+
+            Assert.True(File.Exists(targetPath), "Target settings file should have been copied from legacy path.");
+            Assert.Equal("""{"Notey":{}}""", File.ReadAllText(targetPath));
+            if (!OperatingSystem.IsWindows())
             {
-                // Target already exists, MigrateIfNeeded should be a no-op.
-                LocalSettingsPathResolver.MigrateIfNeeded();
-                Assert.True(File.Exists(targetPath));
-            }
-            else
-            {
-                // Target doesn't exist and legacy likely doesn't either; should be a no-op without exception.
-                LocalSettingsPathResolver.MigrateIfNeeded();
+                var mode = File.GetUnixFileMode(targetPath);
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, mode);
             }
         }
         finally
         {
-            if (Directory.Exists(tempRoot))
-            {
-                Directory.Delete(tempRoot, recursive: true);
-            }
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MigrateIfNeeded_is_no_op_when_target_already_exists()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"notey-migration-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var legacyPath = Path.Combine(tempRoot, "legacy", "appsettings.Local.json");
+            var targetPath = Path.Combine(tempRoot, "target", "appsettings.Local.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            File.WriteAllText(legacyPath, """{"Notey":{"legacy":true}}""");
+            File.WriteAllText(targetPath, """{"Notey":{"existing":true}}""");
+
+            LocalSettingsPathResolver.MigrateIfNeeded(legacyPath, targetPath);
+
+            Assert.Equal("""{"Notey":{"existing":true}}""", File.ReadAllText(targetPath));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
         }
     }
 

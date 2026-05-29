@@ -57,13 +57,22 @@ internal static class LocalSettingsPathResolver
     /// </summary>
     public static void MigrateIfNeeded()
     {
-        var targetPath = Resolve();
+        MigrateIfNeeded(
+            Path.Combine(AppContext.BaseDirectory, SettingsFileName),
+            Resolve());
+    }
+
+    /// <summary>
+    /// Copies <paramref name="legacyPath"/> to <paramref name="targetPath"/> when the target does not yet exist.
+    /// Exposed internally to allow unit tests to supply temporary paths without touching the real profile directory.
+    /// </summary>
+    internal static void MigrateIfNeeded(string legacyPath, string targetPath)
+    {
         if (File.Exists(targetPath))
         {
             return;
         }
 
-        var legacyPath = Path.Combine(AppContext.BaseDirectory, SettingsFileName);
         if (!File.Exists(legacyPath))
         {
             return;
@@ -78,10 +87,28 @@ internal static class LocalSettingsPathResolver
             }
 
             File.Copy(legacyPath, targetPath, overwrite: false);
+            RestrictFilePermissions(targetPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Best-effort migration; the app can still function without the migrated file.
+        }
+    }
+
+    private static void RestrictFilePermissions(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            // Best-effort; the file is still usable even if permissions cannot be restricted.
         }
     }
 }
