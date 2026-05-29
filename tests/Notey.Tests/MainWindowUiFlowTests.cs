@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using Notey.App.Setup;
 using Notey.App.Imports;
@@ -399,22 +400,37 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
     }
 
     [AvaloniaFact]
-    public async Task Task_due_date_arrow_buttons_are_disabled_for_undated_tasks()
+    public async Task Undated_task_today_button_moves_task_to_today()
     {
         using var harness = await MainWindowTestHarness.CreateAsync();
-        var tasksPath = Path.Combine(harness.RootPath, "Notes", "tasks.md");
+        var today = DateOnly.FromDateTime(harness.LocalNow.DateTime);
+        var tasksPath = await AddTaskThroughPanelAsync(harness, "Undated task", null);
 
-        harness.Find<Button>("AddTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await harness.DrainAsync();
-        harness.Find<TextBox>("NewTaskTextBox").Text = "Undated task";
-        harness.Find<DatePicker>("NewTaskDueDatePicker").SelectedDate = null;
-        harness.Find<Button>("SaveNewTaskButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await harness.WaitForFileContainsAsync(tasksPath, "- [ ] Undated task", TimeSpan.FromSeconds(2));
         FindSectionButton(harness.Window, "UNDATED").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await harness.DrainAsync();
 
-        Assert.False(FindButtonByToolTip(harness.Window, "Move task forward one day").IsEnabled);
-        Assert.False(FindButtonByToolTip(harness.Window, "Move task back one day").IsEnabled);
+        Assert.Empty(FindButtonsByToolTip(harness.Window, "Move task forward one day"));
+        Assert.Empty(FindButtonsByToolTip(harness.Window, "Move task back one day"));
+
+        var todayButton = FindButtonByContent(harness.Window, "Today");
+        todayButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        await harness.WaitForTextBlockTextAsync("AutosaveStatusText", "TASK MOVED", TimeSpan.FromSeconds(5));
+        await harness.WaitForFileContainsAsync(tasksPath, $"- [ ] Undated task (due: {today:yyyy-MM-dd})", TimeSpan.FromSeconds(5));
+    }
+
+    [AvaloniaFact]
+    public async Task Task_section_count_badges_are_colored_when_nonzero()
+    {
+        using var harness = await MainWindowTestHarness.CreateAsync();
+
+        await AddTaskThroughPanelAsync(harness, "Undated task", null);
+
+        var emptyCount = FindSectionCountBadge(harness.Window, "INCOMPLETE", "0");
+        var undatedCount = FindSectionCountBadge(harness.Window, "UNDATED", "1");
+
+        Assert.Equal(Color.Parse("#384255"), Assert.IsAssignableFrom<ISolidColorBrush>(emptyCount.Background).Color);
+        Assert.Equal(Color.Parse("#ADC6FF"), Assert.IsAssignableFrom<ISolidColorBrush>(undatedCount.Background).Color);
     }
 
     [AvaloniaFact]
@@ -727,9 +743,15 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
 
     private static Button FindButtonByToolTip(Control root, string tooltip)
     {
+        return FindButtonsByToolTip(root, tooltip).Single();
+    }
+
+    private static IReadOnlyList<Button> FindButtonsByToolTip(Control root, string tooltip)
+    {
         return root.GetVisualDescendants()
             .OfType<Button>()
-            .Single(button => string.Equals(ToolTip.GetTip(button)?.ToString(), tooltip, StringComparison.Ordinal));
+            .Where(button => string.Equals(ToolTip.GetTip(button)?.ToString(), tooltip, StringComparison.Ordinal))
+            .ToArray();
     }
 
     [AvaloniaFact]
@@ -827,6 +849,15 @@ public async Task Draft_can_be_processed_and_reopened_from_recent_notes()
             .Single(button => button.GetVisualDescendants()
                 .OfType<TextBlock>()
                 .Any(textBlock => string.Equals(textBlock.Text, title, StringComparison.Ordinal)));
+    }
+
+    private static Border FindSectionCountBadge(Control root, string title, string count)
+    {
+        return FindSectionButton(root, title)
+            .GetVisualDescendants()
+            .OfType<Border>()
+            .Single(border => border.Child is TextBlock textBlock
+                && string.Equals(textBlock.Text, count, StringComparison.Ordinal));
     }
 
     private static Button FindButtonByContent(Control root, string content)
