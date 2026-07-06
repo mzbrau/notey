@@ -47,7 +47,7 @@ jobs:
         with:
           test-results: '**/*.trx'
           report-title: 'Notey CI (${{ matrix.os }})'
-          publish-pages: ${{ matrix.os == 'ubuntu-latest' }}
+          publish-pages: ${{ matrix.os == 'ubuntu-latest' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
           comment-pr: ${{ matrix.os == 'ubuntu-latest' }}
           seed-from-gh-pages: true
 
@@ -66,7 +66,7 @@ jobs:
   deploy-pages:
     name: Deploy test reports
     needs: build-test
-    if: always() && !cancelled()
+    if: always() && !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     concurrency:
       group: pages
