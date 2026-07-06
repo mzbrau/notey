@@ -1,5 +1,11 @@
 name: CI
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  pull-requests: write
+
 on:
   push:
     branches: [main]
@@ -33,7 +39,17 @@ jobs:
         run: dotnet build Notey.slnx --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test Notey.slnx --configuration Release --no-build --logger "console;verbosity=minimal"
+        run: dotnet test Notey.slnx --configuration Release --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Publish test report
+        if: always()
+        uses: mzbrau/actions-insights@v1
+        with:
+          test-results: '**/*.trx'
+          report-title: 'Notey CI (${{ matrix.os }})'
+          publish-pages: ${{ matrix.os == 'ubuntu-latest' }}
+          comment-pr: ${{ matrix.os == 'ubuntu-latest' }}
+          seed-from-gh-pages: true
 
       - name: Publish Windows folder
         if: github.event_name == 'workflow_dispatch' && matrix.os == 'windows-latest'
@@ -46,3 +62,19 @@ jobs:
         with:
           name: Notey-win-x64
           path: artifacts/publish/Notey-win-x64
+
+  deploy-pages:
+    name: Deploy test reports
+    needs: build-test
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
