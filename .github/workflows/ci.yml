@@ -43,7 +43,7 @@ jobs:
 
       - name: Publish test report
         if: always()
-        uses: mzbrau/actions-insights@v1.0.0
+        uses: mzbrau/actions-insights@v1.1.0
         with:
           test-results: '**/*.trx'
           report-title: 'Notey CI (${{ matrix.os }})'
@@ -62,19 +62,3 @@ jobs:
         with:
           name: Notey-win-x64
           path: artifacts/publish/Notey-win-x64
-
-  deploy-pages:
-    name: Deploy test reports
-    needs: build-test
-    if: always() && !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    concurrency:
-      group: pages
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
