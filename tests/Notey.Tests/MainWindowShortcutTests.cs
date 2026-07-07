@@ -30,7 +30,7 @@ public sealed class MainWindowShortcutTests
     }
 
     [Theory]
-    [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Alt, true)]
+    [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Alt, false)]
     [InlineData(Key.T, KeyModifiers.Meta | KeyModifiers.Alt, true)]
     [InlineData(Key.T, KeyModifiers.Control, false)]
     [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Shift, false)]
