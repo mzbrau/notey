@@ -12,7 +12,7 @@ public sealed class MainWindowShortcutTests
     [InlineData(Key.R, KeyModifiers.Meta, false)]
     [InlineData(Key.R, KeyModifiers.None, true)]
     [InlineData(Key.R, KeyModifiers.Control | KeyModifiers.Shift, false)]
-    [InlineData(Key.N, KeyModifiers.Control, true)]
+    [InlineData(Key.N, KeyModifiers.Control, false)]
     public void IsOpenRecentDialogShortcut_matches_control_or_command_r(Key key, KeyModifiers modifiers, bool expected)
     {
         Assert.Equal(expected, MainWindow.IsOpenRecentDialogShortcut(key, modifiers));
