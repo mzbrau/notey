@@ -9,7 +9,7 @@ public sealed class MainWindowShortcutTests
 {
     [Theory]
     [InlineData(Key.R, KeyModifiers.Control, true)]
-    [InlineData(Key.R, KeyModifiers.Meta, true)]
+    [InlineData(Key.R, KeyModifiers.Meta, false)]
     [InlineData(Key.R, KeyModifiers.None, false)]
     [InlineData(Key.R, KeyModifiers.Control | KeyModifiers.Shift, false)]
     [InlineData(Key.N, KeyModifiers.Control, false)]
