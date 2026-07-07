@@ -43,7 +43,7 @@ jobs:
 
       - name: Publish test report
         if: always()
-        uses: mzbrau/actions-insights@v1.5.0
+        uses: mzbrau/actions-insights@v1.6.0
         with:
           test-results: '**/*.trx'
           report-title: 'Notey CI (${{ matrix.os }})'
