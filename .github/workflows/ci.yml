@@ -1,10 +1,9 @@
 name: CI
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
   pull-requests: write
+  checks: write
 
 on:
   push:
@@ -47,9 +46,7 @@ jobs:
         with:
           test-results: '**/*.trx'
           report-title: 'Notey CI (${{ matrix.os }})'
-          publish-pages: ${{ matrix.os == 'ubuntu-latest' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
-          comment-pr: ${{ matrix.os == 'ubuntu-latest' }}
-          seed-from-gh-pages: true
+          comment-mode: ${{ github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && 'update' || 'off' }}
 
       - name: Publish Windows folder
         if: github.event_name == 'workflow_dispatch' && matrix.os == 'windows-latest'
