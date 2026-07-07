@@ -19,8 +19,8 @@ public sealed class MainWindowShortcutTests
     }
 
     [Theory]
-    [InlineData(Key.T, KeyModifiers.Control, false)]
-    [InlineData(Key.T, KeyModifiers.Meta, false)]
+    [InlineData(Key.T, KeyModifiers.Control, true)]
+    [InlineData(Key.T, KeyModifiers.Meta, true)]
     [InlineData(Key.T, KeyModifiers.None, false)]
     [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Alt, false)]
     [InlineData(Key.N, KeyModifiers.Control, false)]
