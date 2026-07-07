@@ -47,6 +47,9 @@ jobs:
           test-results: '**/*.trx'
           report-title: 'Notey CI (${{ matrix.os }})'
           comment-mode: ${{ github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && 'update' || 'off' }}
+          history-enabled: true
+          history-repository: mzbrau/mzbrau-actions-insights
+          history-token: ${{ secrets.ACTIONS_INSIGHTS_HISTORY_TOKEN }}
 
       - name: Publish Windows folder
         if: github.event_name == 'workflow_dispatch' && matrix.os == 'windows-latest'
