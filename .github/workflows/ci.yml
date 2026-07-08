@@ -1,5 +1,10 @@
 name: CI
 
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
 on:
   push:
     branches: [main]
@@ -33,7 +38,18 @@ jobs:
         run: dotnet build Notey.slnx --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test Notey.slnx --configuration Release --no-build --logger "console;verbosity=minimal"
+        run: dotnet test Notey.slnx --configuration Release --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Publish test report
+        if: always()
+        uses: mzbrau/actions-insights@v1.9.0
+        with:
+          test-results: '**/*.trx'
+          report-title: 'Notey CI (${{ matrix.os }})'
+          comment-mode: ${{ github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && 'update' || 'off' }}
+          history-enabled: true
+          history-repository: mzbrau/mzbrau-actions-insights
+          history-token: ${{ secrets.ACTIONS_INSIGHTS_HISTORY_TOKEN }}
 
       - name: Publish Windows folder
         if: github.event_name == 'workflow_dispatch' && matrix.os == 'windows-latest'
