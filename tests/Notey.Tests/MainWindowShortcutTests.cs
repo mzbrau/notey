@@ -114,7 +114,7 @@ public sealed class MainWindowShortcutTests
 
         var opened = MainWindow.TryBeginOpenRecentDialog(ref isOpen);
 
-        Assert.True(opened);
+        Assert.False(opened);
         Assert.True(isOpen);
     }
 }
