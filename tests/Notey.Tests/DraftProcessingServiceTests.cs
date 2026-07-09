@@ -25,12 +25,12 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/meeting\n/customer Microsoft\n/topic Accounts\n\nKeep accounts safe.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        var result = await service.ProcessAsync(draft, draft.Content);
+        var result = await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Processed);
         var target = Path.Combine(rootPath, "Notes", "Customers", "Microsoft", "Meetings", "2026-05-13 - accounts.md");
         Assert.True(File.Exists(target));
-        var content = await File.ReadAllTextAsync(target);
+        var content = await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken);
         Assert.Contains("meeting: true", content);
         Assert.Contains("date: 2026-05-13", content);
         Assert.Contains("customer: \"Microsoft\"", content);
@@ -47,10 +47,10 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         var target = Path.Combine(rootPath, "Notes", "accounts.md");
-        var content = await File.ReadAllTextAsync(target);
+        var content = await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken);
         Assert.DoesNotContain("date:", content);
         Assert.DoesNotContain("meeting:", content);
     }
@@ -76,10 +76,10 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         var target = Path.Combine(rootPath, "Notes", "accounts.md");
-        var content = await File.ReadAllTextAsync(target);
+        var content = await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken);
         Assert.Contains("  - \"[[People/Jane Doe|Jane Doe]]\"", content);
         Assert.DoesNotContain("Sam Low", content);
         Assert.Contains("  - \"focus\"", content);
@@ -96,9 +96,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
-        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "accounts.md"));
+        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "accounts.md"), TestContext.Current.CancellationToken);
         Assert.DoesNotContain("People/Jane Doe", content);
         Assert.DoesNotContain("legacy", content);
         Assert.False(File.Exists(Path.Combine(rootPath, "People", "Jane Doe.md")));
@@ -117,9 +117,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
-        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "accounts.md"));
+        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "accounts.md"), TestContext.Current.CancellationToken);
         Assert.Contains("Met with [[People/Jane Doe|JD]] about launch.", content);
         Assert.DoesNotContain("[[People/[[People/Jane Doe|Jane Doe]]|JD]]", content);
         Assert.DoesNotContain("People: [[People/Jane Doe|Jane Doe]]", content);
@@ -143,12 +143,10 @@ public sealed class DraftProcessingServiceTests : IDisposable
             links: []
             ---
             Original body.
-            """);
+            """, TestContext.Current.CancellationToken);
         var service = CreateService(rootPath, """{ "body": "Updated body." }""");
 
-        var updated = await service.ProcessExistingNoteAsync(
-            target,
-            """
+        var updated = await service.ProcessExistingNoteAsync(target, """
             ---
             created: 2026-05-01T00:00:00.0000000+00:00
             processed: 2026-05-01T00:00:00.0000000+00:00
@@ -160,8 +158,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
             links: []
             ---
             Original body.
-            """,
-            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero));
+            """, new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero), TestContext.Current.CancellationToken);
 
         Assert.Contains("date: 2026-05-01", updated);
     }
@@ -183,12 +180,10 @@ public sealed class DraftProcessingServiceTests : IDisposable
             links: []
             ---
             Original body.
-            """);
+            """, TestContext.Current.CancellationToken);
         var service = CreateService(rootPath, """{ "body": "Updated body." }""");
 
-        var updated = await service.ProcessExistingNoteAsync(
-            target,
-            """
+        var updated = await service.ProcessExistingNoteAsync(target, """
             ---
             created: 2026-03-10T09:00:00.0000000+00:00
             processed: 2026-03-10T09:01:00.0000000+00:00
@@ -199,8 +194,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
             links: []
             ---
             Original body.
-            """,
-            new DateTimeOffset(2026, 3, 10, 9, 0, 0, TimeSpan.Zero));
+            """, new DateTimeOffset(2026, 3, 10, 9, 0, 0, TimeSpan.Zero), TestContext.Current.CancellationToken);
 
         Assert.Contains("date: 2026-03-10", updated);
         Assert.DoesNotContain($"date: {DateOnly.FromDateTime(DateTimeOffset.UtcNow.LocalDateTime):yyyy-MM-dd}", updated);
@@ -223,14 +217,14 @@ public sealed class DraftProcessingServiceTests : IDisposable
             ## 2026-05-13
 
             Earlier note.
-            """);
+            """, TestContext.Current.CancellationToken);
         var service = CreateService(rootPath, """{ "body": "New note.", "tags": [{ "name": "new", "confidence": 0.82 }] }""");
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
-        var content = await File.ReadAllTextAsync(target);
+        var content = await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken);
         Assert.Single(FindAll(content, "## 2026-05-13"));
         Assert.Contains("Earlier note.", content);
         Assert.Contains("New note.", content);
@@ -253,12 +247,12 @@ public sealed class DraftProcessingServiceTests : IDisposable
             ## 2026-05-130
 
             Earlier note.
-            """);
+            """, TestContext.Current.CancellationToken);
         var service = CreateService(rootPath, """{ "body": "New note." }""");
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         var content = await File.ReadAllTextAsync(target);
         Assert.Contains("## 2026-05-130", content);
@@ -273,9 +267,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/task Send recap // 2026-05-20", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
-        var tasks = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "tasks.md"));
+        var tasks = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "tasks.md"), TestContext.Current.CancellationToken);
         Assert.Contains("- [ ] Send recap (due: 2026-05-20)", tasks);
     }
 
@@ -374,14 +368,14 @@ public sealed class DraftProcessingServiceTests : IDisposable
             ## 2026-05-130
 
             - [ ] Existing task
-            """);
+            """, TestContext.Current.CancellationToken);
         var service = CreateService(rootPath, """{ "body": "" }""");
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/task New task", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
-        var tasks = await File.ReadAllTextAsync(tasksPath);
+        var tasks = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
         Assert.Contains("## 2026-05-130", tasks);
         Assert.Contains("## 2026-05-13", tasks);
     }
@@ -392,14 +386,14 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var rootPath = CreateTempDirectory();
         var tasksPath = Path.Combine(rootPath, "Notes", "tasks.md");
         Directory.CreateDirectory(Path.GetDirectoryName(tasksPath)!);
-        await File.WriteAllTextAsync(tasksPath, "# Tasks\n\n## 2026-05-13\n- [ ] Existing task");
+        await File.WriteAllTextAsync(tasksPath, "# Tasks\n\n## 2026-05-13\n- [ ] Existing task", TestContext.Current.CancellationToken);
         var service = CreateService(rootPath, """{ "body": "" }""");
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/task New task", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
-        var tasks = await File.ReadAllTextAsync(tasksPath);
+        var tasks = await File.ReadAllTextAsync(tasksPath, TestContext.Current.CancellationToken);
         Assert.Contains("- [ ] Existing task\n- [ ] New task", tasks);
     }
 
@@ -413,7 +407,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/partner Contoso\n/customer Microsoft\n/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Partners", "Contoso", "accounts.md")));
         Assert.False(File.Exists(Path.Combine(rootPath, "Notes", "Customers", "Microsoft", "accounts.md")));
@@ -443,9 +437,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
             new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
-        var content = await File.ReadAllTextAsync(target);
+        var content = await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken);
         Assert.Contains("Existing roadmap.", content);
         Assert.Contains("New roadmap note.", content);
         Assert.Contains("topic: \"Roadmap\"", content);
@@ -470,11 +464,11 @@ public sealed class DraftProcessingServiceTests : IDisposable
             new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         var target = Path.Combine(rootPath, "Notes", "Products", "Widget", "Discovery", "next steps.md");
         Assert.True(File.Exists(target));
-        var content = await File.ReadAllTextAsync(target);
+        var content = await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken);
         Assert.Contains("Discovery follow-up.", content);
         Assert.Contains("topic: \"Discovery\"", content);
         Assert.Contains("product: \"Widget\"", content);
@@ -497,7 +491,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
             new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Products", "Widget", "roadmap.md")));
     }
@@ -510,7 +504,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "/meeting\n/topic Accounts\n\nRaw.", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content);
+        await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "Meetings", "2026-05-13 - accounts.md")));
     }
@@ -523,9 +517,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), string.Empty, new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        await service.ProcessAsync(draft, draft.Content, ["screen text"]);
+        await service.ProcessAsync(draft, draft.Content, ["screen text"], cancellationToken: TestContext.Current.CancellationToken);
 
-        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "ocr-note.md"));
+        var content = await File.ReadAllTextAsync(Path.Combine(rootPath, "Notes", "ocr-note.md"), TestContext.Current.CancellationToken);
         Assert.Contains("Clean OCR note.", content);
         Assert.False(File.Exists(draft.FilePath));
     }
@@ -570,12 +564,12 @@ public sealed class DraftProcessingServiceTests : IDisposable
             new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        var result = await service.ProcessAsync(draft, draft.Content);
+        var result = await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Processed);
         var targetPath = Path.Combine(rootPath, "Notes", "launch checklist.md");
         Assert.True(File.Exists(targetPath));
-        var content = await File.ReadAllTextAsync(targetPath);
+        var content = await File.ReadAllTextAsync(targetPath, TestContext.Current.CancellationToken);
         Assert.Contains("Confirm the final rollout steps.", content);
     }
 
@@ -587,7 +581,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), string.Empty, new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        var result = await service.ProcessAsync(draft, draft.Content, ["Microsoft Contract Review"]);
+        var result = await service.ProcessAsync(draft, draft.Content, ["Microsoft Contract Review"], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Processed);
         Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "microsoft contract review.md")));
@@ -601,7 +595,7 @@ public sealed class DraftProcessingServiceTests : IDisposable
         var draft = new NoteDraft(Path.Combine(rootPath, "Notes", "Draft", "draft.md"), "Contract notes", new DateTimeOffset(2026, 5, 13, 8, 0, 0, TimeSpan.Zero));
         await WriteFileAsync(draft.FilePath, draft.Content);
 
-        var result = await service.ProcessAsync(draft, draft.Content);
+        var result = await service.ProcessAsync(draft, draft.Content, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Processed);
         Assert.True(File.Exists(Path.Combine(rootPath, "Notes", "contract notes.md")));
@@ -624,12 +618,10 @@ public sealed class DraftProcessingServiceTests : IDisposable
             links: []
             ---
             Current body.
-            """);
+            """, TestContext.Current.CancellationToken);
         var service = CreateService(rootPath, """{ "body": "Updated body.", "tags": [{ "name": "new", "confidence": 0.82 }], "links": ["https://example.com"] }""");
 
-        var updated = await service.ProcessExistingNoteAsync(
-            target,
-            """
+        var updated = await service.ProcessExistingNoteAsync(target, """
             ---
             processed: 2026-05-02T00:00:00.0000000+00:00
             meeting: false
@@ -639,10 +631,9 @@ public sealed class DraftProcessingServiceTests : IDisposable
             links: []
             ---
             Current body.
-            """,
-            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero));
+            """, new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero), TestContext.Current.CancellationToken);
 
-        Assert.Equal(updated, await File.ReadAllTextAsync(target));
+        Assert.Equal(updated, await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken));
         Assert.Contains("created: 2026-05-01T00:00+00:00", updated);
         Assert.Matches(@"processed: 2026-05-13T\d{2}:\d{2}[+-]\d{2}:\d{2}", updated);
         Assert.Contains("  - \"old\"", updated);
