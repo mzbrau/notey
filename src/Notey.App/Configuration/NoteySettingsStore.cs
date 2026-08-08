@@ -39,7 +39,11 @@ public sealed class NoteySettingsStore(
             },
             Hotkeys = new HotkeyOptions
             {
-                OpenNote = options.Hotkeys.OpenNote
+                OpenNote = options.Hotkeys.OpenNote,
+                CaptureFullScreen = options.Hotkeys.CaptureFullScreen,
+                CaptureRegionClipboard = options.Hotkeys.CaptureRegionClipboard,
+                CaptureRegionEditor = options.Hotkeys.CaptureRegionEditor,
+                CaptureWindowEditor = options.Hotkeys.CaptureWindowEditor
             },
             Vault = new VaultOptions
             {
@@ -102,6 +106,11 @@ public sealed class NoteySettingsStore(
         {
             errors.Add($"Open-note hotkey is invalid: {ex.Message}");
         }
+
+        ValidateHotkey(errors, options.Hotkeys.CaptureFullScreen, "Full-screen capture hotkey");
+        ValidateHotkey(errors, options.Hotkeys.CaptureRegionClipboard, "Region clipboard capture hotkey");
+        ValidateHotkey(errors, options.Hotkeys.CaptureRegionEditor, "Region editor capture hotkey");
+        ValidateHotkey(errors, options.Hotkeys.CaptureWindowEditor, "Window editor capture hotkey");
 
         ValidateRequired(errors, options.Ai.DefaultProviderId, "Default AI provider id is required.");
         ValidateRequired(errors, options.Ai.ApiKeyEnvironmentVariable, "AI API-key environment variable is required.");
@@ -241,6 +250,24 @@ public sealed class NoteySettingsStore(
         if (string.IsNullOrWhiteSpace(value))
         {
             errors.Add(message);
+        }
+    }
+
+    private static void ValidateHotkey(ICollection<string> errors, string? value, string label)
+    {
+        ValidateRequired(errors, value, $"{label} is required.");
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        try
+        {
+            HotkeyGesture.Parse(value);
+        }
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
+        {
+            errors.Add($"{label} is invalid: {ex.Message}");
         }
     }
 

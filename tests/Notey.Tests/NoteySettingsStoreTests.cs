@@ -29,6 +29,24 @@ public sealed class NoteySettingsStoreTests
     }
 
     [Fact]
+    public void Validate_rejects_invalid_screenshot_hotkeys()
+    {
+        var options = new NoteyOptions
+        {
+            Hotkeys = new HotkeyOptions
+            {
+                CaptureFullScreen = "Ctrl+Alt",
+                CaptureRegionClipboard = "nope"
+            }
+        };
+
+        var errors = NoteySettingsStore.Validate(options);
+
+        Assert.Contains(errors, static error => error.Contains("Full-screen capture hotkey is invalid", StringComparison.Ordinal));
+        Assert.Contains(errors, static error => error.Contains("Region clipboard capture hotkey is invalid", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Save_writes_local_settings_atomically_and_mutates_current_options()
     {
         var root = CreateTempDirectory();

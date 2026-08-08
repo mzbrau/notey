@@ -14,6 +14,10 @@ public sealed class SettingsWindow : Window
     private readonly TextBox _windowWidthInput = CreateTextBox();
     private readonly TextBox _windowHeightInput = CreateTextBox();
     private readonly TextBox _hotkeyInput = CreateTextBox();
+    private readonly TextBox _captureFullScreenHotkeyInput = CreateTextBox();
+    private readonly TextBox _captureRegionClipboardHotkeyInput = CreateTextBox();
+    private readonly TextBox _captureRegionEditorHotkeyInput = CreateTextBox();
+    private readonly TextBox _captureWindowEditorHotkeyInput = CreateTextBox();
     private readonly TextBox _vaultRootInput = CreateTextBox();
     private readonly TextBox _aiProviderInput = CreateTextBox();
     private readonly TextBox _aiBaseUrlInput = CreateTextBox();
@@ -110,6 +114,10 @@ public sealed class SettingsWindow : Window
                                     CreateField("Default width", _windowWidthInput),
                                     CreateField("Default height", _windowHeightInput),
                                     CreateField("Open-note hotkey", _hotkeyInput),
+                                    CreateField("Full-screen capture", _captureFullScreenHotkeyInput),
+                                    CreateField("Region to clipboard", _captureRegionClipboardHotkeyInput),
+                                    CreateField("Region to editor", _captureRegionEditorHotkeyInput),
+                                    CreateField("Window to editor", _captureWindowEditorHotkeyInput),
                                 ]),
                                  CreateSection("Vault", [
                                      CreateField("Vault root", _vaultRootInput),
@@ -136,7 +144,7 @@ public sealed class SettingsWindow : Window
                                     CreateWarning("Spellcheck currently supports the bundled en-US dictionary."),
                                 ]),
                                 CreateSection("Shortcuts", [
-                                    CreateWarning("On macOS, Ctrl = ⌘. The open-note hotkey is configurable in the Window section above."),
+                                    CreateWarning("Screenshot hotkeys are configurable in the Window section above. On macOS, Ctrl = ⌘."),
                                     CreateShortcutRow("Ctrl+T", "New task"),
                                     CreateShortcutRow("Ctrl+R", "Open recent note"),
                                     CreateShortcutRow("Ctrl+B", "Bold"),
@@ -145,6 +153,10 @@ public sealed class SettingsWindow : Window
                                     CreateShortcutRow("Tab / Shift+Tab", "Indent / Unindent list item"),
                                     CreateShortcutRow("Ctrl+V", "Paste (with format conversion)"),
                                     CreateShortcutRow("Enter", "Smart new list item in editor"),
+                                    CreateShortcutRow("Ctrl+Alt+3", "Full-screen screenshot to clipboard"),
+                                    CreateShortcutRow("Ctrl+Alt+4", "Region screenshot to clipboard"),
+                                    CreateShortcutRow("Ctrl+Alt+5", "Region screenshot to editor"),
+                                    CreateShortcutRow("Ctrl+Alt+6", "Window screenshot to editor"),
                                 ]),
                             }
                         }
@@ -272,6 +284,10 @@ public sealed class SettingsWindow : Window
         _windowWidthInput.Text = options.Ui.DefaultWindowWidth.ToString();
         _windowHeightInput.Text = options.Ui.DefaultWindowHeight.ToString();
         _hotkeyInput.Text = options.Hotkeys.OpenNote;
+        _captureFullScreenHotkeyInput.Text = options.Hotkeys.CaptureFullScreen;
+        _captureRegionClipboardHotkeyInput.Text = options.Hotkeys.CaptureRegionClipboard;
+        _captureRegionEditorHotkeyInput.Text = options.Hotkeys.CaptureRegionEditor;
+        _captureWindowEditorHotkeyInput.Text = options.Hotkeys.CaptureWindowEditor;
         _vaultRootInput.Text = options.Vault.RootPath;
         _aiProviderInput.Text = options.Ai.DefaultProviderId;
         _aiBaseUrlInput.Text = options.Ai.BaseUrl;
@@ -316,6 +332,10 @@ public sealed class SettingsWindow : Window
         }
 
         options.Hotkeys.OpenNote = Trim(_hotkeyInput.Text);
+        options.Hotkeys.CaptureFullScreen = Trim(_captureFullScreenHotkeyInput.Text);
+        options.Hotkeys.CaptureRegionClipboard = Trim(_captureRegionClipboardHotkeyInput.Text);
+        options.Hotkeys.CaptureRegionEditor = Trim(_captureRegionEditorHotkeyInput.Text);
+        options.Hotkeys.CaptureWindowEditor = Trim(_captureWindowEditorHotkeyInput.Text);
         options.Vault.RootPath = Trim(_vaultRootInput.Text);
         options.Ai.DefaultProviderId = Trim(_aiProviderInput.Text);
         options.Ai.BaseUrl = Trim(_aiBaseUrlInput.Text);
