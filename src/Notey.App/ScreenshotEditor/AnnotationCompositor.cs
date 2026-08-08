@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
+using System.Runtime.InteropServices;
 
 namespace Notey.App.ScreenshotEditor;
 
@@ -128,40 +129,71 @@ public static class AnnotationCompositor
         var bottom = Math.Clamp((int)Math.Ceiling(region.Y + region.Height), 0, bitmap.Height);
         var block = Math.Max(2, pixelSize);
 
-        for (var blockY = y; blockY < bottom; blockY += block)
+        if (right <= x || bottom <= y)
         {
-            for (var blockX = x; blockX < right; blockX += block)
+            return;
+        }
+
+        var rect = new Rectangle(x, y, right - x, bottom - y);
+        var data = bitmap.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+        try
+        {
+            var stride = Math.Abs(data.Stride);
+            var buffer = new byte[stride * rect.Height];
+            Marshal.Copy(data.Scan0, buffer, 0, buffer.Length);
+
+            for (var blockY = 0; blockY < rect.Height; blockY += block)
             {
-                var blockRight = Math.Min(blockX + block, right);
-                var blockBottom = Math.Min(blockY + block, bottom);
-                long r = 0, g = 0, b = 0, a = 0, count = 0;
-                for (var py = blockY; py < blockBottom; py++)
+                for (var blockX = 0; blockX < rect.Width; blockX += block)
                 {
-                    for (var px = blockX; px < blockRight; px++)
+                    var blockRight = Math.Min(blockX + block, rect.Width);
+                    var blockBottom = Math.Min(blockY + block, rect.Height);
+                    long r = 0, g = 0, b = 0, a = 0, count = 0;
+
+                    for (var py = blockY; py < blockBottom; py++)
                     {
-                        var color = bitmap.GetPixel(px, py);
-                        r += color.R;
-                        g += color.G;
-                        b += color.B;
-                        a += color.A;
-                        count++;
+                        var row = py * stride;
+                        for (var px = blockX; px < blockRight; px++)
+                        {
+                            var index = row + (px * 4);
+                            b += buffer[index];
+                            g += buffer[index + 1];
+                            r += buffer[index + 2];
+                            a += buffer[index + 3];
+                            count++;
+                        }
                     }
-                }
 
-                if (count == 0)
-                {
-                    continue;
-                }
-
-                var average = Color.FromArgb((int)(a / count), (int)(r / count), (int)(g / count), (int)(b / count));
-                for (var py = blockY; py < blockBottom; py++)
-                {
-                    for (var px = blockX; px < blockRight; px++)
+                    if (count == 0)
                     {
-                        bitmap.SetPixel(px, py, average);
+                        continue;
+                    }
+
+                    var averageB = (byte)(b / count);
+                    var averageG = (byte)(g / count);
+                    var averageR = (byte)(r / count);
+                    var averageA = (byte)(a / count);
+
+                    for (var py = blockY; py < blockBottom; py++)
+                    {
+                        var row = py * stride;
+                        for (var px = blockX; px < blockRight; px++)
+                        {
+                            var index = row + (px * 4);
+                            buffer[index] = averageB;
+                            buffer[index + 1] = averageG;
+                            buffer[index + 2] = averageR;
+                            buffer[index + 3] = averageA;
+                        }
                     }
                 }
             }
+
+            Marshal.Copy(buffer, 0, data.Scan0, buffer.Length);
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
         }
     }
 #pragma warning restore CA1416

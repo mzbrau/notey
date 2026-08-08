@@ -153,10 +153,6 @@ public sealed class SettingsWindow : Window
                                     CreateShortcutRow("Tab / Shift+Tab", "Indent / Unindent list item"),
                                     CreateShortcutRow("Ctrl+V", "Paste (with format conversion)"),
                                     CreateShortcutRow("Enter", "Smart new list item in editor"),
-                                    CreateShortcutRow("Ctrl+Alt+3", "Full-screen screenshot to clipboard"),
-                                    CreateShortcutRow("Ctrl+Alt+4", "Region screenshot to clipboard"),
-                                    CreateShortcutRow("Ctrl+Alt+5", "Region screenshot to editor"),
-                                    CreateShortcutRow("Ctrl+Alt+6", "Window screenshot to editor"),
                                 ]),
                             }
                         }

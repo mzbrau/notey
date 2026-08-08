@@ -53,7 +53,7 @@ The release workflow packages the published folder with Velopack:
 The packaging script expects `vpk` on `PATH`. CI installs it with:
 
 ```powershell
-dotnet tool install --global vpk --version 0.0.1298
+dotnet tool install --global vpk --version 1.2.0
 ```
 
 Installer and release/feed assets are written to `artifacts/release`. The release/feed metadata is generated now so future in-app update support can reuse the same GitHub Release assets; Notey does not yet check for updates inside the app.

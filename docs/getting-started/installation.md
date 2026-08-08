@@ -48,6 +48,6 @@ Run `Notey.exe` from that folder.
 To create installer assets locally after publishing, install the Velopack CLI and package the publish output:
 
 ```powershell
-dotnet tool install --global vpk --version 0.0.1298
+dotnet tool install --global vpk --version 1.2.0
 ./scripts/package-windows.ps1 -Version 0.2.0
 ```

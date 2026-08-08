@@ -38,6 +38,23 @@ public sealed class ScreenshotAnnotationTests
     }
 
     [Fact]
+    public void HitTestHandle_matches_rendered_handle_size()
+    {
+        var arrow = new ArrowAnnotation
+        {
+            StartX = 20,
+            StartY = 30,
+            EndX = 80,
+            EndY = 30
+        };
+
+        var half = AnnotationGeometry.HandleSize / 2;
+        Assert.Equal(HandleKind.Start, AnnotationGeometry.HitTestHandle(arrow, 20 + half, 30));
+        Assert.Equal(HandleKind.End, AnnotationGeometry.HitTestHandle(arrow, 80 - half, 30));
+        Assert.Null(AnnotationGeometry.HitTestHandle(arrow, 20 + half + 1, 30));
+    }
+
+    [Fact]
     public void Move_and_handle_drag_update_rectangle_bounds()
     {
         var rect = new RectangleAnnotation { X = 10, Y = 20, Width = 40, Height = 30 };

@@ -137,7 +137,7 @@ public static class HostBootstrapper
                     services.AddSingleton<IScreenCaptureService, UnavailableScreenCaptureService>();
                     services.AddSingleton<IGlobalHotkeyService, NoOpGlobalHotkeyService>();
                     services.AddSingleton<ITrayService, NoOpTrayService>();
-                    services.AddSingleton<IImageClipboardService, NoOpImageClipboardService>();
+                    services.AddSingleton<IImageClipboardService, UnavailableImageClipboardService>();
                 }
 
                 services.AddSingleton<MainWindowAccessor>();

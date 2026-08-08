@@ -9,6 +9,7 @@ namespace Notey.App.Platform;
 internal static class WindowsScreenCaptureHelper
 {
     private const int Srccopy = 0x00CC0020;
+    private static readonly IntPtr HgdiError = new(-1);
 
     public static byte[] CaptureRegionToPngBytes(ScreenSnipSelection selection)
     {
@@ -36,11 +37,13 @@ internal static class WindowsScreenCaptureHelper
                 throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to create a compatible bitmap.");
             }
 
-            previousObject = SelectObject(memoryDc, bitmapHandle);
-            if (previousObject == IntPtr.Zero)
+            var selectedObject = SelectObject(memoryDc, bitmapHandle);
+            if (selectedObject == HgdiError)
             {
                 throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to select the capture bitmap.");
             }
+
+            previousObject = selectedObject;
 
             if (!BitBlt(memoryDc, 0, 0, selection.Width, selection.Height, screenDc, selection.X, selection.Y, Srccopy))
             {

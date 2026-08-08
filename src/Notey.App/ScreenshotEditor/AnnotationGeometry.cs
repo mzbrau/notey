@@ -53,7 +53,7 @@ public static class AnnotationGeometry
     {
         foreach (var handle in GetHandles(annotation))
         {
-            if (Math.Abs(handle.X - x) <= HandleSize && Math.Abs(handle.Y - y) <= HandleSize)
+            if (Math.Abs(handle.X - x) <= HandleSize / 2 && Math.Abs(handle.Y - y) <= HandleSize / 2)
             {
                 return handle.Kind;
             }

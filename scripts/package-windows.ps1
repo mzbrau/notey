@@ -104,7 +104,7 @@ if (-not (Test-Path $mainExePath -PathType Leaf)) {
 New-Item -ItemType Directory -Path $releasePathResolved -Force | Out-Null
 
 if (-not (Get-Command vpk -ErrorAction SilentlyContinue)) {
-    throw "Velopack CLI 'vpk' was not found on PATH. Install it with: dotnet tool install --global vpk --version 0.0.1298"
+    throw "Velopack CLI 'vpk' was not found on PATH. Install it with: dotnet tool install --global vpk --version 1.2.0"
 }
 
 if (-not $SkipDownload -and -not [string]::IsNullOrWhiteSpace($RepoUrl)) {

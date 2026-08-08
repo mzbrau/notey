@@ -1809,7 +1809,7 @@ public sealed partial class MainWindow : Window, INoteImageInserter
 
     public void ReportScreenshotCaptureFailure(string message)
     {
-        AutosaveStatusText.Text = string.IsNullOrWhiteSpace(message) ? "SNIP ERROR" : "SNIP ERROR";
+        AutosaveStatusText.Text = "SNIP ERROR";
         _logger.LogWarning("Screenshot capture failed: {Message}", message);
     }
 
