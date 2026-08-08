@@ -100,12 +100,20 @@ public sealed class DocumentStoreIndexTests : IDisposable
 
         var suggestions = await index.GetTopicTargetSuggestionsAsync();
 
-        Assert.Contains(suggestions, static suggestion => suggestion.Kind == VaultTopicSuggestionKind.File
-            && suggestion.Title == "accounts"
-            && suggestion.RelativePath == "Notes/accounts.md");
-        Assert.Contains(suggestions, static suggestion => suggestion.Kind == VaultTopicSuggestionKind.Folder
-            && suggestion.Title == "Roadmap"
-            && suggestion.RelativePath == "Notes/Topics/Roadmap");
+        Assert.Contains(suggestions,
+            static suggestion => suggestion is
+            {
+                Kind: VaultTopicSuggestionKind.File,
+                Title: "accounts",
+                RelativePath: "Notes/accounts.md"
+            });
+        Assert.Contains(suggestions,
+            static suggestion => suggestion is
+            {
+                Kind: VaultTopicSuggestionKind.Folder,
+                Title: "Roadmap",
+                RelativePath: "Notes/Topics/Roadmap"
+            });
     }
 
     private static FileSystemDocumentStoreIndex CreateIndex(string rootPath)
