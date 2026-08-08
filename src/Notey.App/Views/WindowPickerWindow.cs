@@ -12,9 +12,9 @@ public sealed class WindowPickerWindow : Window
     private readonly PickerSurface _surface = new();
     private readonly PixelRect? _screenBounds;
     private readonly double _screenScaling;
-    private ScreenSnipSelection? _selection;
+    private WindowCaptureSelection? _selection;
     private Action? _requestGlobalCancel;
-    private Func<PixelPoint, ScreenSnipSelection?>? _resolveWindowAtPoint;
+    private Func<PixelPoint, WindowCaptureSelection?>? _resolveWindowAtPoint;
 
     private WindowPickerWindow(PixelRect? screenBounds, double screenScaling)
     {
@@ -66,7 +66,7 @@ public sealed class WindowPickerWindow : Window
         _surface.SelectionCancelled += (_, _) => _requestGlobalCancel?.Invoke();
     }
 
-    public static Task<ScreenSnipSelection?> ShowSelectionAsync(CancellationToken cancellationToken = default)
+    public static Task<WindowCaptureSelection?> ShowSelectionAsync(CancellationToken cancellationToken = default)
     {
         var windowsCatalog = EnumerateCaptureTargets();
         var probe = new WindowPickerWindow(null, 1);
@@ -79,12 +79,12 @@ public sealed class WindowPickerWindow : Window
             probe.Close();
         }
 
-        var completion = new TaskCompletionSource<ScreenSnipSelection?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<WindowCaptureSelection?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = false;
         var remainingWindows = overlays.Length;
         CancellationTokenRegistration registration = default;
 
-        ScreenSnipSelection? ResolveWindowAtPoint(PixelPoint point)
+        WindowCaptureSelection? ResolveWindowAtPoint(PixelPoint point)
         {
             foreach (var candidate in windowsCatalog)
             {
@@ -167,7 +167,7 @@ public sealed class WindowPickerWindow : Window
             origin.Y + (int)Math.Round(localPoint.Y * scaling));
     }
 
-    private Rect? ToLocalRect(ScreenSnipSelection? selection)
+    private Rect? ToLocalRect(WindowCaptureSelection? selection)
     {
         if (selection is null)
         {
@@ -229,9 +229,9 @@ public sealed class WindowPickerWindow : Window
         }
     }
 
-    private static List<ScreenSnipSelection> EnumerateCaptureTargets()
+    private static List<WindowCaptureSelection> EnumerateCaptureTargets()
     {
-        var results = new List<ScreenSnipSelection>();
+        var results = new List<WindowCaptureSelection>();
         EnumWindows((hwnd, _) =>
         {
             if (!IsWindowVisible(hwnd) || GetWindow(hwnd, GwOwner) != IntPtr.Zero)
@@ -265,7 +265,7 @@ public sealed class WindowPickerWindow : Window
                 return true;
             }
 
-            results.Add(new ScreenSnipSelection(rect.Left, rect.Top, width, height));
+            results.Add(new WindowCaptureSelection(hwnd, rect.Left, rect.Top, width, height));
             return true;
         }, IntPtr.Zero);
 

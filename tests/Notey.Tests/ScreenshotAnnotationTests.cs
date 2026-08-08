@@ -71,7 +71,7 @@ public sealed class ScreenshotAnnotationTests
     }
 
     [Fact]
-    public void ClampCrop_and_replace_base_image_clear_annotations()
+    public void Crop_retains_and_translates_in_bounds_annotations()
     {
         var clamped = AnnotationGeometry.ClampCrop(new RectD(-10, 5, 80, 40), 120, 80);
         Assert.Equal(0, clamped.X);
@@ -79,13 +79,96 @@ public sealed class ScreenshotAnnotationTests
         Assert.Equal(70, clamped.Width);
         Assert.Equal(40, clamped.Height);
 
-        var document = new ScreenshotEditDocument([0x89, 0x50, 0x4E, 0x47], 120, 80);
-        document.Annotations.Add(new RectangleAnnotation { X = 5, Y = 5, Width = 20, Height = 20 });
-        document.ReplaceBaseImage([0x89, 0x50, 0x4E, 0x47], 50, 40);
+        var inside = new RectangleAnnotation { X = 10, Y = 10, Width = 20, Height = 20 };
+        var outside = new RectangleAnnotation { X = 100, Y = 60, Width = 10, Height = 10 };
+        var arrow = new ArrowAnnotation { StartX = 5, StartY = 10, EndX = 40, EndY = 20 };
+        var kept = AnnotationGeometry.TransformAnnotationsForCrop([inside, outside, arrow], clamped);
 
+        Assert.Equal(2, kept.Count);
+        var keptRect = Assert.IsType<RectangleAnnotation>(kept[0]);
+        Assert.Equal(10, keptRect.X);
+        Assert.Equal(5, keptRect.Y);
+        var keptArrow = Assert.IsType<ArrowAnnotation>(kept[1]);
+        Assert.Equal(5, keptArrow.StartX);
+        Assert.Equal(5, keptArrow.StartY);
+    }
+
+    [Fact]
+    public void Undo_restores_previous_annotation_state()
+    {
+        var document = new ScreenshotEditDocument([0x89, 0x50, 0x4E, 0x47], 120, 80);
+        var history = new ScreenshotEditHistory();
+        history.Push(document);
+
+        document.Annotations.Add(new RectangleAnnotation { X = 5, Y = 5, Width = 20, Height = 20 });
+        Assert.Single(document.Annotations);
+
+        Assert.True(history.TryUndo(document));
         Assert.Empty(document.Annotations);
-        Assert.Equal(50, document.Width);
-        Assert.Equal(40, document.Height);
+    }
+
+    [Fact]
+    public void Pen_hit_test_and_move()
+    {
+        var pen = new PenAnnotation { StrokeWidth = 2 };
+        pen.Points.Add(new PointD(10, 10));
+        pen.Points.Add(new PointD(40, 10));
+        pen.Points.Add(new PointD(40, 30));
+
+        Assert.True(AnnotationGeometry.HitTest(pen, 25, 12));
+        Assert.False(AnnotationGeometry.HitTest(pen, 10, 40));
+
+        AnnotationGeometry.Move(pen, 5, 5);
+        Assert.Equal(new PointD(15, 15), pen.Points[0]);
+        Assert.Equal(new PointD(45, 15), pen.Points[1]);
+    }
+
+    [Fact]
+    public void Text_clone_preserves_formatting_and_id()
+    {
+        var text = new TextAnnotation
+        {
+            Text = "Hello\nWorld",
+            FontSize = 18,
+            IsBold = true,
+            IsItalic = true,
+            X = 4,
+            Y = 8,
+            ColorArgb = 0xFF112233
+        };
+
+        var clone = Assert.IsType<TextAnnotation>(text.Clone());
+        Assert.Equal(text.Id, clone.Id);
+        Assert.Equal(text.Text, clone.Text);
+        Assert.Equal(18, clone.FontSize);
+        Assert.True(clone.IsBold);
+        Assert.True(clone.IsItalic);
+        Assert.Equal(0xFF112233u, clone.ColorArgb);
+    }
+
+    [Fact]
+    public void PixelateHelper_averages_blocks()
+    {
+        const int width = 4;
+        const int height = 4;
+        const int stride = width * 4;
+        var buffer = new byte[stride * height];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var index = (y * stride) + (x * 4);
+                buffer[index] = (byte)(x * 10);
+                buffer[index + 1] = (byte)(y * 10);
+                buffer[index + 2] = 100;
+                buffer[index + 3] = 255;
+            }
+        }
+
+        PixelateHelper.PixelateBgra(buffer, width, height, stride, pixelSize: 4);
+        Assert.Equal(buffer[0], buffer[4]);
+        Assert.Equal(buffer[1], buffer[stride + 1]);
+        Assert.Equal((byte)255, buffer[3]);
     }
 
     [Fact]
@@ -114,6 +197,21 @@ public sealed class ScreenshotAnnotationTests
             EndY = 30,
             ColorArgb = 0xFFFF0000
         });
+        document.Annotations.Add(new PenAnnotation
+        {
+            ColorArgb = 0xFF00FF00,
+            StrokeWidth = 2,
+            Points = { new PointD(8, 8), new PointD(20, 18) }
+        });
+        document.Annotations.Add(new TextAnnotation
+        {
+            Text = "Hi",
+            IsBold = true,
+            FontSize = 16,
+            X = 12,
+            Y = 24,
+            ColorArgb = 0xFF0000FF
+        });
 
         var flattened = AnnotationCompositor.FlattenToPng(document);
         Assert.NotEmpty(flattened);
@@ -122,5 +220,10 @@ public sealed class ScreenshotAnnotationTests
         Assert.Equal(30, width);
         Assert.Equal(20, height);
         Assert.NotEmpty(croppedPng);
+
+        document.ApplyCrop(new RectD(10, 10, 30, 20));
+        Assert.Equal(30, document.Width);
+        Assert.Equal(20, document.Height);
+        Assert.NotEmpty(document.Annotations);
     }
 }
