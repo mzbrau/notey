@@ -11,6 +11,10 @@ public sealed class NoteyOptionsTests
 
         Assert.Equal("Dark", options.Ui.Theme);
         Assert.Equal("Ctrl+Alt+N", options.Hotkeys.OpenNote);
+        Assert.Equal("Ctrl+Alt+3", options.Hotkeys.CaptureFullScreen);
+        Assert.Equal("Ctrl+Alt+4", options.Hotkeys.CaptureRegionClipboard);
+        Assert.Equal("Ctrl+Alt+5", options.Hotkeys.CaptureRegionEditor);
+        Assert.Equal("Ctrl+Alt+6", options.Hotkeys.CaptureWindowEditor);
         Assert.Equal("", options.Vault.RootPath);
         Assert.Equal("default", options.Ai.DefaultProviderId);
         Assert.Equal("NOTEY_AI_API_KEY", options.Ai.ApiKeyEnvironmentVariable);

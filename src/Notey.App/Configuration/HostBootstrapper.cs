@@ -11,6 +11,7 @@ using Notey.App.Imports;
 using Notey.App.Processing;
 using Notey.App.Platform;
 using Notey.App.Setup;
+using Notey.App.ScreenshotEditor;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
 using Notey.Core.Configuration;
@@ -123,16 +124,25 @@ public static class HostBootstrapper
 
                 if (platformRuntime.IsWindows)
                 {
-                    services.AddSingleton<IScreenSnipService, WindowsScreenSnipService>();
+                    services.AddSingleton<IScreenSnipService>(sp => sp.GetRequiredService<WindowsScreenSnipService>());
+                    services.AddSingleton<IScreenCaptureService>(sp => sp.GetRequiredService<WindowsScreenSnipService>());
+                    services.AddSingleton<WindowsScreenSnipService>();
                     services.AddSingleton<IGlobalHotkeyService, WindowsGlobalHotkeyService>();
                     services.AddSingleton<ITrayService, AvaloniaTrayService>();
+                    services.AddSingleton<IImageClipboardService, WindowsImageClipboardService>();
                 }
                 else
                 {
                     services.AddSingleton<IScreenSnipService, UnavailableScreenSnipService>();
+                    services.AddSingleton<IScreenCaptureService, UnavailableScreenCaptureService>();
                     services.AddSingleton<IGlobalHotkeyService, NoOpGlobalHotkeyService>();
                     services.AddSingleton<ITrayService, NoOpTrayService>();
+                    services.AddSingleton<IImageClipboardService, UnavailableImageClipboardService>();
                 }
+
+                services.AddSingleton<MainWindowAccessor>();
+                services.AddSingleton<ScreenshotCaptureCoordinator>();
+                services.AddSingleton<INoteImageInserter>(sp => sp.GetRequiredService<MainWindow>());
             })
             .Build();
     }

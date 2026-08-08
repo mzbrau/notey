@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Notey.App.Configuration;
+using Notey.App.ScreenshotEditor;
 using Notey.App.Views;
 using Notey.Core.Configuration;
 using Notey.Core.Platform;
@@ -37,7 +38,7 @@ public sealed class App(IHost host) : Application
             mainWindow.HideInsteadOfClose = platformRuntime.IsWindows;
             desktop.MainWindow = mainWindow;
             mainWindow.Opened += async (_, _) => await InitializePlatformIntegrationAsync(desktop, mainWindow);
-            mainWindow.SettingsSaved += async (_, _) => await RegisterOpenNoteHotkeyAsync(mainWindow);
+            mainWindow.SettingsSaved += async (_, _) => await RegisterGlobalHotkeysAsync(mainWindow);
             desktop.Exit += (_, _) =>
             {
                 host.StopAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
@@ -64,13 +65,14 @@ public sealed class App(IHost host) : Application
             _ => ActivateMainWindowAsync(mainWindow, createNewNote: true),
             _ => ExitAsync(mainWindow)));
 
-        await RegisterOpenNoteHotkeyAsync(mainWindow);
+        await RegisterGlobalHotkeysAsync(mainWindow);
     }
 
-    private async Task RegisterOpenNoteHotkeyAsync(MainWindow mainWindow)
+    private async Task RegisterGlobalHotkeysAsync(MainWindow mainWindow)
     {
         var globalHotkeyService = host.Services.GetRequiredService<IGlobalHotkeyService>();
         var options = host.Services.GetRequiredService<NoteyOptions>();
+        var coordinator = host.Services.GetRequiredService<ScreenshotCaptureCoordinator>();
 
         try
         {
@@ -79,29 +81,45 @@ public sealed class App(IHost host) : Application
                 "Open note",
                 options.Hotkeys.OpenNote,
                 _ => ActivateMainWindowAsync(mainWindow, createNewNote: false)));
+            await globalHotkeyService.RegisterAsync(new GlobalHotkeyRegistration(
+                "Full-screen screenshot to clipboard",
+                options.Hotkeys.CaptureFullScreen,
+                token => coordinator.HandleHotkeyAsync(ScreenshotHotkeyAction.FullScreenToClipboard, token)));
+            await globalHotkeyService.RegisterAsync(new GlobalHotkeyRegistration(
+                "Region screenshot to clipboard",
+                options.Hotkeys.CaptureRegionClipboard,
+                token => coordinator.HandleHotkeyAsync(ScreenshotHotkeyAction.RegionToClipboard, token)));
+            await globalHotkeyService.RegisterAsync(new GlobalHotkeyRegistration(
+                "Region screenshot to editor",
+                options.Hotkeys.CaptureRegionEditor,
+                token => coordinator.HandleHotkeyAsync(ScreenshotHotkeyAction.RegionToEditor, token)));
+            await globalHotkeyService.RegisterAsync(new GlobalHotkeyRegistration(
+                "Window screenshot to editor",
+                options.Hotkeys.CaptureWindowEditor,
+                token => coordinator.HandleHotkeyAsync(ScreenshotHotkeyAction.WindowToEditor, token)));
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
             host.Services.GetRequiredService<ILogger<App>>()
-                .LogError(ex, "Unable to register global hotkey {Gesture}.", options.Hotkeys.OpenNote);
+                .LogError(ex, "Unable to register global hotkeys.");
             mainWindow.ReportHotkeyRegistrationFailure();
         }
         catch (InvalidOperationException ex)
         {
             host.Services.GetRequiredService<ILogger<App>>()
-                .LogError(ex, "Unable to register global hotkey {Gesture}.", options.Hotkeys.OpenNote);
+                .LogError(ex, "Unable to register global hotkeys.");
             mainWindow.ReportHotkeyRegistrationFailure();
         }
         catch (ArgumentException ex)
         {
             host.Services.GetRequiredService<ILogger<App>>()
-                .LogError(ex, "Configured global hotkey {Gesture} is invalid.", options.Hotkeys.OpenNote);
+                .LogError(ex, "Configured global hotkey is invalid.");
             mainWindow.ReportHotkeyRegistrationFailure();
         }
         catch (FormatException ex)
         {
             host.Services.GetRequiredService<ILogger<App>>()
-                .LogError(ex, "Configured global hotkey {Gesture} is invalid.", options.Hotkeys.OpenNote);
+                .LogError(ex, "Configured global hotkey is invalid.");
             mainWindow.ReportHotkeyRegistrationFailure();
         }
     }

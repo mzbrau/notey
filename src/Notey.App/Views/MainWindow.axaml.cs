@@ -39,7 +39,7 @@ using Notey.Vault.Tasks;
 
 namespace Notey.App.Views;
 
-public sealed partial class MainWindow : Window
+public sealed partial class MainWindow : Window, INoteImageInserter
 {
     private static readonly TimeSpan AutosaveDelay = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan IdleProcessingDelay = TimeSpan.FromMinutes(30);
@@ -1805,6 +1805,72 @@ public sealed partial class MainWindow : Window
     public void ReportHotkeyRegistrationFailure()
     {
         AutosaveStatusText.Text = "HOTKEY UNAVAILABLE";
+    }
+
+    public void ReportScreenshotCaptureFailure(string message)
+    {
+        AutosaveStatusText.Text = "SNIP ERROR";
+        _logger.LogWarning("Screenshot capture failed: {Message}", message);
+    }
+
+    public void BeginExternalCapture()
+    {
+        _isCaptureInProgress = true;
+        CaptureAnalyzeButton.IsEnabled = false;
+        CaptureSaveButton.IsEnabled = false;
+        AutosaveStatusText.Text = "SNIP SELECT";
+    }
+
+    public void EndExternalCapture(bool restoreWindow, bool activate = true)
+    {
+        _isCaptureInProgress = false;
+        CaptureAnalyzeButton.IsEnabled = true;
+        CaptureSaveButton.IsEnabled = true;
+        if (restoreWindow && !_windowClosed.IsCancellationRequested)
+        {
+            Show();
+            if (activate)
+            {
+                Activate();
+                FocusEditor();
+            }
+        }
+    }
+
+    public async ValueTask InsertPngImageAsync(ReadOnlyMemory<byte> pngBytes, CancellationToken cancellationToken = default)
+    {
+        await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            if (!await EnsureDraftReadyForCaptureAsync())
+            {
+                throw new InvalidOperationException("A draft note is required before inserting a screenshot.");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var capturedAt = _timeProvider.GetLocalNow();
+            var imagesPath = _vaultWorkspace.GetPaths().ImagesPath;
+            Directory.CreateDirectory(imagesPath);
+            var fileStem = $"{capturedAt:yyyy-MM-dd-HHmmss-fff}-snip";
+            var filePath = Path.Combine(imagesPath, $"{fileStem}.png");
+            for (var suffix = 2; File.Exists(filePath); suffix++)
+            {
+                filePath = Path.Combine(imagesPath, $"{fileStem}-{suffix}.png");
+            }
+
+            await File.WriteAllBytesAsync(filePath, pngBytes.ToArray(), cancellationToken);
+            var relative = Path.GetRelativePath(_vaultWorkspace.GetPaths().RootPath, filePath)
+                .Replace(Path.DirectorySeparatorChar, '/');
+            AppendMarkdownBlock($"![[{relative}]]");
+            AutosaveStatusText.Text = "IMAGE SAVED";
+
+            if (!IsVisible)
+            {
+                Show();
+            }
+
+            Activate();
+            FocusEditor();
+        });
     }
 
     public void RequestExit()

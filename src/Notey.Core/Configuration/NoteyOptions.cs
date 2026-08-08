@@ -29,6 +29,14 @@ public sealed class UiOptions
 public sealed class HotkeyOptions
 {
     public string OpenNote { get; set; } = "Ctrl+Alt+N";
+
+    public string CaptureFullScreen { get; set; } = "Ctrl+Alt+3";
+
+    public string CaptureRegionClipboard { get; set; } = "Ctrl+Alt+4";
+
+    public string CaptureRegionEditor { get; set; } = "Ctrl+Alt+5";
+
+    public string CaptureWindowEditor { get; set; } = "Ctrl+Alt+6";
 }
 
 public sealed class VaultOptions
