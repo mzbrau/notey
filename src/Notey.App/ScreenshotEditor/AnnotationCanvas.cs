@@ -176,6 +176,7 @@ public sealed class AnnotationCanvas : Canvas
             {
                 if (string.IsNullOrWhiteSpace(text) || removeIfEmpty && string.IsNullOrWhiteSpace(text))
                 {
+                    _history.Push(_document);
                     _document.Annotations.Remove(_editingText);
                     if (ReferenceEquals(_document.SelectedAnnotation, _editingText))
                     {
