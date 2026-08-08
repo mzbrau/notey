@@ -71,7 +71,7 @@ public sealed class WindowsScreenSnipService(
 
         try
         {
-            var pngBytes = await Task.Run(() => WindowsScreenCaptureHelper.CaptureRegionToPngBytes(selection), cancellationToken);
+            var pngBytes = await Task.Run(() => WindowsScreenCaptureHelper.CaptureWindowToPngBytes(selection), cancellationToken);
             var capturedAt = timeProvider.GetLocalNow();
             logger.LogInformation("Captured window screenshot ({Width}x{Height}).", selection.Width, selection.Height);
             return new ScreenCaptureResult(pngBytes, capturedAt, selection.Width, selection.Height, ScreenCaptureKind.Window);

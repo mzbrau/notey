@@ -84,6 +84,79 @@ internal static class WindowsScreenCaptureHelper
         File.WriteAllBytes(filePath, bytes);
     }
 
+    public static byte[] CaptureWindowToPngBytes(WindowCaptureSelection selection)
+    {
+        var bounds = selection.Bounds;
+        var screenDc = GetDC(IntPtr.Zero);
+        if (screenDc == IntPtr.Zero)
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to get the screen device context.");
+        }
+
+        var memoryDc = IntPtr.Zero;
+        var bitmapHandle = IntPtr.Zero;
+        var previousObject = IntPtr.Zero;
+
+        try
+        {
+            memoryDc = CreateCompatibleDC(screenDc);
+            if (memoryDc == IntPtr.Zero)
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to create a compatible device context.");
+            }
+
+            bitmapHandle = CreateCompatibleBitmap(screenDc, bounds.Width, bounds.Height);
+            if (bitmapHandle == IntPtr.Zero)
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to create a compatible bitmap.");
+            }
+
+            var selectedObject = SelectObject(memoryDc, bitmapHandle);
+            if (selectedObject == HgdiError)
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to select the capture bitmap.");
+            }
+
+            previousObject = selectedObject;
+
+            var printed = PrintWindow(selection.Hwnd, memoryDc, PwRenderFullContent);
+            if (!printed)
+            {
+                // Some windows reject PrintWindow; fall back to a screen BitBlt of the window bounds.
+                if (!BitBlt(memoryDc, 0, 0, bounds.Width, bounds.Height, screenDc, bounds.X, bounds.Y, Srccopy))
+                {
+                    throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to capture the selected window.");
+                }
+            }
+
+#pragma warning disable CA1416
+            using var image = Image.FromHbitmap(bitmapHandle);
+            using var stream = new MemoryStream();
+            image.Save(stream, ImageFormat.Png);
+            return stream.ToArray();
+#pragma warning restore CA1416
+        }
+        finally
+        {
+            if (previousObject != IntPtr.Zero && memoryDc != IntPtr.Zero)
+            {
+                _ = SelectObject(memoryDc, previousObject);
+            }
+
+            if (bitmapHandle != IntPtr.Zero)
+            {
+                _ = DeleteObject(bitmapHandle);
+            }
+
+            if (memoryDc != IntPtr.Zero)
+            {
+                _ = DeleteDC(memoryDc);
+            }
+
+            _ = ReleaseDC(IntPtr.Zero, screenDc);
+        }
+    }
+
     public static ScreenSnipSelection GetMonitorBoundsUnderCursor()
     {
         if (!GetCursorPos(out var point))
@@ -109,6 +182,7 @@ internal static class WindowsScreenCaptureHelper
     }
 
     private const uint MonitorDefaultToNearest = 2;
+    private const uint PwRenderFullContent = 0x00000002;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point
@@ -176,4 +250,7 @@ internal static class WindowsScreenCaptureHelper
         int sourceX,
         int sourceY,
         int rasterOperation);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint flags);
 }

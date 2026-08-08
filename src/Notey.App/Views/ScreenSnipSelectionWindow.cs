@@ -265,3 +265,8 @@ public sealed class ScreenSnipSelectionWindow : Window
 }
 
 public sealed record ScreenSnipSelection(int X, int Y, int Width, int Height);
+
+public sealed record WindowCaptureSelection(nint Hwnd, int X, int Y, int Width, int Height)
+{
+    public ScreenSnipSelection Bounds => new(X, Y, Width, Height);
+}
