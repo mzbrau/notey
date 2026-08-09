@@ -117,9 +117,24 @@ public static class AnnotationCompositor
             style |= FontStyle.Italic;
         }
 
-        using var brush = new SolidBrush(Color.FromArgb(unchecked((int)text.ColorArgb)));
         using var font = new Font("Segoe UI", (float)Math.Max(8, text.FontSize), style, GraphicsUnit.Pixel);
-        graphics.DrawString(text.Text, font, brush, (float)text.X, (float)(text.Y - text.FontSize));
+        var topLeft = new PointF((float)text.X, (float)(text.Y - text.FontSize));
+        if (text.BackgroundColorArgb is { } background)
+        {
+            var size = graphics.MeasureString(text.Text, font);
+            const float padX = 4f;
+            const float padY = 2f;
+            using var backgroundBrush = new SolidBrush(Color.FromArgb(unchecked((int)background)));
+            graphics.FillRectangle(
+                backgroundBrush,
+                topLeft.X - padX,
+                topLeft.Y - padY,
+                size.Width + (padX * 2),
+                size.Height + (padY * 2));
+        }
+
+        using var brush = new SolidBrush(Color.FromArgb(unchecked((int)text.ColorArgb)));
+        graphics.DrawString(text.Text, font, brush, topLeft);
     }
 
     private static void DrawPen(Graphics graphics, PenAnnotation pen)

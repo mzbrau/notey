@@ -36,7 +36,7 @@ public sealed class WindowsScreenSnipService(
         var pngBytes = await Task.Run(() => WindowsScreenCaptureHelper.CaptureRegionToPngBytes(bounds), cancellationToken);
         var capturedAt = timeProvider.GetLocalNow();
         logger.LogInformation("Captured full-screen screenshot ({Width}x{Height}).", bounds.Width, bounds.Height);
-        return new ScreenCaptureResult(pngBytes, capturedAt, bounds.Width, bounds.Height, ScreenCaptureKind.FullScreen);
+        return new ScreenCaptureResult(pngBytes, capturedAt, bounds.Width, bounds.Height, ScreenCaptureKind.FullScreen, bounds.X, bounds.Y);
     }
 
     public async ValueTask<ScreenCaptureResult> CaptureRegionAsync(CancellationToken cancellationToken = default)
@@ -54,7 +54,14 @@ public sealed class WindowsScreenSnipService(
         var pngBytes = await Task.Run(() => WindowsScreenCaptureHelper.CaptureRegionToPngBytes(selection), cancellationToken);
         var capturedAt = timeProvider.GetLocalNow();
         logger.LogInformation("Captured region screenshot ({Width}x{Height}).", selection.Width, selection.Height);
-        return new ScreenCaptureResult(pngBytes, capturedAt, selection.Width, selection.Height, ScreenCaptureKind.Region);
+        return new ScreenCaptureResult(
+            pngBytes,
+            capturedAt,
+            selection.Width,
+            selection.Height,
+            ScreenCaptureKind.Region,
+            selection.X,
+            selection.Y);
     }
 
     public async ValueTask<ScreenCaptureResult> CaptureWindowAsync(CancellationToken cancellationToken = default)
@@ -74,7 +81,14 @@ public sealed class WindowsScreenSnipService(
             var pngBytes = await Task.Run(() => WindowsScreenCaptureHelper.CaptureWindowToPngBytes(selection), cancellationToken);
             var capturedAt = timeProvider.GetLocalNow();
             logger.LogInformation("Captured window screenshot ({Width}x{Height}).", selection.Width, selection.Height);
-            return new ScreenCaptureResult(pngBytes, capturedAt, selection.Width, selection.Height, ScreenCaptureKind.Window);
+            return new ScreenCaptureResult(
+                pngBytes,
+                capturedAt,
+                selection.Width,
+                selection.Height,
+                ScreenCaptureKind.Window,
+                selection.X,
+                selection.Y);
         }
         catch (Win32Exception ex)
         {

@@ -5,4 +5,6 @@ public sealed record ScreenCaptureResult(
     DateTimeOffset CapturedAt,
     int Width,
     int Height,
-    ScreenCaptureKind Kind);
+    ScreenCaptureKind Kind,
+    int ScreenX = 0,
+    int ScreenY = 0);

@@ -67,9 +67,11 @@ public sealed class ScreenshotCaptureCoordinator(
                     {
                         await imageClipboardService.CopyPngAsync(capture.PngBytes, cancellationToken);
                         logger.LogInformation("Screenshot copied to clipboard ({Width}x{Height}).", capture.Width, capture.Height);
+                        _ = FlashCaptureAsync(capture);
                         return;
                     }
 
+                    _ = FlashCaptureAsync(capture);
                     ScreenshotEditorWindow.ShowNew(
                         capture.PngBytes,
                         capture.Width,
@@ -97,6 +99,18 @@ public sealed class ScreenshotCaptureCoordinator(
         finally
         {
             Interlocked.Exchange(ref _captureGate, 0);
+        }
+    }
+
+    private async Task FlashCaptureAsync(ScreenCaptureResult capture)
+    {
+        try
+        {
+            await CaptureFlashOverlay.ShowAsync(capture.ScreenX, capture.ScreenY, capture.Width, capture.Height);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Capture flash overlay failed.");
         }
     }
 }

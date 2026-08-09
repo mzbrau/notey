@@ -1,11 +1,14 @@
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Styling;
 using Notey.Core.Platform;
+using Optris.Icons.Avalonia;
 
 namespace Notey.App.ScreenshotEditor;
 
@@ -33,13 +36,45 @@ public sealed class ScreenshotEditorWindow : Window
         Margin = new Thickness(4, 0)
     };
 
+    private readonly Slider _thicknessSlider = new()
+    {
+        Minimum = 1,
+        Maximum = 12,
+        Width = 100,
+        TickFrequency = 1,
+        IsSnapToTickEnabled = true,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
     private readonly NumericUpDown _thicknessInput = new()
     {
         Minimum = 1,
         Maximum = 12,
         Increment = 1,
-        Width = 72,
+        Width = 56,
         FormatString = "0",
+        ShowButtonSpinner = false,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private readonly Slider _fillToleranceSlider = new()
+    {
+        Minimum = 0,
+        Maximum = 100,
+        Width = 100,
+        TickFrequency = 1,
+        IsSnapToTickEnabled = true,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private readonly NumericUpDown _fillToleranceInput = new()
+    {
+        Minimum = 0,
+        Maximum = 100,
+        Increment = 1,
+        Width = 56,
+        FormatString = "0",
+        ShowButtonSpinner = false,
         VerticalAlignment = VerticalAlignment.Center
     };
 
@@ -50,13 +85,23 @@ public sealed class ScreenshotEditorWindow : Window
         Increment = 1,
         Width = 72,
         FormatString = "0",
+        ShowButtonSpinner = false,
         VerticalAlignment = VerticalAlignment.Center
     };
 
-    private readonly ToggleButton _boldButton = new() { Content = "B", MinWidth = 32, FontWeight = FontWeight.Bold };
-    private readonly ToggleButton _italicButton = new() { Content = "I", MinWidth = 32, FontStyle = FontStyle.Italic };
+    private readonly ToggleButton _boldButton = new();
+    private readonly ToggleButton _italicButton = new();
+    private readonly ToggleButton _textBackgroundButton = new();
     private readonly Dictionary<AnnotationTool, ToggleButton> _toolButtons = new();
+    private readonly StackPanel _strokePanel = new() { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel _textPanel = new() { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel _fillPanel = new() { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+    private readonly Control _strokeSeparator = CreateSeparator();
+    private readonly Control _textSeparator = CreateSeparator();
+    private readonly Control _fillSeparator = CreateSeparator();
     private bool _suppressAppearanceEvents;
+    private bool _strokeHistoryPushed;
+    private bool _textBackgroundAuto;
 
     private ScreenshotEditorWindow(
         ScreenshotEditDocument document,
@@ -68,7 +113,11 @@ public sealed class ScreenshotEditorWindow : Window
         _noteImageInserter = noteImageInserter;
         _canvas = new AnnotationCanvas(document, _history);
         _canvas.DocumentChanged += (_, _) => UpdateStatus();
-        _canvas.ToolReturnedToSelect += (_, _) => SyncToolButtons();
+        _canvas.ToolReturnedToSelect += (_, _) =>
+        {
+            SyncToolButtons();
+            SyncAppearanceControls();
+        };
         _canvas.AppearanceChanged += (_, _) => SyncAppearanceControls();
 
         Title = "Screenshot Editor";
@@ -78,6 +127,7 @@ public sealed class ScreenshotEditorWindow : Window
         Height = Math.Max(MinHeight, Math.Min(document.Height + 140, 900));
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Brush.Parse("#10131A");
+        Styles.AddRange(CreateToolbarStyles());
         Content = BuildContent();
         SyncAppearanceControls();
         UpdateStatus();
@@ -161,20 +211,12 @@ public sealed class ScreenshotEditorWindow : Window
             Margin = new Thickness(8)
         };
 
+        // Actions
+        tools.Children.Add(CreateActionIconButton("mdi-content-save", "Save", async () => await SaveAsync()));
+        tools.Children.Add(CreateActionIconButton("mdi-content-copy", "Copy", async () => await CopyAsync()));
+        tools.Children.Add(CreateActionIconButton("mdi-note-plus-outline", "Add to Notey", async () => await InsertAsync()));
         tools.Children.Add(CreateActionIconButton(
-            "M5,3 H19 V5 H5 Z M5,11 H19 V13 H5 Z M5,19 H19 V21 H5 Z",
-            "Save",
-            async () => await SaveAsync()));
-        tools.Children.Add(CreateActionIconButton(
-            "M8,4 H16 V10 H20 L12,18 L4,10 H8 Z M4,20 H20 V22 H4 Z",
-            "Copy",
-            async () => await CopyAsync()));
-        tools.Children.Add(CreateActionIconButton(
-            "M12,3 L4,9 V21 H10 V14 H14 V21 H20 V9 Z",
-            "Add to Notey",
-            async () => await InsertAsync()));
-        tools.Children.Add(CreateActionIconButton(
-            "M9,4 L4,12 L9,20 V15 H20 V9 H9 Z",
+            "mdi-undo",
             "Undo (Ctrl+Z)",
             () =>
             {
@@ -183,19 +225,43 @@ public sealed class ScreenshotEditorWindow : Window
                 SyncToolButtons();
                 return Task.CompletedTask;
             }));
+        tools.Children.Add(CreateActionIconButton(
+            "mdi-redo",
+            "Redo (Ctrl+Y)",
+            () =>
+            {
+                _canvas.Redo();
+                SyncAppearanceControls();
+                SyncToolButtons();
+                return Task.CompletedTask;
+            }));
 
+        // Select
         tools.Children.Add(CreateSeparator());
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Select, "M6,3 L6,17 L10,13 L13,20 L15,19 L12,12 L18,12 Z", "Select (Ctrl+1)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Arrow, "M4,20 L16,8 M12,8 H16 V12", "Arrow (Ctrl+2)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Rectangle, "M5,5 H19 V19 H5 Z", "Rectangle (Ctrl+3)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Highlight, "M5,7 H19 V17 H5 Z", "Highlight (Ctrl+4)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Blur, "M8,12 A4,4 0 1 0 16,12 A4,4 0 1 0 8,12 M4,12 H20", "Blur (Ctrl+5)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Pen, "M4,20 L6,14 L16,4 L20,8 L10,18 Z", "Pen (Ctrl+6)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Text, "M6,5 H18 V8 H13 V19 H11 V8 H6 Z", "Text (Ctrl+7)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Eyedropper, "M15,3 L21,9 L12,18 L6,18 L6,12 Z M4,20 H10", "Eyedropper (Ctrl+8)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.PaintBucket, "M4,12 L12,4 L20,12 L12,20 Z M8,20 H18", "Paint bucket (Ctrl+9)"));
-        tools.Children.Add(CreateToolIconButton(AnnotationTool.Crop, "M6,2 V14 H18 V18 H14 V22 H12 V18 H2 V16 H6 V6 H2 V4 H6 V2 M10,6 H18 V14", "Crop (Ctrl+0)"));
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Select, "mdi-cursor-default", "Select (Ctrl+1)"));
 
+        // Draw
+        tools.Children.Add(CreateSeparator());
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Arrow, "mdi-arrow-top-right", "Arrow (Ctrl+2)"));
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Rectangle, "mdi-rectangle-outline", "Rectangle (Ctrl+3)"));
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Highlight, "mdi-marker", "Highlight (Ctrl+4)"));
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Blur, "mdi-blur", "Blur (Ctrl+5)"));
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Pen, "mdi-pencil", "Pen (Ctrl+6)"));
+
+        // Text
+        tools.Children.Add(CreateSeparator());
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Text, "mdi-format-text", "Text (Ctrl+7)"));
+
+        // Color tools
+        tools.Children.Add(CreateSeparator());
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Eyedropper, "mdi-eyedropper", "Eyedropper (Ctrl+8)"));
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.PaintBucket, "mdi-format-color-fill", "Paint bucket (Ctrl+9)"));
+
+        // Crop
+        tools.Children.Add(CreateSeparator());
+        tools.Children.Add(CreateToolIconButton(AnnotationTool.Crop, "mdi-crop", "Crop (Ctrl+0)"));
+
+        // Shared color
         tools.Children.Add(CreateSeparator());
         tools.Children.Add(new TextBlock
         {
@@ -207,15 +273,38 @@ public sealed class ScreenshotEditorWindow : Window
         tools.Children.Add(_currentColorChip);
         tools.Children.Add(CreateColorPalette());
 
-        tools.Children.Add(CreateSeparator());
-        tools.Children.Add(new TextBlock
+        // Stroke context panel
+        tools.Children.Add(_strokeSeparator);
+        _strokePanel.Children.Add(new TextBlock
         {
-            Text = "Thickness",
+            Text = "Width",
             Foreground = Brush.Parse("#C2C6D6"),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(4, 0)
         });
+        _thicknessSlider.Value = _document.CurrentStrokeWidth;
         _thicknessInput.Value = (decimal)_document.CurrentStrokeWidth;
+        _thicknessSlider.AddHandler(InputElement.PointerPressedEvent, (_, _) =>
+        {
+            if (_document.SelectedAnnotation is IStrokeAnnotation && !_strokeHistoryPushed)
+            {
+                _history.Push(_document);
+                _strokeHistoryPushed = true;
+            }
+        }, handledEventsToo: true);
+        _thicknessSlider.AddHandler(InputElement.PointerReleasedEvent, (_, _) =>
+        {
+            _strokeHistoryPushed = false;
+        }, handledEventsToo: true);
+        _thicknessSlider.PropertyChanged += (_, e) =>
+        {
+            if (e.Property != RangeBase.ValueProperty || _suppressAppearanceEvents)
+            {
+                return;
+            }
+
+            ApplyStrokeWidth(_thicknessSlider.Value, recordHistory: false);
+        };
         _thicknessInput.ValueChanged += (_, _) =>
         {
             if (_suppressAppearanceEvents || _thicknessInput.Value is not { } value)
@@ -223,21 +312,21 @@ public sealed class ScreenshotEditorWindow : Window
                 return;
             }
 
-            var width = (double)value;
-            _document.CurrentStrokeWidth = width;
-            if (_document.SelectedAnnotation is IStrokeAnnotation stroke)
-            {
-                _history.Push(_document);
-                stroke.StrokeWidth = width;
-                _canvas.NotifyExternalChange();
-            }
+            ApplyStrokeWidth((double)value, recordHistory: true);
         };
-        tools.Children.Add(_thicknessInput);
+        _strokePanel.Children.Add(_thicknessSlider);
+        _strokePanel.Children.Add(_thicknessInput);
+        tools.Children.Add(_strokePanel);
 
-        tools.Children.Add(CreateSeparator());
-        tools.Children.Add(_boldButton);
-        tools.Children.Add(_italicButton);
-        tools.Children.Add(new TextBlock
+        // Text context panel
+        tools.Children.Add(_textSeparator);
+        ConfigureFormatToggle(_boldButton, "mdi-format-bold", "Bold");
+        ConfigureFormatToggle(_italicButton, "mdi-format-italic", "Italic");
+        ConfigureFormatToggle(_textBackgroundButton, "mdi-format-color-highlight", "Text background");
+        _textPanel.Children.Add(_boldButton);
+        _textPanel.Children.Add(_italicButton);
+        _textPanel.Children.Add(_textBackgroundButton);
+        _textPanel.Children.Add(new TextBlock
         {
             Text = "Size",
             Foreground = Brush.Parse("#C2C6D6"),
@@ -266,7 +355,49 @@ public sealed class ScreenshotEditorWindow : Window
                 ApplyTextFormatting();
             }
         };
-        tools.Children.Add(_fontSizeInput);
+        _textBackgroundButton.Click += (_, _) =>
+        {
+            if (!_suppressAppearanceEvents)
+            {
+                ApplyTextBackgroundToggle();
+            }
+        };
+        _textPanel.Children.Add(_fontSizeInput);
+        tools.Children.Add(_textPanel);
+
+        // Fill sensitivity context panel
+        tools.Children.Add(_fillSeparator);
+        _fillPanel.Children.Add(new TextBlock
+        {
+            Text = "Sensitivity",
+            Foreground = Brush.Parse("#C2C6D6"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0)
+        });
+        _fillToleranceSlider.Value = _document.CurrentFillTolerance;
+        _fillToleranceInput.Value = _document.CurrentFillTolerance;
+        _fillToleranceSlider.PropertyChanged += (_, e) =>
+        {
+            if (e.Property != RangeBase.ValueProperty || _suppressAppearanceEvents)
+            {
+                return;
+            }
+
+            ApplyFillTolerance((int)Math.Round(_fillToleranceSlider.Value));
+        };
+        _fillToleranceInput.ValueChanged += (_, _) =>
+        {
+            if (_suppressAppearanceEvents || _fillToleranceInput.Value is not { } value)
+            {
+                return;
+            }
+
+            ApplyFillTolerance((int)value);
+        };
+        _fillPanel.Children.Add(_fillToleranceSlider);
+        _fillPanel.Children.Add(_fillToleranceInput);
+        tools.Children.Add(_fillPanel);
+
         tools.Children.Add(_statusText);
 
         return new Border
@@ -279,6 +410,61 @@ public sealed class ScreenshotEditorWindow : Window
         };
     }
 
+    private static IEnumerable<Style> CreateToolbarStyles()
+    {
+        var buttonBase = new Style(x => x.OfType<Button>().Class("editorToolbarButton"))
+        {
+            Setters =
+            {
+                new Setter(RenderTransformProperty, new ScaleTransform(1, 1)),
+                new Setter(OpacityProperty, 1.0),
+                new Setter(BackgroundProperty, Brushes.Transparent),
+                new Setter(CornerRadiusProperty, new CornerRadius(6))
+            }
+        };
+
+        var buttonHover = new Style(x => x.OfType<Button>().Class("editorToolbarButton").Class(":pointerover"))
+        {
+            Setters =
+            {
+                new Setter(BackgroundProperty, Brush.Parse("#2A3140")),
+                new Setter(RenderTransformProperty, new ScaleTransform(1.06, 1.06)),
+                new Setter(OpacityProperty, 0.95)
+            }
+        };
+
+        var toggleBase = new Style(x => x.OfType<ToggleButton>().Class("editorToolbarButton"))
+        {
+            Setters =
+            {
+                new Setter(RenderTransformProperty, new ScaleTransform(1, 1)),
+                new Setter(OpacityProperty, 1.0),
+                new Setter(BackgroundProperty, Brushes.Transparent),
+                new Setter(CornerRadiusProperty, new CornerRadius(6))
+            }
+        };
+
+        var toggleHover = new Style(x => x.OfType<ToggleButton>().Class("editorToolbarButton").Class(":pointerover"))
+        {
+            Setters =
+            {
+                new Setter(BackgroundProperty, Brush.Parse("#2A3140")),
+                new Setter(RenderTransformProperty, new ScaleTransform(1.06, 1.06))
+            }
+        };
+
+        var toggleChecked = new Style(x => x.OfType<ToggleButton>().Class("editorToolbarButton").Class(":checked"))
+        {
+            Setters =
+            {
+                new Setter(BackgroundProperty, Brush.Parse("#3A4660")),
+                new Setter(RenderTransformProperty, new ScaleTransform(1.04, 1.04))
+            }
+        };
+
+        return [buttonBase, buttonHover, toggleBase, toggleHover, toggleChecked];
+    }
+
     private static Control CreateSeparator() => new Border
     {
         Width = 1,
@@ -288,9 +474,39 @@ public sealed class ScreenshotEditorWindow : Window
         VerticalAlignment = VerticalAlignment.Center
     };
 
-    private Button CreateActionIconButton(string geometry, string tooltip, Func<Task> action)
+    private static Icon CreateToolbarIcon(string iconValue) => new()
     {
-        var button = CreateIconButton(geometry);
+        Value = iconValue,
+        FontSize = 16,
+        Foreground = Brush.Parse("#E8EAED"),
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private static Transitions CreateButtonTransitions() =>
+    [
+        new DoubleTransition
+        {
+            Property = OpacityProperty,
+            Duration = TimeSpan.FromMilliseconds(140)
+        }
+    ];
+
+    private void ConfigureFormatToggle(ToggleButton button, string iconValue, string tooltip)
+    {
+        button.Width = 34;
+        button.Height = 34;
+        button.MinWidth = 34;
+        button.Padding = new Thickness(0);
+        button.Content = CreateToolbarIcon(iconValue);
+        button.Classes.Add("editorToolbarButton");
+        button.Transitions = CreateButtonTransitions();
+        ToolTip.SetTip(button, tooltip);
+    }
+
+    private Button CreateActionIconButton(string iconValue, string tooltip, Func<Task> action)
+    {
+        var button = CreateIconButton(iconValue);
         ToolTip.SetTip(button, tooltip);
         button.Click += async (_, _) =>
         {
@@ -306,7 +522,7 @@ public sealed class ScreenshotEditorWindow : Window
         return button;
     }
 
-    private ToggleButton CreateToolIconButton(AnnotationTool tool, string geometry, string tooltip)
+    private ToggleButton CreateToolIconButton(AnnotationTool tool, string iconValue, string tooltip)
     {
         var button = new ToggleButton
         {
@@ -315,42 +531,36 @@ public sealed class ScreenshotEditorWindow : Window
             MinWidth = 34,
             Padding = new Thickness(0),
             IsChecked = _document.CurrentTool == tool,
-            Content = new PathIcon
-            {
-                Data = Geometry.Parse(geometry),
-                Width = 16,
-                Height = 16,
-                Foreground = Brush.Parse("#E8EAED")
-            }
+            Content = CreateToolbarIcon(iconValue)
         };
+        button.Classes.Add("editorToolbarButton");
+        button.Transitions = CreateButtonTransitions();
         ToolTip.SetTip(button, tooltip);
         button.Click += (_, _) => SelectTool(tool);
         _toolButtons[tool] = button;
         return button;
     }
 
-    private static Button CreateIconButton(string geometry)
+    private static Button CreateIconButton(string iconValue)
     {
-        return new Button
+        var button = new Button
         {
             Width = 34,
             Height = 34,
             MinWidth = 34,
             Padding = new Thickness(0),
-            Content = new PathIcon
-            {
-                Data = Geometry.Parse(geometry),
-                Width = 16,
-                Height = 16,
-                Foreground = Brush.Parse("#E8EAED")
-            }
+            Content = CreateToolbarIcon(iconValue),
+            Transitions = CreateButtonTransitions()
         };
+        button.Classes.Add("editorToolbarButton");
+        return button;
     }
 
     private void SelectTool(AnnotationTool tool)
     {
         _document.CurrentTool = tool;
         SyncToolButtons();
+        SyncAppearanceControls();
     }
 
     private void SyncToolButtons()
@@ -402,10 +612,88 @@ public sealed class ScreenshotEditorWindow : Window
         {
             _history.Push(_document);
             annotation.ColorArgb = color;
+            if (annotation is TextAnnotation text && _textBackgroundAuto && text.BackgroundColorArgb is not null)
+            {
+                text.BackgroundColorArgb = SuggestTextBackground(color);
+            }
+
             _canvas.NotifyExternalChange();
         }
 
         SyncAppearanceControls();
+    }
+
+    private void ApplyTextBackgroundToggle()
+    {
+        if (_document.SelectedAnnotation is not TextAnnotation text)
+        {
+            return;
+        }
+
+        _history.Push(_document);
+        if (_textBackgroundButton.IsChecked == true)
+        {
+            _textBackgroundAuto = true;
+            text.BackgroundColorArgb = SuggestTextBackground(text.ColorArgb);
+        }
+        else
+        {
+            _textBackgroundAuto = false;
+            text.BackgroundColorArgb = null;
+        }
+
+        _canvas.NotifyExternalChange();
+    }
+
+    private static uint SuggestTextBackground(uint textColorArgb)
+    {
+        var r = (textColorArgb >> 16) & 0xFF;
+        var g = (textColorArgb >> 8) & 0xFF;
+        var b = textColorArgb & 0xFF;
+        var luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+        return luminance >= 140 ? 0xCC10131Au : 0xCCF5F5F5u;
+    }
+
+    private void ApplyStrokeWidth(double width, bool recordHistory)
+    {
+        width = Math.Clamp(width, 1, 12);
+        _document.CurrentStrokeWidth = width;
+        if (_document.SelectedAnnotation is IStrokeAnnotation stroke && Math.Abs(stroke.StrokeWidth - width) > 0.01)
+        {
+            if (recordHistory)
+            {
+                _history.Push(_document);
+            }
+
+            stroke.StrokeWidth = width;
+            _canvas.NotifyExternalChange();
+        }
+
+        _suppressAppearanceEvents = true;
+        try
+        {
+            _thicknessSlider.Value = width;
+            _thicknessInput.Value = (decimal)width;
+        }
+        finally
+        {
+            _suppressAppearanceEvents = false;
+        }
+    }
+
+    private void ApplyFillTolerance(int tolerance)
+    {
+        _document.CurrentFillTolerance = Math.Clamp(tolerance, 0, 100);
+        _suppressAppearanceEvents = true;
+        try
+        {
+            _fillToleranceSlider.Value = _document.CurrentFillTolerance;
+            _fillToleranceInput.Value = _document.CurrentFillTolerance;
+        }
+        finally
+        {
+            _suppressAppearanceEvents = false;
+        }
     }
 
     private void ApplyTextFormatting()
@@ -432,25 +720,62 @@ public sealed class ScreenshotEditorWindow : Window
         try
         {
             _currentColorChip.Background = new SolidColorBrush(Color.FromUInt32(_document.CurrentColorArgb));
-            _thicknessInput.Value = (decimal)_document.CurrentStrokeWidth;
+
+            var strokeWidth = _document.SelectedAnnotation is IStrokeAnnotation stroke
+                ? stroke.StrokeWidth
+                : _document.CurrentStrokeWidth;
+            _thicknessSlider.Value = strokeWidth;
+            _thicknessInput.Value = (decimal)strokeWidth;
+
+            _fillToleranceSlider.Value = _document.CurrentFillTolerance;
+            _fillToleranceInput.Value = _document.CurrentFillTolerance;
 
             if (_document.SelectedAnnotation is TextAnnotation text)
             {
                 _boldButton.IsChecked = text.IsBold;
                 _italicButton.IsChecked = text.IsItalic;
                 _fontSizeInput.Value = (decimal)text.FontSize;
+                _textBackgroundButton.IsChecked = text.BackgroundColorArgb is not null;
+                if (text.BackgroundColorArgb is null)
+                {
+                    _textBackgroundAuto = false;
+                }
+            }
+            else
+            {
+                _textBackgroundButton.IsChecked = false;
             }
 
-            if (_document.SelectedAnnotation is IStrokeAnnotation stroke)
-            {
-                _thicknessInput.Value = (decimal)stroke.StrokeWidth;
-            }
+            var showStroke = IsStrokeContextVisible();
+            var showText = IsTextContextVisible();
+            var showFill = _document.CurrentTool == AnnotationTool.PaintBucket;
+
+            _strokePanel.IsVisible = showStroke;
+            _strokeSeparator.IsVisible = showStroke;
+            _textPanel.IsVisible = showText;
+            _textSeparator.IsVisible = showText;
+            _fillPanel.IsVisible = showFill;
+            _fillSeparator.IsVisible = showFill;
         }
         finally
         {
             _suppressAppearanceEvents = false;
         }
     }
+
+    private bool IsStrokeContextVisible()
+    {
+        if (_document.SelectedAnnotation is IStrokeAnnotation)
+        {
+            return true;
+        }
+
+        return _document.CurrentTool is AnnotationTool.Arrow or AnnotationTool.Rectangle or AnnotationTool.Pen;
+    }
+
+    private bool IsTextContextVisible()
+        => _document.CurrentTool == AnnotationTool.Text
+           || _document.SelectedAnnotation is TextAnnotation;
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
@@ -500,6 +825,12 @@ public sealed class ScreenshotEditorWindow : Window
                     return;
                 case Key.Z:
                     _canvas.Undo();
+                    SyncAppearanceControls();
+                    SyncToolButtons();
+                    e.Handled = true;
+                    return;
+                case Key.Y:
+                    _canvas.Redo();
                     SyncAppearanceControls();
                     SyncToolButtons();
                     e.Handled = true;

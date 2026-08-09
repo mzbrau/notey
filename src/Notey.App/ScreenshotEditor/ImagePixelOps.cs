@@ -21,7 +21,7 @@ public static class ImagePixelOps
 #pragma warning restore CA1416
     }
 
-    public static byte[] FloodFillPng(byte[] pngBytes, int startX, int startY, uint fillColorArgb)
+    public static byte[] FloodFillPng(byte[] pngBytes, int startX, int startY, uint fillColorArgb, int tolerance = 0)
     {
 #pragma warning disable CA1416
         using var stream = new MemoryStream(pngBytes);
@@ -36,6 +36,8 @@ public static class ImagePixelOps
         {
             return pngBytes;
         }
+
+        tolerance = Math.Clamp(tolerance, 0, 100);
 
         var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
         var data = bitmap.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
@@ -70,10 +72,7 @@ public static class ImagePixelOps
             {
                 var (x, y) = queue.Dequeue();
                 var index = (y * stride) + (x * 4);
-                if (buffer[index] != targetB
-                    || buffer[index + 1] != targetG
-                    || buffer[index + 2] != targetR
-                    || buffer[index + 3] != targetA)
+                if (!MatchesTarget(buffer, index, targetB, targetG, targetR, targetA, tolerance))
                 {
                     continue;
                 }
@@ -117,6 +116,26 @@ public static class ImagePixelOps
         bitmap.Save(output, ImageFormat.Png);
         return output.ToArray();
 #pragma warning restore CA1416
+    }
+
+    private static bool MatchesTarget(byte[] buffer, int index, byte targetB, byte targetG, byte targetR, byte targetA, int tolerance)
+    {
+        if (buffer[index + 3] != targetA)
+        {
+            return false;
+        }
+
+        if (tolerance <= 0)
+        {
+            return buffer[index] == targetB
+                && buffer[index + 1] == targetG
+                && buffer[index + 2] == targetR;
+        }
+
+        var deltaB = Math.Abs(buffer[index] - targetB);
+        var deltaG = Math.Abs(buffer[index + 1] - targetG);
+        var deltaR = Math.Abs(buffer[index + 2] - targetR);
+        return Math.Max(deltaB, Math.Max(deltaG, deltaR)) <= tolerance;
     }
 
     public static byte[]? CreatePixelatedRegionPng(byte[] pngBytes, RectD region, int pixelSize, out int width, out int height)

@@ -3,6 +3,8 @@ using Notey.App.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Notey.App.Diagnostics;
+using Optris.Icons.Avalonia;
+using Optris.Icons.Avalonia.MaterialDesign;
 using Velopack;
 
 namespace Notey.App;
@@ -25,6 +27,8 @@ internal static class Program
 
     public static AppBuilder BuildAvaloniaApp(string[] args)
     {
+        IconProvider.Current.Register<MaterialDesignIconProvider>();
+
         var host = HostBootstrapper.Create(args);
 
         return AppBuilder

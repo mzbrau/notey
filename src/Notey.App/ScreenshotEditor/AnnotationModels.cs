@@ -71,6 +71,11 @@ public sealed class TextAnnotation : Annotation
 
     public bool IsItalic { get; set; }
 
+    /// <summary>
+    /// Optional backdrop behind the text. Null means no background.
+    /// </summary>
+    public uint? BackgroundColorArgb { get; set; }
+
     public override Annotation Clone() => CloneCore(new TextAnnotation
     {
         X = X,
@@ -78,7 +83,8 @@ public sealed class TextAnnotation : Annotation
         Text = Text,
         FontSize = FontSize,
         IsBold = IsBold,
-        IsItalic = IsItalic
+        IsItalic = IsItalic,
+        BackgroundColorArgb = BackgroundColorArgb
     });
 }
 
@@ -186,6 +192,8 @@ public sealed class ScreenshotEditDocument
     public uint CurrentColorArgb { get; set; } = 0xFFE53935;
 
     public double CurrentStrokeWidth { get; set; } = 3;
+
+    public int CurrentFillTolerance { get; set; } = 32;
 
     public AnnotationTool CurrentTool { get; set; } = AnnotationTool.Select;
 

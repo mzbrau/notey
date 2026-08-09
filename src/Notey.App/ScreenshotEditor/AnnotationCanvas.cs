@@ -77,6 +77,20 @@ public sealed class AnnotationCanvas : Canvas
         return true;
     }
 
+    public bool Redo()
+    {
+        CloseTextEditor(commit: false);
+        if (!_history.TryRedo(_document))
+        {
+            return false;
+        }
+
+        ReloadBaseBitmap();
+        NotifyExternalChange();
+        AppearanceChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     public void BeginEditSelectedText()
     {
         if (_document.SelectedAnnotation is TextAnnotation text)
@@ -89,6 +103,23 @@ public sealed class AnnotationCanvas : Canvas
     {
         _document.CurrentTool = AnnotationTool.Select;
         ToolReturnedToSelect?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static bool ShouldReturnToSelect(AnnotationTool tool) => tool switch
+    {
+        AnnotationTool.Pen => false,
+        AnnotationTool.Eyedropper => false,
+        AnnotationTool.PaintBucket => false,
+        AnnotationTool.Select => false,
+        _ => true
+    };
+
+    private void ReturnToSelectIfNeeded(AnnotationTool tool)
+    {
+        if (ShouldReturnToSelect(tool))
+        {
+            ReturnToSelect();
+        }
     }
 
     private void OpenTextEditor(TextAnnotation text)
@@ -291,7 +322,6 @@ public sealed class AnnotationCanvas : Canvas
 
                 _owner.AppearanceChanged?.Invoke(_owner, EventArgs.Empty);
                 _owner.NotifyExternalChange();
-                _owner.ReturnToSelect();
                 return;
             }
 
@@ -302,11 +332,11 @@ public sealed class AnnotationCanvas : Canvas
                     document.PngBytes,
                     (int)Math.Clamp(point.X, 0, document.Width - 1),
                     (int)Math.Clamp(point.Y, 0, document.Height - 1),
-                    document.CurrentColorArgb);
+                    document.CurrentColorArgb,
+                    document.CurrentFillTolerance);
                 document.ReplaceBaseImage(filled, document.Width, document.Height);
                 ReloadBaseBitmap();
                 _owner.NotifyExternalChange();
-                _owner.ReturnToSelect();
                 return;
             }
 
@@ -323,6 +353,13 @@ public sealed class AnnotationCanvas : Canvas
 
                     if (AnnotationGeometry.HitTest(selected, point.X, point.Y))
                     {
+                        if (e.ClickCount >= 2 && selected is TextAnnotation selectedText)
+                        {
+                            _owner.OpenTextEditor(selectedText);
+                            InvalidateVisual();
+                            return;
+                        }
+
                         _isMovingSelection = true;
                         return;
                     }
@@ -480,7 +517,8 @@ public sealed class AnnotationCanvas : Canvas
             e.Handled = true;
 
             var document = _owner._document;
-            if (document.CurrentTool == AnnotationTool.Crop && _cropPreview is { } crop && crop.Width >= 4 && crop.Height >= 4)
+            var tool = document.CurrentTool;
+            if (tool == AnnotationTool.Crop && _cropPreview is { } crop && crop.Width >= 4 && crop.Height >= 4)
             {
                 if (!_mutationPushed)
                 {
@@ -489,11 +527,11 @@ public sealed class AnnotationCanvas : Canvas
 
                 document.ApplyCrop(crop);
                 ReloadBaseBitmap();
-                _owner.ReturnToSelect();
+                _owner.ReturnToSelectIfNeeded(tool);
             }
             else if (_draftAnnotation is not null)
             {
-                _owner.ReturnToSelect();
+                _owner.ReturnToSelectIfNeeded(tool);
             }
 
             _dragOrigin = null;
@@ -648,7 +686,21 @@ public sealed class AnnotationCanvas : Canvas
                         new Typeface("Segoe UI", style, weight),
                         text.FontSize,
                         new SolidColorBrush(textColor));
-                    context.DrawText(formatted, new Point(text.X, text.Y - text.FontSize));
+                    var origin = new Point(text.X, text.Y - text.FontSize);
+                    if (text.BackgroundColorArgb is { } background)
+                    {
+                        const double padX = 4;
+                        const double padY = 2;
+                        context.FillRectangle(
+                            new SolidColorBrush(Color.FromUInt32(background)),
+                            new Rect(
+                                origin.X - padX,
+                                origin.Y - padY,
+                                formatted.Width + (padX * 2),
+                                formatted.Height + (padY * 2)));
+                    }
+
+                    context.DrawText(formatted, origin);
                     break;
                 }
                 case RectangleAnnotation rect:

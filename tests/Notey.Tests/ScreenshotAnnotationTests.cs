@@ -108,6 +108,23 @@ public sealed class ScreenshotAnnotationTests
     }
 
     [Fact]
+    public void Redo_restores_undone_annotation_state()
+    {
+        var document = new ScreenshotEditDocument([0x89, 0x50, 0x4E, 0x47], 120, 80);
+        var history = new ScreenshotEditHistory();
+        history.Push(document);
+
+        document.Annotations.Add(new RectangleAnnotation { X = 5, Y = 5, Width = 20, Height = 20 });
+        Assert.True(history.TryUndo(document));
+        Assert.Empty(document.Annotations);
+        Assert.True(history.CanRedo);
+
+        Assert.True(history.TryRedo(document));
+        Assert.Single(document.Annotations);
+        Assert.False(history.CanRedo);
+    }
+
+    [Fact]
     public void Pen_hit_test_and_move()
     {
         var pen = new PenAnnotation { StrokeWidth = 2 };
@@ -134,7 +151,8 @@ public sealed class ScreenshotAnnotationTests
             IsItalic = true,
             X = 4,
             Y = 8,
-            ColorArgb = 0xFF112233
+            ColorArgb = 0xFF112233,
+            BackgroundColorArgb = 0xCCF5F5F5
         };
 
         var clone = Assert.IsType<TextAnnotation>(text.Clone());
@@ -144,6 +162,7 @@ public sealed class ScreenshotAnnotationTests
         Assert.True(clone.IsBold);
         Assert.True(clone.IsItalic);
         Assert.Equal(0xFF112233u, clone.ColorArgb);
+        Assert.Equal(0xCCF5F5F5u, clone.BackgroundColorArgb);
     }
 
     [Fact]
@@ -225,5 +244,40 @@ public sealed class ScreenshotAnnotationTests
         Assert.Equal(30, document.Width);
         Assert.Equal(20, document.Height);
         Assert.NotEmpty(document.Annotations);
+    }
+
+    [Fact]
+    public void FloodFill_respects_color_tolerance()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "System.Drawing GDI+ pixel ops require Windows.");
+
+#pragma warning disable CA1416
+        using var bitmap = new System.Drawing.Bitmap(4, 1, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        bitmap.SetPixel(0, 0, System.Drawing.Color.FromArgb(255, 100, 100, 100));
+        bitmap.SetPixel(1, 0, System.Drawing.Color.FromArgb(255, 110, 100, 100));
+        bitmap.SetPixel(2, 0, System.Drawing.Color.FromArgb(255, 140, 100, 100));
+        bitmap.SetPixel(3, 0, System.Drawing.Color.FromArgb(255, 0, 0, 255));
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+        var png = stream.ToArray();
+#pragma warning restore CA1416
+
+        var exact = ImagePixelOps.FloodFillPng(png, 0, 0, 0xFFFF0000, tolerance: 0);
+#pragma warning disable CA1416
+        using (var exactBitmap = new System.Drawing.Bitmap(new MemoryStream(exact)))
+        {
+            Assert.Equal(System.Drawing.Color.FromArgb(255, 255, 0, 0), exactBitmap.GetPixel(0, 0));
+            Assert.Equal(System.Drawing.Color.FromArgb(255, 110, 100, 100), exactBitmap.GetPixel(1, 0));
+        }
+
+        var tolerant = ImagePixelOps.FloodFillPng(png, 0, 0, 0xFFFF0000, tolerance: 15);
+        using (var tolerantBitmap = new System.Drawing.Bitmap(new MemoryStream(tolerant)))
+        {
+            Assert.Equal(System.Drawing.Color.FromArgb(255, 255, 0, 0), tolerantBitmap.GetPixel(0, 0));
+            Assert.Equal(System.Drawing.Color.FromArgb(255, 255, 0, 0), tolerantBitmap.GetPixel(1, 0));
+            Assert.Equal(System.Drawing.Color.FromArgb(255, 140, 100, 100), tolerantBitmap.GetPixel(2, 0));
+            Assert.Equal(System.Drawing.Color.FromArgb(255, 0, 0, 255), tolerantBitmap.GetPixel(3, 0));
+        }
+#pragma warning restore CA1416
     }
 }
