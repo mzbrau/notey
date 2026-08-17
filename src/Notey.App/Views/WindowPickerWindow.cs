@@ -16,7 +16,11 @@ public sealed class WindowPickerWindow : Window
     private Action? _requestGlobalCancel;
     private Func<PixelPoint, WindowCaptureSelection?>? _resolveWindowAtPoint;
 
-    private WindowPickerWindow(PixelRect? screenBounds, double screenScaling)
+    private WindowPickerWindow(
+        PixelRect? screenBounds,
+        double screenScaling,
+        IImage? frozenScreenshot,
+        ScreenSnipSelection? virtualBounds)
     {
         _screenBounds = screenBounds;
         _screenScaling = screenScaling <= 0 ? 1 : screenScaling;
@@ -29,7 +33,9 @@ public sealed class WindowPickerWindow : Window
         WindowStartupLocation = WindowStartupLocation.Manual;
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
         Background = Brushes.Transparent;
-        Content = _surface;
+        Content = frozenScreenshot is null || virtualBounds is null
+            ? _surface
+            : FrozenScreenshotView.CreateHost(frozenScreenshot, virtualBounds, screenBounds, _surface);
 
         Opened += (_, _) =>
         {
@@ -66,14 +72,18 @@ public sealed class WindowPickerWindow : Window
         _surface.SelectionCancelled += (_, _) => _requestGlobalCancel?.Invoke();
     }
 
-    public static Task<WindowCaptureSelection?> ShowSelectionAsync(CancellationToken cancellationToken = default)
+    public static Task<WindowCaptureSelection?> ShowSelectionAsync(
+        byte[] frozenPng,
+        ScreenSnipSelection virtualBounds,
+        CancellationToken cancellationToken = default)
     {
         var windowsCatalog = EnumerateCaptureTargets();
-        var probe = new WindowPickerWindow(null, 1);
+        var frozen = FrozenScreenshotView.DecodePng(frozenPng);
+        var probe = new WindowPickerWindow(null, 1, frozen, virtualBounds);
         var screens = probe.Screens.All;
         var overlays = screens.Count == 0
             ? [probe]
-            : screens.Select(static screen => new WindowPickerWindow(screen.Bounds, screen.Scaling)).ToArray();
+            : screens.Select(screen => new WindowPickerWindow(screen.Bounds, screen.Scaling, frozen, virtualBounds)).ToArray();
         if (screens.Count > 0)
         {
             probe.Close();
@@ -129,14 +139,17 @@ public sealed class WindowPickerWindow : Window
                     registration.Dispose();
                     completion.TrySetResult(window._selection);
                     CloseRemainingWindows(overlays, window);
-                    return;
                 }
-
-                if (!completed && remainingWindows == 0)
+                else if (!completed && remainingWindows == 0)
                 {
                     completed = true;
                     registration.Dispose();
                     completion.TrySetResult(null);
+                }
+
+                if (remainingWindows == 0)
+                {
+                    Dispatcher.UIThread.Post(frozen.Dispose);
                 }
             };
         }

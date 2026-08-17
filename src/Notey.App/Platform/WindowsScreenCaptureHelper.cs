@@ -84,77 +84,77 @@ internal static class WindowsScreenCaptureHelper
         File.WriteAllBytes(filePath, bytes);
     }
 
-    public static byte[] CaptureWindowToPngBytes(WindowCaptureSelection selection)
+    public static ScreenSnipSelection GetVirtualScreenBounds()
     {
-        var bounds = selection.Bounds;
-        var screenDc = GetDC(IntPtr.Zero);
-        if (screenDc == IntPtr.Zero)
+        var width = GetSystemMetrics(SmCxVirtualScreen);
+        var height = GetSystemMetrics(SmCyVirtualScreen);
+        if (width <= 0 || height <= 0)
         {
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to get the screen device context.");
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to read virtual screen bounds.");
         }
 
-        var memoryDc = IntPtr.Zero;
-        var bitmapHandle = IntPtr.Zero;
-        var previousObject = IntPtr.Zero;
+        return new ScreenSnipSelection(
+            GetSystemMetrics(SmXVirtualScreen),
+            GetSystemMetrics(SmYVirtualScreen),
+            width,
+            height);
+    }
 
-        try
+    public static byte[] CropPngBytes(byte[] frozenPng, ScreenSnipSelection virtualBounds, ScreenSnipSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(frozenPng);
+        if (virtualBounds.Width <= 0 || virtualBounds.Height <= 0)
         {
-            memoryDc = CreateCompatibleDC(screenDc);
-            if (memoryDc == IntPtr.Zero)
-            {
-                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to create a compatible device context.");
-            }
+            throw new ArgumentOutOfRangeException(nameof(virtualBounds), "Virtual bounds must be positive.");
+        }
 
-            bitmapHandle = CreateCompatibleBitmap(screenDc, bounds.Width, bounds.Height);
-            if (bitmapHandle == IntPtr.Zero)
-            {
-                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to create a compatible bitmap.");
-            }
-
-            var selectedObject = SelectObject(memoryDc, bitmapHandle);
-            if (selectedObject == HgdiError)
-            {
-                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to select the capture bitmap.");
-            }
-
-            previousObject = selectedObject;
-
-            var printed = PrintWindow(selection.Hwnd, memoryDc, PwRenderFullContent);
-            if (!printed)
-            {
-                // Some windows reject PrintWindow; fall back to a screen BitBlt of the window bounds.
-                if (!BitBlt(memoryDc, 0, 0, bounds.Width, bounds.Height, screenDc, bounds.X, bounds.Y, Srccopy))
-                {
-                    throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to capture the selected window.");
-                }
-            }
+        var crop = ClampSelection(virtualBounds, selection);
 
 #pragma warning disable CA1416
-            using var image = Image.FromHbitmap(bitmapHandle);
-            using var stream = new MemoryStream();
-            image.Save(stream, ImageFormat.Png);
-            return stream.ToArray();
-#pragma warning restore CA1416
-        }
-        finally
+        using var stream = new MemoryStream(frozenPng);
+        using var source = new Bitmap(stream);
+        var sourceX = Math.Clamp(crop.X - virtualBounds.X, 0, Math.Max(0, source.Width - 1));
+        var sourceY = Math.Clamp(crop.Y - virtualBounds.Y, 0, Math.Max(0, source.Height - 1));
+        var width = Math.Clamp(crop.Width, 1, Math.Max(1, source.Width - sourceX));
+        var height = Math.Clamp(crop.Height, 1, Math.Max(1, source.Height - sourceY));
+
+        using var cropped = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using (var graphics = Graphics.FromImage(cropped))
         {
-            if (previousObject != IntPtr.Zero && memoryDc != IntPtr.Zero)
-            {
-                _ = SelectObject(memoryDc, previousObject);
-            }
-
-            if (bitmapHandle != IntPtr.Zero)
-            {
-                _ = DeleteObject(bitmapHandle);
-            }
-
-            if (memoryDc != IntPtr.Zero)
-            {
-                _ = DeleteDC(memoryDc);
-            }
-
-            _ = ReleaseDC(IntPtr.Zero, screenDc);
+            graphics.DrawImage(
+                source,
+                new Rectangle(0, 0, width, height),
+                new Rectangle(sourceX, sourceY, width, height),
+                GraphicsUnit.Pixel);
         }
+
+        using var output = new MemoryStream();
+        cropped.Save(output, ImageFormat.Png);
+        return output.ToArray();
+#pragma warning restore CA1416
+    }
+
+    public static ScreenSnipSelection ClampSelection(ScreenSnipSelection bounds, ScreenSnipSelection selection)
+    {
+        var boundsLeft = bounds.X;
+        var boundsTop = bounds.Y;
+        var boundsRight = bounds.X + Math.Max(1, bounds.Width);
+        var boundsBottom = bounds.Y + Math.Max(1, bounds.Height);
+
+        var left = Math.Max(boundsLeft, selection.X);
+        var top = Math.Max(boundsTop, selection.Y);
+        var right = Math.Min(boundsRight, selection.X + Math.Max(1, selection.Width));
+        var bottom = Math.Min(boundsBottom, selection.Y + Math.Max(1, selection.Height));
+
+        if (right <= left || bottom <= top)
+        {
+            left = Math.Clamp(selection.X, boundsLeft, boundsRight - 1);
+            top = Math.Clamp(selection.Y, boundsTop, boundsBottom - 1);
+            right = Math.Min(left + 1, boundsRight);
+            bottom = Math.Min(top + 1, boundsBottom);
+        }
+
+        return new ScreenSnipSelection(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
     }
 
     public static ScreenSnipSelection GetMonitorBoundsUnderCursor()
@@ -182,7 +182,10 @@ internal static class WindowsScreenCaptureHelper
     }
 
     private const uint MonitorDefaultToNearest = 2;
-    private const uint PwRenderFullContent = 0x00000002;
+    private const int SmXVirtualScreen = 76;
+    private const int SmYVirtualScreen = 77;
+    private const int SmCxVirtualScreen = 78;
+    private const int SmCyVirtualScreen = 79;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point
@@ -208,6 +211,9 @@ internal static class WindowsScreenCaptureHelper
         public Rect Work;
         public uint Flags;
     }
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetCursorPos(out Point point);
@@ -250,7 +256,4 @@ internal static class WindowsScreenCaptureHelper
         int sourceX,
         int sourceY,
         int rasterOperation);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint flags);
 }
