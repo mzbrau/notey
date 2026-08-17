@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Notey.App.Views;
 using Notey.Capture.Abstractions;
@@ -42,60 +41,53 @@ public sealed class WindowsScreenSnipService(
     public async ValueTask<ScreenCaptureResult> CaptureRegionAsync(CancellationToken cancellationToken = default)
     {
         EnsureWindows();
-        var selection = await ScreenSnipSelectionWindow.ShowSelectionAsync(cancellationToken);
+        var virtualBounds = WindowsScreenCaptureHelper.GetVirtualScreenBounds();
+        var frozenPng = await Task.Run(() => WindowsScreenCaptureHelper.CaptureRegionToPngBytes(virtualBounds), cancellationToken);
+        var selection = await ScreenSnipSelectionWindow.ShowSelectionAsync(frozenPng, virtualBounds, cancellationToken);
         if (selection is null)
         {
             throw new OperationCanceledException("Screen snip selection was cancelled.", cancellationToken);
         }
 
-        await Task.Delay(TimeSpan.FromMilliseconds(125), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-
-        var pngBytes = await Task.Run(() => WindowsScreenCaptureHelper.CaptureRegionToPngBytes(selection), cancellationToken);
+        var crop = WindowsScreenCaptureHelper.ClampSelection(virtualBounds, selection);
+        var pngBytes = WindowsScreenCaptureHelper.CropPngBytes(frozenPng, virtualBounds, crop);
         var capturedAt = timeProvider.GetLocalNow();
-        logger.LogInformation("Captured region screenshot ({Width}x{Height}).", selection.Width, selection.Height);
+        logger.LogInformation("Captured region screenshot ({Width}x{Height}).", crop.Width, crop.Height);
         return new ScreenCaptureResult(
             pngBytes,
             capturedAt,
-            selection.Width,
-            selection.Height,
+            crop.Width,
+            crop.Height,
             ScreenCaptureKind.Region,
-            selection.X,
-            selection.Y);
+            crop.X,
+            crop.Y);
     }
 
     public async ValueTask<ScreenCaptureResult> CaptureWindowAsync(CancellationToken cancellationToken = default)
     {
         EnsureWindows();
-        var selection = await WindowPickerWindow.ShowSelectionAsync(cancellationToken);
+        var virtualBounds = WindowsScreenCaptureHelper.GetVirtualScreenBounds();
+        var frozenPng = await Task.Run(() => WindowsScreenCaptureHelper.CaptureRegionToPngBytes(virtualBounds), cancellationToken);
+        var selection = await WindowPickerWindow.ShowSelectionAsync(frozenPng, virtualBounds, cancellationToken);
         if (selection is null)
         {
             throw new OperationCanceledException("Window selection was cancelled.", cancellationToken);
         }
 
-        await Task.Delay(TimeSpan.FromMilliseconds(125), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-
-        try
-        {
-            var pngBytes = await Task.Run(() => WindowsScreenCaptureHelper.CaptureWindowToPngBytes(selection), cancellationToken);
-            var capturedAt = timeProvider.GetLocalNow();
-            logger.LogInformation("Captured window screenshot ({Width}x{Height}).", selection.Width, selection.Height);
-            return new ScreenCaptureResult(
-                pngBytes,
-                capturedAt,
-                selection.Width,
-                selection.Height,
-                ScreenCaptureKind.Window,
-                selection.X,
-                selection.Y);
-        }
-        catch (Win32Exception ex)
-        {
-            throw new InvalidOperationException(
-                "Unable to capture that window. It may belong to an elevated or protected process.",
-                ex);
-        }
+        var crop = WindowsScreenCaptureHelper.ClampSelection(virtualBounds, selection.Bounds);
+        var pngBytes = WindowsScreenCaptureHelper.CropPngBytes(frozenPng, virtualBounds, crop);
+        var capturedAt = timeProvider.GetLocalNow();
+        logger.LogInformation("Captured window screenshot ({Width}x{Height}).", crop.Width, crop.Height);
+        return new ScreenCaptureResult(
+            pngBytes,
+            capturedAt,
+            crop.Width,
+            crop.Height,
+            ScreenCaptureKind.Window,
+            crop.X,
+            crop.Y);
     }
 
     private string GetUniqueSnipPath(DateTimeOffset capturedAt)
