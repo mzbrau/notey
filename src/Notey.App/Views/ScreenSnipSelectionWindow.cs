@@ -14,7 +14,11 @@ public sealed class ScreenSnipSelectionWindow : Window
     private ScreenSnipSelection? _selection;
     private Action? _requestGlobalCancel;
 
-    private ScreenSnipSelectionWindow(PixelRect? screenBounds, double screenScaling)
+    private ScreenSnipSelectionWindow(
+        PixelRect? screenBounds,
+        double screenScaling,
+        IImage? frozenScreenshot,
+        ScreenSnipSelection? virtualBounds)
     {
         _screenBounds = screenBounds;
         _screenScaling = screenScaling <= 0 ? 1 : screenScaling;
@@ -27,7 +31,9 @@ public sealed class ScreenSnipSelectionWindow : Window
         WindowStartupLocation = WindowStartupLocation.Manual;
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
         Background = Brushes.Transparent;
-        Content = _selectionSurface;
+        Content = frozenScreenshot is null || virtualBounds is null
+            ? _selectionSurface
+            : FrozenScreenshotView.CreateHost(frozenScreenshot, virtualBounds, screenBounds, _selectionSurface);
 
         Opened += (_, _) =>
         {
@@ -45,13 +51,17 @@ public sealed class ScreenSnipSelectionWindow : Window
         _selectionSurface.SelectionCancelled += (_, _) => _requestGlobalCancel?.Invoke();
     }
 
-    public static Task<ScreenSnipSelection?> ShowSelectionAsync(CancellationToken cancellationToken = default)
+    public static Task<ScreenSnipSelection?> ShowSelectionAsync(
+        byte[] frozenPng,
+        ScreenSnipSelection virtualBounds,
+        CancellationToken cancellationToken = default)
     {
-        var probe = new ScreenSnipSelectionWindow(null, 1);
+        var frozen = FrozenScreenshotView.DecodePng(frozenPng);
+        var probe = new ScreenSnipSelectionWindow(null, 1, frozen, virtualBounds);
         var screens = probe.Screens.All;
         var windows = screens.Count == 0
             ? [probe]
-            : screens.Select(static screen => new ScreenSnipSelectionWindow(screen.Bounds, screen.Scaling)).ToArray();
+            : screens.Select(screen => new ScreenSnipSelectionWindow(screen.Bounds, screen.Scaling, frozen, virtualBounds)).ToArray();
         if (screens.Count > 0)
         {
             probe.Close();
@@ -90,14 +100,17 @@ public sealed class ScreenSnipSelectionWindow : Window
                     registration.Dispose();
                     completion.TrySetResult(window._selection);
                     CloseRemainingWindows(windows, window);
-                    return;
                 }
-
-                if (!completed && remainingWindows == 0)
+                else if (!completed && remainingWindows == 0)
                 {
                     completed = true;
                     registration.Dispose();
                     completion.TrySetResult(null);
+                }
+
+                if (remainingWindows == 0)
+                {
+                    Dispatcher.UIThread.Post(frozen.Dispose);
                 }
             };
         }
