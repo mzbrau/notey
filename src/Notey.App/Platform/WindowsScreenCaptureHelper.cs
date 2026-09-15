@@ -90,7 +90,7 @@ internal static class WindowsScreenCaptureHelper
         var height = GetSystemMetrics(SmCyVirtualScreen);
         if (width <= 0 || height <= 0)
         {
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Failed to read virtual screen bounds.");
+            throw new InvalidOperationException("Failed to read virtual screen bounds.");
         }
 
         return new ScreenSnipSelection(

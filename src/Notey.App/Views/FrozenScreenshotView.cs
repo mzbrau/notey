@@ -9,6 +9,7 @@ internal static class FrozenScreenshotView
 {
     public static Bitmap DecodePng(byte[] pngBytes)
     {
+        ArgumentNullException.ThrowIfNull(pngBytes);
         using var stream = new MemoryStream(pngBytes);
         return new Bitmap(stream);
     }
