@@ -113,11 +113,6 @@ public sealed class ScreenshotEditorWindow : Window
         _noteImageInserter = noteImageInserter;
         _canvas = new AnnotationCanvas(document, _history);
         _canvas.DocumentChanged += (_, _) => UpdateStatus();
-        _canvas.ToolReturnedToSelect += (_, _) =>
-        {
-            SyncToolButtons();
-            SyncAppearanceControls();
-        };
         _canvas.AppearanceChanged += (_, _) => SyncAppearanceControls();
 
         Title = "Screenshot Editor";
@@ -214,6 +209,7 @@ public sealed class ScreenshotEditorWindow : Window
         // Actions
         tools.Children.Add(CreateActionIconButton("mdi-content-save", "Save", async () => await SaveAsync()));
         tools.Children.Add(CreateActionIconButton("mdi-content-copy", "Copy", async () => await CopyAsync()));
+        tools.Children.Add(CreateDragHandle());
         tools.Children.Add(CreateActionIconButton("mdi-note-plus-outline", "Add to Notey", async () => await InsertAsync()));
         tools.Children.Add(CreateActionIconButton(
             "mdi-undo",
@@ -462,7 +458,27 @@ public sealed class ScreenshotEditorWindow : Window
             }
         };
 
-        return [buttonBase, buttonHover, toggleBase, toggleHover, toggleChecked];
+        var dragBase = new Style(x => x.OfType<Border>().Class("editorToolbarDragHandle"))
+        {
+            Setters =
+            {
+                new Setter(RenderTransformProperty, new ScaleTransform(1, 1)),
+                new Setter(OpacityProperty, 1.0),
+                new Setter(BackgroundProperty, Brushes.Transparent)
+            }
+        };
+
+        var dragHover = new Style(x => x.OfType<Border>().Class("editorToolbarDragHandle").Class(":pointerover"))
+        {
+            Setters =
+            {
+                new Setter(BackgroundProperty, Brush.Parse("#2A3140")),
+                new Setter(RenderTransformProperty, new ScaleTransform(1.06, 1.06)),
+                new Setter(OpacityProperty, 0.95)
+            }
+        };
+
+        return [buttonBase, buttonHover, toggleBase, toggleHover, toggleChecked, dragBase, dragHover];
     }
 
     private static Control CreateSeparator() => new Border
@@ -520,6 +536,63 @@ public sealed class ScreenshotEditorWindow : Window
             }
         };
         return button;
+    }
+
+    private Control CreateDragHandle()
+    {
+        var handle = new Border
+        {
+            Width = 34,
+            Height = 34,
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
+            Child = CreateToolbarIcon("mdi-drag"),
+            Cursor = new Cursor(StandardCursorType.DragMove),
+            Transitions = CreateButtonTransitions()
+        };
+        handle.Classes.Add("editorToolbarDragHandle");
+        ToolTip.SetTip(handle, "Drag annotated PNG to another app");
+        handle.PointerPressed += OnDragHandlePointerPressed;
+        return handle;
+    }
+
+    private async void OnDragHandlePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint((Control?)sender).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        try
+        {
+            _statusText.Text = "Preparing drag…";
+            var path = WriteFlattenedTempPng();
+            var storageFile = await StorageProvider.TryGetFileFromPathAsync(path);
+            if (storageFile is null)
+            {
+                _statusText.Text = "Could not prepare image for drag.";
+                return;
+            }
+
+            var transfer = new DataTransfer();
+            transfer.Add(DataTransferItem.CreateFile(storageFile));
+            var effect = await DragDrop.DoDragDropAsync(e, transfer, DragDropEffects.Copy);
+            _statusText.Text = effect == DragDropEffects.None ? "Drag cancelled" : "Dropped";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or PlatformNotSupportedException or ArgumentException)
+        {
+            _statusText.Text = ex.Message;
+        }
+    }
+
+    private string WriteFlattenedTempPng()
+    {
+        var bytes = AnnotationCompositor.FlattenToPng(_document);
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"notey-screenshot-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+        File.WriteAllBytes(path, bytes);
+        return path;
     }
 
     private ToggleButton CreateToolIconButton(AnnotationTool tool, string iconValue, string tooltip)

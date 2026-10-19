@@ -31,8 +31,6 @@ public sealed class AnnotationCanvas : Canvas
 
     public event EventHandler? DocumentChanged;
 
-    public event EventHandler? ToolReturnedToSelect;
-
     public event EventHandler? AppearanceChanged;
 
     public void ReloadBaseBitmap()
@@ -96,29 +94,6 @@ public sealed class AnnotationCanvas : Canvas
         if (_document.SelectedAnnotation is TextAnnotation text)
         {
             OpenTextEditor(text);
-        }
-    }
-
-    private void ReturnToSelect()
-    {
-        _document.CurrentTool = AnnotationTool.Select;
-        ToolReturnedToSelect?.Invoke(this, EventArgs.Empty);
-    }
-
-    private static bool ShouldReturnToSelect(AnnotationTool tool) => tool switch
-    {
-        AnnotationTool.Pen => false,
-        AnnotationTool.Eyedropper => false,
-        AnnotationTool.PaintBucket => false,
-        AnnotationTool.Select => false,
-        _ => true
-    };
-
-    private void ReturnToSelectIfNeeded(AnnotationTool tool)
-    {
-        if (ShouldReturnToSelect(tool))
-        {
-            ReturnToSelect();
         }
     }
 
@@ -235,7 +210,6 @@ public sealed class AnnotationCanvas : Canvas
 
             _editingText = null;
             NotifyExternalChange();
-            ReturnToSelect();
         }
         finally
         {
@@ -517,8 +491,7 @@ public sealed class AnnotationCanvas : Canvas
             e.Handled = true;
 
             var document = _owner._document;
-            var tool = document.CurrentTool;
-            if (tool == AnnotationTool.Crop && _cropPreview is { } crop && crop.Width >= 4 && crop.Height >= 4)
+            if (document.CurrentTool == AnnotationTool.Crop && _cropPreview is { } crop && crop.Width >= 4 && crop.Height >= 4)
             {
                 if (!_mutationPushed)
                 {
@@ -527,11 +500,6 @@ public sealed class AnnotationCanvas : Canvas
 
                 document.ApplyCrop(crop);
                 ReloadBaseBitmap();
-                _owner.ReturnToSelectIfNeeded(tool);
-            }
-            else if (_draftAnnotation is not null)
-            {
-                _owner.ReturnToSelectIfNeeded(tool);
             }
 
             _dragOrigin = null;
